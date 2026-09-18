@@ -1,0 +1,1106 @@
+# ============================================================================
+# PUMP RATIO CALCULATOR
+# ============================================================================
+class PumpRatioCalculator:
+    def __init__(self, utime_module, asyncio_module):
+        self.utime = utime_module
+        self.asyncio = asyncio_module
+        self.reset()
+
+
+    def reset(self):
+        now = self.utime.ticks_ms()
+        self.pump_on_time = 0
+        self.pump_off_time = 0
+        self.last_change = now
+        self.pump_is_on = False
+        self.last_get_ratio_time = now
+
+
+    def start(self, initial_pump_on=False):
+        self.reset()
+        if initial_pump_on:
+            self.pump_is_on = True
+
+
+    def set_pump_on(self):
+        now = self.utime.ticks_ms()
+        if self.pump_is_on:
+            return
+        self.pump_off_time += self.utime.ticks_diff(now, self.last_change)
+        self.pump_is_on = True
+        self.last_change = now
+
+
+    def set_pump_off(self):
+        now = self.utime.ticks_ms()
+        if not self.pump_is_on:
+            return
+        self.pump_on_time += self.utime.ticks_diff(now, self.last_change)
+        self.pump_is_on = False
+        self.last_change = now
+
+
+    def get_ratio(self):
+        
+        now = self.utime.ticks_ms()
+        if self.pump_is_on:
+            current_on = self.pump_on_time + self.utime.ticks_diff(now, self.last_change)
+            current_off = self.pump_off_time
+        else:
+            current_on = self.pump_on_time
+            current_off = self.pump_off_time + self.utime.ticks_diff(now, self.last_change)
+        
+        total = current_on + current_off
+        
+        if total == 0:
+            ratio = 0.0
+        else:
+            ratio = (current_on / total) * 100
+        
+        self.pump_on_time = 0
+        self.pump_off_time = 0
+        self.last_change = now
+        
+        return round(ratio, 2)
+        
+        
+# ============================================================================
+# BREW STATS LOGGER
+# ============================================================================
+
+class BrewStatsLogger:
+    def __init__(self, utime, asyncio):
+        self.asyncio = asyncio_module
+        self.pressure = 0
+        self.start_time = 0
+        self.boiler_temperature = 0
+        self.pump_ratio = 0
+        self.resolution = 1 # times in second
+        self.file_name = "brew_log.txt"
+        
+        
+# ============================================================================
+# BREW DATA 
+# ============================================================================
+
+###### Class to share data between the cores ####
+class BrewData:
+    def __init__(self, Pin, ADC, PINS, TARGET_TEMPERATURES, FEATURES, heating_speed_calculator, temperature_sensor, pressure_sensor):
+        self.heating_speed_calculator = heating_speed_calculator
+        self.temperature_sensor       = temperature_sensor
+        self.pressure_sensor          = pressure_sensor
+        self.SWITCH_BREW      = Pin(PINS['SWITCH_BREW'], Pin.IN, Pin.PULL_DOWN)
+        self.SWITCH_STEAM     = Pin(PINS['SWITCH_STEAM'], Pin.IN, Pin.PULL_DOWN)
+        self.SWITCH_WATER     = Pin(PINS['SWITCH_WATER'], Pin.IN, Pin.PULL_DOWN)
+        self.LED_SWITCH_BREW  = Pin(PINS['LED_SWITCH_BREW'], Pin.OUT, value=0)
+        self.LED_SWITCH_WATER = Pin(PINS['LED_SWITCH_WATER'], Pin.OUT, value=0)
+        self.LED_SWITCH_STEAM = Pin(PINS['LED_SWITCH_STEAM'], Pin.OUT, value=0)
+        self.RELAY_PUMP       = Pin(PINS['RELAY_PUMP'], Pin.OUT, value=0)
+        self.RELAY_SOLENOID   = Pin(PINS['RELAY_SOLENOID'], Pin.OUT, value=0)
+        self.RELAY_HEATER     = Pin(PINS['RELAY_HEATER'], Pin.OUT, value=0)
+        self.BACKFLUSH_PHASE_1_temperature = TARGET_TEMPERATURES['BACKFLUSH_PHASE_1']
+        self.BACKFLUSH_PHASE_2_temperature = TARGET_TEMPERATURES['BACKFLUSH_PHASE_2']
+        self.BACKFLUSH_PHASE_3_temperature = TARGET_TEMPERATURES['BACKFLUSH_PHASE_3']
+        self.BACKFLUSH_END_temperature     = TARGET_TEMPERATURES['BACKFLUSH_END']
+        self.pressure_soft_release_mode = FEATURES['soft_pressure_release_flag']
+        self.fast_heatup_mode           = FEATURES['fast_heatup_mode_flag']
+        self.pre_infusion_mode          = FEATURES['pre_infusion_mode_flag']
+        self.pressure_soft_release_time = FEATURES['pressure_soft_release_time']
+        self.soft_pressure_release_arming_pressure = FEATURES['soft_pressure_release_arming_pressure']
+        self.pre_infusion_time  = 0
+        self.brew_temperature   = 97
+        self.steam_temperature  = 125
+        self.pre_heat_time      = 0
+        self.boiler_temperature = 0
+        self.brew_pressure      = 8
+        self.pre_infusion_pressure = 2.0
+        self.pressure           = 0
+        self.target_temperature = 0
+        self.pump_ratio         = 0
+        self.heating_speed      = 0
+        self.fast_heatup_mode   = False
+        self.setting_changed    = True
+        self.mode               = "IDLE"
+        # Remote test shot (tshot:<s>) and development safe state (dev:safe)
+        self.test_shot_request  = None      # seconds, queued by a command
+        self.test_shot_abort    = False
+        self.dev_safe           = False
+        # Learned pump feed-forward per phase (RAM, from the previous shot's average duty)
+        self.learned_ff_pre     = 0.3
+        self.learned_ff_brew    = 0.5
+        self.pressure_filtered  = 0.0
+        # Drip-tray scale (18.9.2026). weight is grams from scale.Scale.update(), None when no
+        # scale answered at boot; weight_limit 0 = off, > 0 aborts a test shot before the tray
+        # overflows. Test shots only - a real shot has a cup on the scale and needs its own limit.
+        self.weight             = None
+        self.weight_ms          = 0
+        self.weight_a           = 0.0
+        self.weight_b           = 0.0
+        # Flow (g/s) from the same scale, fitted over a window by scale.Scale.flow(). None when there
+        # is no scale or the samples are stale. flow_window_ms is the latency/noise knob (fwin:, not
+        # persisted): it is a measurement setting, not a safety limit.
+        self.flow               = None
+        self.flow_window_ms     = 1000
+        self.weight_limit       = 0.0
+        # Per-shot rise limit. The absolute limit is only as good as the platform's slow
+        # behaviour (reseating +-10 g, up to 12 g of settling after a disturbance, 18.9.2026);
+        # a shot lasts seconds, so a limit on the rise during it is immune to all of that.
+        self.weight_rise_limit  = 0.0
+        self.command_known      = True
+        # Pressure calibration wizard state (see functions.pressure_calibration_run)
+        self.pcal_request       = None      # 'pre' | 'brew' queued by BLE
+        self.pcal_cancel        = False
+        self.pcal_state         = 'idle'    # idle|queued|running|done|corrected|saved|error
+        self.pcal_stage         = ''
+        self.pcal_msg           = ''
+        self.pcal_target        = 0.0
+        self.pcal_raw           = {}        # stage -> raw_bar average of the last run
+        self.pcal_points        = {}        # stage -> (raw_bar, measured_bar)
+    
+    
+# ===== SETTERS  ====== #
+
+    # ===== SETTERS MISCELIOUS ====== #
+        
+    def set_attribute(self, attribute_name, value):
+        setattr(self, attribute_name, value)
+    
+    def set_setting_changed(self):
+        print("brew_data.set_setting_changed()")
+        self.setting_changed = True
+        
+        
+    # ===== SETTERS - MODES ====== #
+
+    def set_mode(self, mode):
+        self.mode = mode
+    
+    
+    def set_fast_heatup_mode(self, enabled):
+        self.fast_heatup_mode = enabled
+        self.setting_changed = True
+        
+        
+    def set_pre_infusion_mode(self, enabled):
+        self.pre_infusion_mode = enabled
+        self.setting_changed = True
+        
+    def set_pressure_soft_release_mode(self, enabled):
+        self.pressure_soft_release_mode = enabled    
+        self.setting_changed = True
+        
+    def set_pressure_soft_release_time(self, seconds):
+        self.pressure_soft_release_time = seconds
+        self.setting_changed = True
+        
+    # ===== SETTERS - TARGETS ====== #
+
+    def set_target_temperature(self, target_temperature):
+        self.target_temperature = target_temperature
+        self.set_setting_changed()
+
+
+    def set_brew_temperature(self, brew_temperature):
+        print("set_brew_temperature")
+        self.brew_temperature = brew_temperature
+        self.setting_changed = True
+
+
+    def set_steam_temperature(self, steam_temperature):
+        self.steam_temperature = steam_temperature
+        self.setting_changed = True
+
+
+    def set_brew_pressure(self, brew_pressure):
+        # App slider range 5-10 bar
+        self.brew_pressure   = min(10.0, max(5.0, float(brew_pressure)))
+        self.setting_changed = True
+
+
+    def set_pre_infusion_pressure(self, pre_infusion_pressure):
+        # App slider range 1-4 bar
+        self.pre_infusion_pressure = min(4.0, max(1.0, float(pre_infusion_pressure)))
+        self.setting_changed = True
+
+
+    # ===== SETTERS - REALTIME DATA ====== #
+
+    def set_boiler_stats(self, target_temperature, heating_speed):
+        self.target_temperature = target_temperature
+        self.heating_speed = heating_speed
+        
+        
+    def set_heating_speed(self, heating_speed):
+        self.heating_speed = heating_speed
+    
+    
+    def set_boiler_temperature(self, boiler_temperature):
+        self.boiler_temperature = boiler_temperature
+        
+        
+    def set_pressure(self, pressure):
+        self.pressure = pressure
+    
+    def set_pump_ratio(self, pump_ratio):
+        self.pump_ratio = pump_ratio
+        print(pump_ratio)
+        
+
+    # ===== SETTERS - TIMES ====== #
+
+    def set_pre_infusion_time(self, time):
+        self.pre_infusion_time = time
+        self.setting_changed = True
+    
+    
+# ===== GETTERS ====== #
+    
+    # ===== GETTERS MISCELIOUS ====== #
+    
+    def get_setting_changed(self):
+        setting_changed = self.setting_changed
+        self.setting_changed = False
+        
+        return setting_changed
+    
+
+    def get_attribute(self, attribute_name):
+            return getattr(self, attribute_name)
+        
+
+    # ===== GETTERS - MODES ====== #
+    
+    def get_mode(self):
+        mode = self.mode
+        
+        return mode
+     
+ 
+    def get_fast_heatup_mode(self):
+        fast_heatup_mode = self.fast_heatup_mode
+        
+        return fast_heatup_mode
+    
+    
+    def get_pre_infusion_mode(self):
+        pre_infusion_mode = self.pre_infusion_mode
+        
+        return pre_infusion_mode
+    
+
+    def get_pressure_soft_release_mode(self):
+        pressure_soft_release = self.pressure_soft_release_mode
+    
+        return pressure_soft_release
+    
+    
+    # ===== GETTERS - TARGETS ====== #
+
+    def get_brew_pressure(self):
+        brew_pressure = self.brew_pressure
+        
+        return brew_pressure
+
+
+    def get_pre_infusion_pressure(self):
+        pre_infusion_pressure = self.pre_infusion_pressure
+        
+        return pre_infusion_pressure
+    
+
+    def get_brew_temperature(self):
+        brew_temperature = self.brew_temperature
+        
+        return brew_temperature
+    
+
+    def get_steam_temperature(self):
+        steam_temperature = self.steam_temperature
+        
+        return steam_temperature
+    
+    
+    def get_target_temperature(self):
+        if self.mode == "BREW":
+            target_temperature = self.brew_temperature
+        elif self.mode == "IDLE":
+            target_temperature = self.brew_temperature
+        elif self.mode == "STEAM":
+            target_temperature = self.steam_temperature
+        elif self.mode == "WATER":
+            target_temperature = self.brew_temperature
+        elif self.mode == "BACKFLUSH_PHASE_1":
+            target_temperature = self.BACKFLUSH_PHASE_1_temperature
+        elif self.mode == "BACKFLUSH_PHASE_2":
+            target_temperature = self.BACKFLUSH_PHASE_2_temperature
+        elif self.mode == "BACKFLUSH_PHASE_3":
+            target_temperature = self.BACKFLUSH_PHASE_3_temperature
+        elif self.mode == "BACKFLUSH_END":
+            target_temperature = self.BACKFLUSH_END_temperature
+        else:
+            target_temperature = self.brew_temperature
+        
+        return target_temperature
+    
+    def get_soft_pressure_release_arming_pressure(self):
+        pressure = self.soft_pressure_release_arming_pressure
+        
+        return pressure
+    
+    # ===== GETTERS - REALTIME DATA ====== #
+    
+    # ===== TEST SHOT AND DEV SAFE ====== #
+
+    def request_test_shot(self, seconds):
+        if self.dev_safe:
+            return False
+        self.test_shot_request = min(60.0, max(5.0, float(seconds)))
+        self.test_shot_abort = False
+        return True
+
+    def take_test_shot_request(self):
+        seconds = self.test_shot_request
+        self.test_shot_request = None
+        return seconds
+
+    def stop_test_shot(self):
+        self.test_shot_request = None
+        self.test_shot_abort = True
+
+    def set_dev_safe(self, enabled):
+        self.dev_safe = enabled
+        if enabled:
+            self.stop_test_shot()
+            self.pcal_request = None
+            self.pcal_cancel = True
+
+    # ===== PRESSURE CALIBRATION ====== #
+
+    def request_pressure_calibration(self, stage):
+        if stage not in ('pre', 'brew') or self.pcal_state in ('queued', 'running'):
+            return False
+        self.pcal_request = stage
+        self.pcal_cancel = False
+        self.pcal_stage = stage
+        self.pcal_state = 'queued'
+        self.pcal_msg = ''
+        return True
+
+    def take_pressure_calibration_request(self):
+        stage = self.pcal_request
+        self.pcal_request = None
+        return stage
+
+    def pressure_calibration_begin(self, stage, target):
+        self.pcal_stage = stage
+        self.pcal_target = target
+        self.pcal_state = 'running'
+        self.pcal_msg = ''
+
+    def pressure_calibration_end(self, stage, raw_average, reason):
+        if raw_average is None:
+            self.pcal_state = 'error'
+            self.pcal_msg = 'stopped: ' + (reason or 'no samples')
+        else:
+            self.pcal_raw[stage] = raw_average
+            self.pcal_state = 'done'
+            self.pcal_msg = 'raw %.2f bar' % raw_average
+
+    def pressure_calibration_measured(self, stage, measured):
+        raw = self.pcal_raw.get(stage)
+        if raw is None:
+            self.pcal_state = 'error'
+            self.pcal_msg = 'run the test first'
+            return
+        self.pcal_points[stage] = (raw, measured)
+        sensor = self.pressure_sensor
+        if 'pre' in self.pcal_points and 'brew' in self.pcal_points and \
+                abs(self.pcal_points['brew'][0] - self.pcal_points['pre'][0]) > 1.0:
+            (r1, m1), (r2, m2) = self.pcal_points['pre'], self.pcal_points['brew']
+            gain = (m2 - m1) / (r2 - r1)
+            offset = m1 - gain * r1
+        else:
+            gain = sensor.gain
+            offset = measured - gain * raw
+        if not sensor.calibration_valid(gain, offset):
+            self.pcal_state = 'error'
+            self.pcal_msg = 'rejected gain %.3f offset %.2f' % (gain, offset)
+            del self.pcal_points[stage]
+            return
+        sensor.set_calibration(gain, offset)
+        self.pcal_stage = stage
+        self.pcal_state = 'corrected'
+        self.pcal_msg = 'gauge %.1f / target %.1f bar' % (measured, self.pcal_target)
+
+    def pressure_calibration_save(self):
+        self.pressure_sensor.save_calibration()
+        self.pcal_state = 'saved'
+        self.pcal_msg = 'saved'
+
+    def pressure_calibration_end_session(self):
+        # Leaving the wizard: unsaved changes are dropped by reloading the file
+        self.pcal_cancel = True
+        self.pcal_request = None
+        self.pressure_sensor.load_calibration()
+        self.pcal_raw = {}
+        self.pcal_points = {}
+        self.pcal_state = 'idle'
+        self.pcal_stage = ''
+        self.pcal_msg = ''
+
+    def get_pressure_calibration_status(self):
+        return {
+            'pcal_state' : self.pcal_state,
+            'pcal_stage' : self.pcal_stage,
+            'pcal_msg'   : self.pcal_msg[:40],
+            'pcal_gain'  : round(self.pressure_sensor.gain, 4),
+            'pcal_offset': round(self.pressure_sensor.offset, 3),
+        }
+
+    def get_pressure_raw(self):
+        return self.pressure_sensor.last_raw_bar
+
+    def get_pressure_average(self, utime):
+        # Non-blocking 100 ms rolling average for pump control; also updates the telemetry value
+        self.pressure = self.pressure_sensor.sample_average(utime)
+        return self.pressure
+
+    def get_pressure(self):
+        self.pressure = self.pressure_sensor.get_pressure()
+        pressure = self.pressure
+        
+        return pressure
+
+
+    def get_boiler_temperature(self):
+        self.boiler_temperature = self.temperature_sensor.read_temperature()
+        boiler_temperature = self.boiler_temperature
+        
+        return boiler_temperature
+    
+
+    def get_heating_speed(self):
+        self.heating_speed = self.heating_speed_calculator.get_heating_speed(self.boiler_temperature)
+        heating_speed = self.heating_speed
+        
+        return heating_speed
+    
+    
+    def get_boiler_stats(self):
+        boiler_temperature = self.boiler_temperature
+        brew_temperature   = self.brew_temperature
+        steam_temperature  = self.steam_temperature
+        heating_speed      = self.heating_speed
+        
+        return boiler_temperature, brew_temperature, steam_temperature, heating_speed
+    
+    def get_weight(self):
+        return self.weight
+
+    def get_weight_ms(self):
+        return self.weight_ms
+
+    def get_flow(self):
+        return self.flow
+
+    def get_flow_window_ms(self):
+        return self.flow_window_ms
+
+    def set_flow_window_ms(self, ms):
+        try:
+            ms = int(ms)
+        except (TypeError, ValueError):
+            return self.flow_window_ms
+        if ms < 200:
+            ms = 200
+        elif ms > 3000:
+            ms = 3000
+        self.flow_window_ms = ms
+        return self.flow_window_ms
+
+    def get_weight_limit(self):
+        return self.weight_limit
+
+    def get_weight_rise_limit(self):
+        return self.weight_rise_limit
+
+    def set_weight_rise_limit(self, grams):
+        try:
+            grams = float(grams)
+        except (TypeError, ValueError):
+            return self.weight_rise_limit
+        if grams < 0:
+            grams = 0.0
+        elif grams > 5000:
+            grams = 5000.0
+        self.weight_rise_limit = grams
+        self.setting_changed = True
+        return self.weight_rise_limit
+
+    def set_weight_limit(self, grams):
+        try:
+            grams = float(grams)
+        except (TypeError, ValueError):
+            return self.weight_limit
+        if grams < 0:
+            grams = 0.0
+        elif grams > 5000:
+            grams = 5000.0
+        self.weight_limit = grams
+        self.setting_changed = True
+        return self.weight_limit
+
+    def get_pump_ratio(self):
+        pump_ratio = self.pump_ratio
+        
+        return pump_ratio
+    
+    # ===== GETTERS - TIMES ====== #
+    
+    def get_pressure_soft_release_time(self):
+        time = self.pressure_soft_release_time
+        
+        return time
+    
+    
+    def get_pre_infusion_time(self):
+        time = self.pre_infusion_time
+        
+        return time
+    
+    
+    def get_pre_heat_time(self):
+        pre_heat_time = self.pre_heat_time
+        
+        return pre_heat_time
+    
+    
+    # ===== GETTERS - SWITCHES ====== #
+    
+    def get_switch_brew(self):
+        SWITCH_BREW = self.SWITCH_BREW
+        
+        return SWITCH_BREW
+    
+    
+    def get_switch_water(self):
+        SWITCH_WATER = self.SWITCH_WATER
+        
+        return SWITCH_WATER
+    
+    
+    def get_switch_steam(self):
+        SWITCH_STEAM = self.SWITCH_STEAM
+        
+        return SWITCH_STEAM
+    
+    
+    def get_switches(self):
+        SWITCH_BREW  = self.SWITCH_BREW
+        SWITCH_WATER = self.SWITCH_WATER
+        SWITCH_STEAM = self.SWITCH_STEAM
+        
+        return SWITCH_BREW, SWITCH_WATER, SWITCH_STEAM
+    
+    
+    # ===== GETTERS - LEDS ====== #
+    
+    def get_leds(self):
+        LED_SWITCH_BREW  = self.LED_SWITCH_BREW  
+        LED_SWITCH_WATER = self.LED_SWITCH_WATER 
+        LED_SWITCH_STEAM = self.LED_SWITCH_STEAM
+        
+        return LED_SWITCH_BREW, LED_SWITCH_WATER, LED_SWITCH_STEAM
+    
+    
+    # ===== GETTERS - RELAYS ====== #
+    
+    def get_relays(self):
+        RELAY_PUMP     = self.RELAY_PUMP
+        RELAY_SOLENOID = self.RELAY_SOLENOID
+        RELAY_HEATER   = self.RELAY_HEATER
+        
+        return RELAY_PUMP, RELAY_SOLENOID, RELAY_HEATER
+
+# ============================================================================
+# PUMP PRESSURE CONTROLLER
+# ============================================================================
+
+class PumpPressureController:
+    """Pump pressure control, called every loop (~20-25 ms) (17.9.2026).
+
+    History: the old loops decided the pump only every ~0.2-0.3 s (MAX31865 read >= 75 ms per
+    iteration, 50 ms sleep, 35 ms pulses) -> overshoot and droop to ~6 bar. The first fix was fast
+    on/off control (mode 'bang'); a real shot on a coffee puck (17.9.2026, target 8 bar) still swung
+    6.1-10.0 bar (sd 0.61) because pump and sensor react with ~60-80 ms delay.
+
+    Mode 'pi' (default): duty = ff + kp*e + ki*integral, clamped 0..1, applied as time-proportional
+    on/off inside a 100 ms window in whole ~17 ms steps (one 60 Hz mains cycle). Integral has
+    anti-windup (frozen while the duty is saturated). Fitted simulation: true pressure sd 0.5 -> 0.26.
+    """
+    def __init__(self, relay, pump_ratio_calculator, utime, mode='pi', band=0.3, min_switch_ms=17,
+                 kp=0.2, ki=0.3, ff=0.5, window_ms=100, step_ms=17, max_duty=1.0,
+                 continuous_error=1.0):
+        # Steps of one 60 Hz mains cycle (~17 ms, one pump stroke): the machine runs on 60 Hz (user)
+        self.relay = relay
+        self.ratio = pump_ratio_calculator
+        self.utime = utime
+        self.mode = mode
+        self.band = band
+        self.min_switch_ms = min_switch_ms
+        self.kp = kp
+        self.ki = ki
+        self.ff = ff
+        self.window_ms = window_ms
+        self.step_ms = step_ms
+        self.max_duty = max_duty
+        # Never chop the pump while the pressure is far below the target (user, 18.9.2026): a flush
+        # with no puck never leaves ~0.5 bar, and time-proportional control at max_duty < 1 would
+        # pulse the pump for the whole flush. The relay is held on, no window, when the error is
+        # above this or the pressure is under half the target (the absolute limit alone would leave
+        # low targets - the slider goes down to 1 bar - chopping during a flush).
+        self.continuous_error = continuous_error
+        self.integral = 0.0
+        self.duty = 0.0
+        self.filtered = 0.0
+        # Slow average of the applied duty (tau 5 s): learned feed-forward for the next shot
+        self.duty_avg = ff
+        self.on = False
+        now = utime.ticks_ms()
+        # Allow the first switch immediately
+        self.last_switch = utime.ticks_add(now, -min_switch_ms)
+        self.last_update = now
+        self.window_start = utime.ticks_add(now, -window_ms)
+        relay.value(0)
+        pump_ratio_calculator.set_pump_off()
+
+    def _set(self, on, now, force=False):
+        if on == self.on:
+            return
+        if not force and self.utime.ticks_diff(now, self.last_switch) < self.min_switch_ms:
+            return
+        self.on = on
+        self.last_switch = now
+        self.relay.value(1 if on else 0)
+        if on:
+            self.ratio.set_pump_on()
+        else:
+            self.ratio.set_pump_off()
+
+    def update(self, pressure, target):
+        now = self.utime.ticks_ms()
+        # Input is already the 100 ms rolling average (PressureSensor.sample_average)
+        self.filtered = pressure
+        if self.mode == 'bang':
+            # Band centred on the target so the mean pressure equals the target
+            if pressure < target - self.band / 2:
+                self._set(True, now)
+            elif pressure >= target + self.band / 2:
+                self._set(False, now)
+            return self.on
+
+        dt = self.utime.ticks_diff(now, self.last_update) / 1000.0
+        self.last_update = now
+        if dt > 0.2:
+            dt = 0.2
+        error = target - pressure
+        if error > self.continuous_error or pressure < target * 0.5:
+            # Far below the target: run the pump continuously, no time-proportional window. The
+            # integral is left untouched (anti-windup) and the window is restarted so the first
+            # window after the hand-over to PI control is a full one.
+            self.duty = 1.0
+            self.duty_avg += (self.duty - self.duty_avg) * (dt / 5.0)
+            self.window_start = now
+            self._set(True, now, force=True)
+            return self.on
+        duty = self.ff + self.kp * error + self.ki * self.integral
+        # Anti-windup against the *applied* limit, not a fixed 1.0: the pre-infusion build-up runs
+        # at max_duty 0.25 near the target, and comparing to 1.0 let the integral grow for the whole
+        # slow step. It then discharged the moment the hold restored max_duty 1.0 -> the measured
+        # 2.0 -> 3.84 bar overshoot on a real shot (18.9.2026 06:56:42).
+        if 0.0 < duty < self.max_duty or (duty >= self.max_duty and error < 0) or (duty <= 0.0 and error > 0):
+            self.integral += error * dt
+            if self.integral > 1.5:
+                self.integral = 1.5
+            elif self.integral < -1.5:
+                self.integral = -1.5
+        duty = self.ff + self.kp * error + self.ki * self.integral
+        self.duty = 0.0 if duty < 0.0 else (self.max_duty if duty > self.max_duty else duty)
+        self.duty_avg += (self.duty - self.duty_avg) * (dt / 5.0)
+
+        if self.utime.ticks_diff(now, self.window_start) >= self.window_ms:
+            self.window_start = now
+        on_ms = int(self.duty * self.window_ms / self.step_ms + 0.5) * self.step_ms
+        self._set(self.utime.ticks_diff(now, self.window_start) < on_ms, now, force=True)
+        return self.on
+
+    def stop(self):
+        self.on = False
+        self.relay.value(0)
+        self.ratio.set_pump_off()
+
+
+# ============================================================================
+# PRESSURE MONITOR
+# ============================================================================
+
+class PressureSensor:
+    def __init__(self, utime, asyncio_module, Pin, PINS, ADC):
+        
+        self.pressure_sensor  = ADC(Pin(PINS['PRESSURE_ADC']))
+        self.asyncio          = asyncio_module
+        self.utime            = utime
+        self.number_of_cycles = 1
+        self.time_start       = 0
+        # Calibration (17.9.2026): bar = gain * raw_bar + offset, raw_bar from the factory formula.
+        # Set with the app's pressure calibration wizard, stored in pressure_cal.json.
+        self.gain             = 1.0
+        self.offset           = 0.0
+        self.last_raw_bar     = 0.0
+        self.load_calibration()
+
+
+    CAL_FILE = 'pressure_cal.json'
+
+    # Rolling average for pump control (17.9.2026). The vibratory pump delivers pressure in mains
+    # strokes; the machine runs on 60 Hz (user), so the averaging window is one cycle, 1/60 s, as in
+    # get_pressure(). sample_average() is the non-blocking version: a short ADC burst every loop
+    # iteration, averaged over all bursts of the last cycle. (A 100 ms window was too long, and a 20 ms
+    # window assumed 50 Hz.)
+    WINDOW_US = 16667
+
+    def sample_average(self, utime, window_us=None, burst=8):
+        window_us = window_us or self.WINDOW_US
+        s = 0
+        for _ in range(burst):
+            s += self.pressure_sensor.read_u16()
+        raw_bar = (s / burst) * 0.000314936 - 3.522929
+        now = utime.ticks_us()
+        buf = getattr(self, '_avg_buf', None)
+        if buf is None:
+            buf = []
+            self._avg_buf = buf
+        buf.append((now, raw_bar))
+        while len(buf) > 1 and utime.ticks_diff(now, buf[0][0]) > window_us:
+            buf.pop(0)
+        total = 0.0
+        peak = -99.0
+        for _, v in buf:
+            total += v
+            if v > peak:
+                peak = v
+        avg_raw = total / len(buf)
+        self.last_raw_bar = avg_raw
+        self.window_peak = round(self.gain * peak + self.offset, 1)
+        return round(self.gain * avg_raw + self.offset, 2)
+
+    def reset_average(self):
+        self._avg_buf = []
+
+    @staticmethod
+    def calibration_valid(gain, offset):
+        return 0.5 <= gain <= 1.5 and -3.0 <= offset <= 3.0
+
+    def load_calibration(self):
+        import json
+        try:
+            with open(self.CAL_FILE, 'r') as f:
+                data = json.load(f)
+            gain = float(data.get('gain', 1.0))
+            offset = float(data.get('offset', 0.0))
+            if self.calibration_valid(gain, offset):
+                self.gain, self.offset = gain, offset
+            else:
+                self.gain, self.offset = 1.0, 0.0
+        except Exception:
+            self.gain, self.offset = 1.0, 0.0
+
+    def set_calibration(self, gain, offset):
+        self.gain = gain
+        self.offset = offset
+
+    def save_calibration(self):
+        import json
+        with open(self.CAL_FILE, 'w') as f:
+            json.dump({'gain': self.gain, 'offset': self.offset}, f)
+
+
+    def get_pressure(self):
+        
+        pressure_sensor = self.pressure_sensor
+        utime = self.utime
+        pressure = 0
+        pressure_measurements_values = []
+        
+        start = utime.ticks_us()
+        end = utime.ticks_add(start, 16667) # one 60 Hz mains cycle (pump stroke), as in the original
+        cycle_counter = 0
+        # Make timed cycle for collecting sensor values
+        while utime.ticks_diff(end, utime.ticks_us()) > 0:
+            
+            # Read value of the sensor
+            pressure_sensor_value = pressure_sensor.read_u16()
+            
+            # Add value to lisr
+            pressure_measurements_values.append(pressure_sensor_value)
+            
+            #increment cycle counter
+            cycle_counter += 1
+        
+        # Calculate average for one cycle
+        cycle_average = round(sum(pressure_measurements_values) / cycle_counter)
+            
+        # Convert pressure to bar (factory formula), then apply calibration
+        raw_bar = cycle_average * 0.000314936 - 3.522929
+        self.last_raw_bar = raw_bar
+        pressure_bar = round(self.gain * raw_bar + self.offset, 1)
+        
+        return pressure_bar
+    
+    
+    def get_pressure_while(self, measure_time):
+    
+        pressure_sensor = self.pressure_sensor
+        utime = self.utime
+        pressure = 0
+        number_of_cycles = self.number_of_cycles
+        pressure_cycle_values = []
+        pressure_measurements_values = []
+        
+        # Calculate time used for measurements 
+        count_of_full_measurements = measure_time / (0.017 * number_of_cycles) # Later number of cycles could be calculated based of time given
+        
+        # Make for loop timed for whole measurement
+        for x in range(count_of_full_measurements):
+            
+            # Make for loop for averaging measurement values
+            for y in range(number_of_cycles):
+                
+                start = utime.ticks_us()
+                end = utime.ticks_add(start, 17000) # one cycle == one Hz
+                cycle_counter = 0
+                # Make timed cycle for collecting sensor values
+                while utime.ticks_diff(end, utime.ticks_us()) > 0:
+                    
+                    # Read value of the sensor
+                    pressure_sensor_value = pressure_sensor.read_u16()
+                    
+                    # Add value to lisr
+                    pressure_measurements_values.append(pressure_sensor_value)
+                    
+                    #increment cycle counter
+                    cycle_counter += 1
+                
+                # Calculate average for one cycle
+                cycle_average = round(sum(pressure_measurements_values) / cycle_counter)
+                
+                # Add cycle average to list
+                pressure_cycle_values.append(cycle_average)
+
+                # Reset measurement list
+                pressure_measurements_values.clear()
+                
+            # Calculate pressure value from averages
+            pressure = round(sum(pressure_cycle_values) / len(pressure_cycle_values))
+            
+            # Reset pressure_cycle_values list
+            pressure_cycle_values.clear()
+            
+            # Convert pressure to bar
+            pressure_bar = round((pressure * 0.000314936 - 3.522929),1)
+            
+            # Print pressure
+            #print("Pressure: " +str(pressure_bar) +" Bar")
+    
+
+# ============================================================================
+# THERMOSTAT
+# ============================================================================
+
+class Thermostat:
+    def __init__(self, brew_data, TARGET_TEMPERATURES, RELAY_HEATER, temperature_sensor):
+        self.cycle_count = 0
+        self.brew_data = brew_data
+        self.brew_mode = ""
+        self.TARGET_TEMPERATURES = TARGET_TEMPERATURES
+        self.RELAY_HEATER = RELAY_HEATER
+        self.state = 'NOT READY'
+        self.temperature_sensor = temperature_sensor
+
+        
+    def run(self): # def run(self, brew_data, switch_steam, RELAY_HEATER):
+        
+        # Get brew mode
+        mode               = self.brew_data.get_mode()
+        heating_speed      = self.brew_data.get_heating_speed()
+        boiler_temperature = self.temperature_sensor.read_temperature()
+        target_temperature = self.brew_data.get_target_temperature()
+        
+
+        # Nullify negative heating speed values
+        if heating_speed < 0:
+            heating_speed = 0
+            
+        # If boiler temperature is lower than target temperature - heating speed
+        if (boiler_temperature < (target_temperature - (heating_speed * 2))):
+            
+            # Start heating the boiler          
+            if (Thermostat.heat_cycler(self, boiler_temperature, target_temperature)):
+                #print("target_temperature" + str(target_temperature))
+                self.RELAY_HEATER.value(1)
+            else:
+                self.RELAY_HEATER.value(0)
+                
+        # Othervice, stop heating the boiler
+        else:
+            self.RELAY_HEATER.value(0)
+    
+  
+        if abs(target_temperature - boiler_temperature) <= 1:
+            self.state = 'READY' 
+        elif boiler_temperature > target_temperature: 
+            self.state = 'TEMPERATURE HIGH' 
+        else:
+            self.state = 'NOT READY'
+    
+    
+    def get_state(self):
+        state = self.state
+        return state
+    
+
+    def heat_cycler(self, temperature, target_temperature):
+        return_bool = False
+        cycle_count = self.cycle_count
+        
+        # Calculate temperature difference
+        temperature_difference = int((temperature - target_temperature) *100)
+    
+        # Calculate heating ratio of cycle from distance to target temperature
+        if (abs(temperature_difference / 9) > cycle_count):
+            return_bool = True
+        else:
+            return_bool = False
+        
+        if (cycle_count >= 90):
+            cycle_count = 0
+        else:
+            cycle_count = cycle_count +10
+        
+        self.cycle_count = cycle_count
+        
+        if return_bool:
+            return True
+        else:
+            return False
+
+
+# ============================================================================
+# HEATING SPEED CALCULATOR
+# ============================================================================
+
+class HeatingSpeedCalculator:
+    def __init__(self, utime_module, asyncio_module):
+        self.temperature_begin = 20.0
+        self.asyncio = asyncio_module
+        self.utime = utime_module
+        self.time_start = 0
+        self.first_measure_flag = True
+   
+   
+    # Function to calculate heating speed
+    def get_heating_speed(self, temperature_now):
+        
+        # Get time now
+        time_now = self.utime.ticks_ms()
+        
+        # Calculate time between now and starting point
+        time_between = self.utime.ticks_diff(time_now, self.time_start)
+        
+        if time_between == 0:
+            return self.heating_speed
+        
+        # Set time now as start time
+        self.time_start = time_now
+
+        # Calculate temperature change between now and starting point
+        temperature_between = temperature_now - self.temperature_begin
+        
+        # Set temperature now to start temperature
+        self.temperature_begin = temperature_now
+        
+        # Calculate heating speed
+        self.heating_speed = temperature_between / time_between * 10000 # * self.heating_speed_multiplier
+        
+        # Round heating speed
+        heating_speed = round(self.heating_speed, 2)
+        
+        # If first measure: set speed to 0 and reset flag
+        if self.first_measure_flag:
+            self.first_measure_flag = False
+            heating_speed = 0
+            
+        # If value is unacceptale, place error
+        if heating_speed > 100 or heating_speed < -100:
+            heating_speed = 0
+            
+        return heating_speed
+  
+
+# ============================================================================
+# TEMPERATURE SENSOR
+# ============================================================================
+
+#### Class for reading pt100 sensor temperature with max31865 ####
+class TemperatureSensor:
+    def __init__(self, max31865, PINS, MAX31865_CONFIG):
+        self.temperature_sensor = max31865.MAX31865(
+            # ref_resistor arvoksi noin 438.0 tai rtd_nominal arvoksi noin 100.7
+            #  OG = rtd_nominal = 102.5, ref_resistor = 430.0
+            wires        = MAX31865_CONFIG['NUMBER_OF_WIRES'],
+            rtd_nominal  = MAX31865_CONFIG['RTD_NOMINAL'],
+            ref_resistor = MAX31865_CONFIG['REF_RESISTOR'],
+            pin_sck      = PINS['TEMP_SCK'],
+            pin_mosi     = PINS['TEMP_MOSI'],
+            pin_miso     = PINS['TEMP_MISO'],
+            pin_cs       = PINS['TEMP_CS'],
+            )
+        self.temps = [0, 0, 0, 0, 0 ,0 ,0]
+        self.temps_i = 0
+
+
+    # Function to get temperature from sensor
+    def read_temperature(self):
+        
+        # Create value for sifting bias of the temperature
+        temperature_bias = 0
+        
+        # Get 7 temperature samples to list and calculate average to avoid the noise
+        fault_counter = 0
+        temp = self.temperature_sensor.temperature
+        
+        # Value error handling
+        while (temp < 2 or temp > 200):
+            print("Temperature sensor error")
+            temp = self.temperature_sensor.temperature
+            fault_counter += 1
+            if fault_counter > 5:
+                print("Permanent sensor error")
+                return 200            
+        
+        self.temps[self.temps_i] = temp
+        
+        self.temps_i += 1
+        
+        if self.temps_i >= 7:
+            self.temps_i = 0          
+
+        # Calculate temperature average
+        temperature = round((sum(self.temps) / len(self.temps)), 2)
+                
+        # Bias temperature value
+        temperature = temperature + temperature_bias
+        
+        return temperature
+
