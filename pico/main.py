@@ -216,10 +216,11 @@ async def local_program(brew_data):
             _wmax, _wrise = brew_data.get_weight_limit(), brew_data.get_weight_rise_limit()
             _limits = ('wmax:%.0f ' % _wmax if _wmax > 0 else '') + \
                       ('wrise:%.0f' % _wrise if _wrise > 0 else '')
-            print('TS_START %.1f s pre=%s %.1f bar %.1f s brew=%.1f bar limits=%s' % (
+            _fmode = ('%.2f' % brew_data.get_flow_target()) if brew_data.get_flow_mode() else 'off'
+            print('TS_START %.1f s pre=%s %.1f bar %.1f s brew=%.1f bar limits=%s fmode=%s' % (
                 test_shot_seconds, brew_data.get_pre_infusion_mode(), brew_data.get_pre_infusion_pressure(),
                 brew_data.get_pre_infusion_time(), brew_data.get_brew_pressure(),
-                _limits.strip() or 'OFF'))
+                _limits.strip() or 'OFF', _fmode))
             await run_shot(brew_data, utime, asyncio, pump_ratio_calculator, test_shot_running, 'TS',
                            limit_weight=True)
             brew_data.set_mode('IDLE')

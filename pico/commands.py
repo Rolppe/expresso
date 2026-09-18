@@ -121,6 +121,25 @@ def handle_command(brew_data, command):
         except Exception:
             pass
 
+    elif command.startswith('fmode:'):
+        # Outer flow cascade on/off (VIRTAUSSAATO, 18.9.2026), runtime-only like fwin: — not
+        # persisted, so the device is always in pressure control after a boot or a flash.
+        arg = command[len('fmode:'):]
+        if arg == 'on':
+            brew_data.set_flow_mode(True)
+        elif arg == 'off':
+            brew_data.set_flow_mode(False)
+        else:
+            brew_data.command_known = False
+            return updated
+
+    elif command.startswith('fset:'):
+        # Flow target g/s, runtime-only like fmode: (see above).
+        try:
+            brew_data.set_flow_target(_float_arg(command))
+        except Exception:
+            pass
+
     elif command.startswith('wmax:'):
         # Drip-tray weight limit in grams for TEST SHOTS only, 0 = off (18.9.2026). Persisted since
         # devsafe12: the limits are only read on the tshot path, so they cannot leak into normal use,

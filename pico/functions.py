@@ -127,7 +127,7 @@ async def run_shot(brew_data, utime, asyncio, pump_ratio_calculator, keep_runnin
                    limit_weight=False):
     # Pre-infusion, brew loop, soft pressure release, solenoid off. Moved from main.py so a remote
     # test shot (tshot:) runs exactly the brew-switch code path (17.9.2026).
-    from classes import PumpPressureController
+    from classes import PumpPressureController, FlowController
     from preset import FEATURES
     RELAY_PUMP, RELAY_SOLENOID, RELAY_HEATER = brew_data.get_relays()
 
@@ -197,6 +197,10 @@ async def run_shot(brew_data, utime, asyncio, pump_ratio_calculator, keep_runnin
         brew_data.pressure_sensor.reset_average()
         pressure_controller = PumpPressureController(RELAY_PUMP, pump_ratio_calculator, utime,
                                                      ff=brew_data.learned_ff_brew)
+        flow_controller = None
+        if brew_data.get_flow_mode() and brew_data.get_flow() is not None:
+            flow_controller = FlowController(utime, brew_data.get_flow_target(),
+                                             brew_data.get_brew_pressure())
         brew_start = utime.ticks_ms()
         last_temperature_read = utime.ticks_ms()
         last_log = 0
@@ -225,7 +229,16 @@ async def run_shot(brew_data, utime, asyncio, pump_ratio_calculator, keep_runnin
             # ===== PRESSURE + PUMP ===== #
             pressure = brew_data.get_pressure_average(utime)
             brew_pressure = brew_data.get_brew_pressure()
-            pressure_controller.update(pressure, brew_pressure)
+            target = brew_pressure
+            if flow_controller is not None:
+                flow_controller.set_target(brew_data.get_flow_target())
+                sp = flow_controller.update(brew_data.get_flow(), pressure)
+                if sp is None:
+                    print('%s_FLOW_OFF reason=scale silent' % label)
+                    flow_controller = None
+                else:
+                    target = sp
+            pressure_controller.update(pressure, target)
             brew_data.pressure_filtered = pressure_controller.filtered
 
             if utime.ticks_diff(now, last_pump_ratio_time) >= 1000:
@@ -234,11 +247,14 @@ async def run_shot(brew_data, utime, asyncio, pump_ratio_calculator, keep_runnin
 
             if utime.ticks_diff(now, last_log) >= 100:
                 last_log = now
-                print('%s %d %.1f %.1f %d %.2f %.1f %.1f %.1f %s' % (label, elapsed_ms, pressure, brew_pressure,
+                fsp = brew_data.get_flow_target() if flow_controller is not None else 0.0
+                fsat = (1 if flow_controller.saturated else 0) if flow_controller is not None else 0
+                print('%s %d %.1f %.1f %d %.2f %.1f %.1f %.1f %s fsp=%.2f fsat=%d' % (
+                                                        label, elapsed_ms, pressure, target,
                                                         pressure_controller.on, pressure_controller.duty,
                                                         brew_data.pressure_sensor.window_peak,
                                                         brew_data.weight_a, brew_data.weight_b,
-                                                        weight_flow_log(brew_data)))
+                                                        weight_flow_log(brew_data), fsp, fsat))
 
             # Yield to BLE without adding delay
             await asyncio.sleep_ms(0)
