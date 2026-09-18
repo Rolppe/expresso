@@ -142,6 +142,10 @@ class BrewData:
         # persisted): it is a measurement setting, not a safety limit.
         self.flow               = None
         self.flow_window_ms     = 1000
+        # Outer flow cascade (VIRTAUSSAATO, 18.9.2026): runtime-only, not persisted (fmode:/fset:
+        # never set updated = True), so the device is always in pressure control after a boot.
+        self.flow_mode          = False
+        self.flow_target        = 2.2
         self.weight_limit       = 0.0
         # Per-shot rise limit. The absolute limit is only as good as the platform's slow
         # behaviour (reseating +-10 g, up to 12 g of settling after a disturbance, 18.9.2026);
@@ -519,6 +523,28 @@ class BrewData:
         self.flow_window_ms = ms
         return self.flow_window_ms
 
+    def get_flow_mode(self):
+        return getattr(self, 'flow_mode', False)
+
+    def set_flow_mode(self, enabled):
+        self.flow_mode = bool(enabled)
+        return self.flow_mode
+
+    def get_flow_target(self):
+        return getattr(self, 'flow_target', 2.2)
+
+    def set_flow_target(self, g_s):
+        try:
+            g_s = float(g_s)
+        except (TypeError, ValueError):
+            return self.get_flow_target()
+        if g_s < 0.5:
+            g_s = 0.5
+        elif g_s > 5.0:
+            g_s = 5.0
+        self.flow_target = g_s
+        return self.flow_target
+
     def get_weight_limit(self):
         return self.weight_limit
 
@@ -739,6 +765,84 @@ class PumpPressureController:
         self.on = False
         self.relay.value(0)
         self.ratio.set_pump_off()
+
+
+# ============================================================================
+# FLOW CONTROLLER (outer cascade loop, VIRTAUSSAATO 18.9.2026)
+# ============================================================================
+
+class FlowController:
+    """Outer flow loop: PI on flow (g/s) that outputs a pressure setpoint for the existing
+    PumpPressureController (the inner loop, unchanged). See paketit/VIRTAUSSAATO.spec.md."""
+    def __init__(self, utime, target, p_start, kp=0.55, ki=2.0, p_min=2.0, p_max=10.5,
+                 rate_bar_s=2.2, lead=0.8, update_ms=100, stale_limit=3):
+        self.utime = utime
+        self.target = target
+        self.kp = kp
+        self.ki = ki
+        self.p_min = p_min
+        self.p_max = p_max
+        self.rate_bar_s = rate_bar_s
+        self.lead = lead
+        self.update_ms = update_ms
+        self.stale_limit = stale_limit
+        self.sp = float(p_start)
+        self.e_prev = None
+        self.stale = 0
+        self.failed = False
+        self.sat_ms = 0.0
+        self.saturated = False
+        self.last_update = utime.ticks_ms()
+
+    def set_target(self, target):
+        self.target = target
+
+    def update(self, flow, pressure):
+        if self.failed:
+            return None
+        now = self.utime.ticks_ms()
+        if self.utime.ticks_diff(now, self.last_update) < self.update_ms:
+            return self.sp
+        dt = self.utime.ticks_diff(now, self.last_update) / 1000.0
+        if dt > 0.5:
+            dt = 0.5
+        self.last_update = now
+        if flow is None:
+            self.stale += 1
+            if self.stale >= self.stale_limit:
+                self.failed = True
+                return None
+            return self.sp
+        self.stale = 0
+        e = self.target - flow
+        de = 0.0 if self.e_prev is None else e - self.e_prev
+        self.e_prev = e
+        sp_new = self.sp + self.kp * de + self.ki * e * dt
+        lo = self.sp - self.rate_bar_s * dt
+        hi = self.sp + self.rate_bar_s * dt
+        sp_new = lo if sp_new < lo else (hi if sp_new > hi else sp_new)
+        lo = pressure - self.lead
+        hi = pressure + self.lead
+        sp_new = lo if sp_new < lo else (hi if sp_new > hi else sp_new)
+        sp_new = self.p_min if sp_new < self.p_min else (self.p_max if sp_new > self.p_max else sp_new)
+        self.sp = sp_new
+        # Saturation is measured from the actual pressure, not the setpoint (VIRTAUSSAATO
+        # correction-1, K1): the lead clamp keeps sp within pressure +- lead of a pressure that
+        # itself wobbles near the ceiling, so sp reaching p_max never holds for a full 2 s. What
+        # matters is that pressure is at its limit and flow still misses the target.
+        # sat_ms is a leaky counter and saturated a Schmitt trigger (correction-3, K7): one noisy
+        # flow sample must not zero a 2 s dwell, since the same 0.25 g scale noise (real hardware)
+        # would make the flag flicker in the log on the real machine too.
+        if (pressure >= self.p_max - 0.5 and e > 0.1) or (pressure <= self.p_min + 0.5 and e < -0.1):
+            self.sat_ms += dt * 1000
+        else:
+            self.sat_ms -= 0.5 * dt * 1000
+        self.sat_ms = 0.0 if self.sat_ms < 0.0 else (2000.0 if self.sat_ms > 2000.0 else self.sat_ms)
+        if self.sat_ms >= 2000:
+            self.saturated = True
+        elif self.sat_ms <= 0:
+            self.saturated = False
+        return self.sp
 
 
 # ============================================================================
