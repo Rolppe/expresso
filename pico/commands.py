@@ -48,9 +48,28 @@ def handle_command(brew_data, command):
                 brew_data.pressure_calibration_save()
             elif parts[1] == 'end':
                 brew_data.pressure_calibration_end_session()
+            elif parts[1] == 'st':
+                # The wizard is app-driven and used to say nothing at all on the serial link, so a
+                # calibration run from pico_dev.py was flown blind (PCAL-KORJAUS, 19.9.2026).
+                st = brew_data.get_pressure_calibration_status()
+                print('PCAL_ST state=%s stage=%s gain=%.4f offset=%.3f msg=%s' % (
+                    st['pcal_state'], st['pcal_stage'], st['pcal_gain'], st['pcal_offset'],
+                    st['pcal_msg']))
         except Exception as e:
             brew_data.pcal_state = 'error'
             brew_data.pcal_msg = 'command failed: ' + str(e)
+
+    elif command.startswith('pzero:'):
+        # Vented zero: heater off, solenoid cycled until the raw value stops moving. A resting
+        # reading is not a zero (PCAL-KORJAUS, 19.9.2026).
+        brew_data.request_pressure_zero()
+
+    elif command.startswith('pcalw:'):
+        # Fine-phase stroke window in ms for the calibration run, not persisted (like fwin:).
+        try:
+            brew_data.set_pcal_window_ms(_float_arg(command))
+        except Exception:
+            pass
 
     elif command.startswith('tshot:'):
         # Remote test shot without the brew switch: tshot:<seconds 5-60> | tshot:stop
