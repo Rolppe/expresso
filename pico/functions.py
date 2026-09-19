@@ -200,7 +200,7 @@ async def run_shot(brew_data, utime, asyncio, pump_ratio_calculator, keep_runnin
         flow_controller = None
         if brew_data.get_flow_mode() and brew_data.get_flow() is not None:
             flow_controller = FlowController(utime, brew_data.get_flow_target(),
-                                             brew_data.get_brew_pressure())
+                                             brew_data.learned_ff_brew)
         brew_start = utime.ticks_ms()
         last_temperature_read = utime.ticks_ms()
         last_log = 0
@@ -232,13 +232,15 @@ async def run_shot(brew_data, utime, asyncio, pump_ratio_calculator, keep_runnin
             target = brew_pressure
             if flow_controller is not None:
                 flow_controller.set_target(brew_data.get_flow_target())
-                sp = flow_controller.update(brew_data.get_flow(), pressure)
-                if sp is None:
+                duty = flow_controller.update(brew_data.get_flow(), pressure)
+                if duty is None:
                     print('%s_FLOW_OFF reason=scale silent' % label)
                     flow_controller = None
+                    pressure_controller.update(pressure, target)
                 else:
-                    target = sp
-            pressure_controller.update(pressure, target)
+                    pressure_controller.apply_duty(duty, pressure)
+            else:
+                pressure_controller.update(pressure, target)
             brew_data.pressure_filtered = pressure_controller.filtered
 
             if utime.ticks_diff(now, last_pump_ratio_time) >= 1000:
@@ -250,7 +252,7 @@ async def run_shot(brew_data, utime, asyncio, pump_ratio_calculator, keep_runnin
                 fsp = brew_data.get_flow_target() if flow_controller is not None else 0.0
                 fsat = (1 if flow_controller.saturated else 0) if flow_controller is not None else 0
                 print('%s %d %.1f %.1f %d %.2f %.1f %.1f %.1f %s fsp=%.2f fsat=%d' % (
-                                                        label, elapsed_ms, pressure, target,
+                                                        label, elapsed_ms, pressure, brew_pressure,
                                                         pressure_controller.on, pressure_controller.duty,
                                                         brew_data.pressure_sensor.window_peak,
                                                         brew_data.weight_a, brew_data.weight_b,
