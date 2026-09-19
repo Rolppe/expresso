@@ -77,12 +77,29 @@ def main():
         check('oletusjakso käyttäytyy kuten ennen', not bad, 'ensimmäinen ero %s' % (bad[:1],))
         duty = sum(F.pcap_gate(i, 0, LONG) for i in range(8000)) / 8000.0
         check('pitkällä jaksolla duty on 1/8', abs(duty - 0.125) <= 0.01, '%.3f' % duty)
-        on = [i for i in range(400) if F.pcap_gate(i, 0, LONG)]
-        check('päälläolo on tasan yksi verkkojakso', len(on) == 20 and on[0] == 0,
-              'päällä %d näytettä, alkaa %s' % (len(on), on[:1]))
-        check('jakso toistuu 8 verkkojakson välein',
-              all(F.pcap_gate(i, 0, LONG) == F.pcap_gate(i + LONG // 1000, 0, LONG)
-                  for i in range(300)))
+        # Portin jakso on 159,68 naytetta, ei kokonaisluku: yksi paallaolo on 20 naytetta ja
+        # lohkojen vali vuorottelee 159/160 naytteen valilla. Naiden on oltava erillisia
+        # vaitteita, koska 400 nayteen ikkunaan mahtuu 2,5 jaksoa (korjaus 1).
+        g = [F.pcap_gate(i, 0, LONG) for i in range(8000)]
+        first = 0
+        while first < len(g) and g[first]:
+            first += 1
+        check('ensimmäinen päälläolo on tasan yksi verkkojakso', first == 20 and g[0] == 1,
+              'päällä %d näytettä alusta' % first)
+        rises = [i for i in range(1, len(g)) if g[i] and not g[i - 1]]
+        gaps = set(b - a for a, b in zip([0] + rises, rises))
+        check('lohkojen väli on 159 tai 160 näytettä', gaps <= {159, 160}, str(sorted(gaps)))
+        check('lohkoja on 8000 näytteessä 50 kappaletta', abs(len(rises) + 1 - 50) <= 1,
+              'lohkoja %d' % (len(rises) + 1))
+        lens = []
+        run = 0
+        for v in g:
+            if v:
+                run += 1
+            elif run:
+                lens.append(run); run = 0
+        check('jokainen päälläolo on 19 tai 20 näytettä', set(lens) <= {19, 20},
+              str(sorted(set(lens))))
 
     # 3. psweep_phases jakaa annetun jakson yli
     try:
