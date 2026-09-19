@@ -1,87 +1,87 @@
 [
   {
     "name": "/api_functions.py",
-    "size": 6119,
-    "sha256": "8f8465d338af9f94456134cb053614b71472403cc364ed3152536b1fb473d72f"
+    "sha256": "8f8465d338af9f94456134cb053614b71472403cc364ed3152536b1fb473d72f",
+    "size": 6119
   },
   {
     "name": "/backflush.py",
-    "size": 7696,
-    "sha256": "0e31fd4227736ce003626c7d342a1da279c18ddb95871af6091d0b0de27aa54f"
+    "sha256": "0e31fd4227736ce003626c7d342a1da279c18ddb95871af6091d0b0de27aa54f",
+    "size": 7696
   },
   {
     "name": "/bluetooth_handler.py",
-    "size": 9277,
-    "sha256": "6fe7fee32cb5d96018870b798f65c9f65c543e09c8cd730d10c011a97833a26d"
+    "sha256": "6fe7fee32cb5d96018870b798f65c9f65c543e09c8cd730d10c011a97833a26d",
+    "size": 9277
   },
   {
     "name": "/boot.py",
-    "size": 748,
-    "sha256": "308be0f8f6d1a6f4129eec0aea2c9e468c5bd3709abf17942293c9387478f967"
+    "sha256": "308be0f8f6d1a6f4129eec0aea2c9e468c5bd3709abf17942293c9387478f967",
+    "size": 748
   },
   {
     "name": "/boot_bluetooth_test.py",
-    "size": 1805,
-    "sha256": "a4fcd72ebc6c1e4e7b396135f398917c8596a5788dea0f9063e37a8e32834870"
+    "sha256": "a4fcd72ebc6c1e4e7b396135f398917c8596a5788dea0f9063e37a8e32834870",
+    "size": 1805
   },
   {
     "name": "/classes.py",
-    "size": 46212,
-    "sha256": "519b804aa1dc0f9e5c6aa3fa6dd79bc414d9ea38ee5eaaf463319c65fdabae83"
+    "sha256": "3b3f476f311d1c5cc9c9e7adda0060446fff2081766816533fbd4977cfc64eaa",
+    "size": 46866
   },
   {
     "name": "/commands.py",
-    "size": 8435,
-    "sha256": "6a91481cf29d512ae2000272444054f55009c3e64d8dd55312f83b54b7dd0af6"
+    "sha256": "6dcb22ec1ad362a062e149e1a28a42d0dc74ccbd6b8785d00e5b366f36213d01",
+    "size": 8822
   },
   {
     "name": "/devsafe.py",
-    "size": 1772,
-    "sha256": "e4cc4e8e6025cc2d90d7f67a78b268bdca7776c9630306867e435a3063540a05"
+    "sha256": "e4cc4e8e6025cc2d90d7f67a78b268bdca7776c9630306867e435a3063540a05",
+    "size": 1772
   },
   {
     "name": "/functions.py",
-    "size": 34770,
-    "sha256": "8efade8db44364d909baa0c86720c50fd3a812b6d133ce7162af30b677e550a6"
+    "sha256": "e248793384b24461ce881f49cfe7fa3418ca1e23301bd2344a714ef90ed55671",
+    "size": 38251
   },
   {
     "name": "/lib/adafruit_max31865.py",
-    "size": 9570,
-    "sha256": "5c5d36dc9eefb6fc284a46314cf07d32a87b99e3de9621b5bbbdd416398240fe"
+    "sha256": "5c5d36dc9eefb6fc284a46314cf07d32a87b99e3de9621b5bbbdd416398240fe",
+    "size": 9570
   },
   {
     "name": "/lib/spi_device.py",
-    "size": 3723,
-    "sha256": "3bee630cb59b43620a1965ad695ac779848ee8c02f68035c0cfe9066193f6caf"
+    "sha256": "3bee630cb59b43620a1965ad695ac779848ee8c02f68035c0cfe9066193f6caf",
+    "size": 3723
   },
   {
     "name": "/main.py",
-    "size": 13367,
-    "sha256": "711385d97773fcf6bd95e6fd060abefaf70878b4c4fde62458ab74e59ccea8dc"
+    "sha256": "77ca980f6ce5b087fd83dca6bd609dc1488d9e60bcebc7640c85ab4588233886",
+    "size": 13557
   },
   {
     "name": "/preset.py",
-    "size": 2439,
-    "sha256": "f343f242d873d93dd7b8ab02d8cb9402ca8f809e0d95ec22db8a5bdc497c4113"
+    "sha256": "f343f242d873d93dd7b8ab02d8cb9402ca8f809e0d95ec22db8a5bdc497c4113",
+    "size": 2439
   },
   {
     "name": "/scale.py",
-    "size": 9944,
-    "sha256": "39750594deaacf35b87003c0f7c736428ffcbcb4bc6aeca1d3ff0348be199e01"
+    "sha256": "39750594deaacf35b87003c0f7c736428ffcbcb4bc6aeca1d3ff0348be199e01",
+    "size": 9944
   },
   {
     "name": "/scale_cal.json",
-    "size": 93,
-    "sha256": "8a52a2139ac31776f8e096a8f5fea6bebf341d144f8f54c250f7200759075b12"
+    "sha256": "8a52a2139ac31776f8e096a8f5fea6bebf341d144f8f54c250f7200759075b12",
+    "size": 93
   },
   {
     "name": "/secrets.py",
-    "size": 430,
-    "sha256": "582a28c95ba3de1efaa9fb36dc07c52ed6771f00be3be0f30ac4bb75c5da10ba"
+    "sha256": "582a28c95ba3de1efaa9fb36dc07c52ed6771f00be3be0f30ac4bb75c5da10ba",
+    "size": 430
   },
   {
     "name": "/ugit.py",
-    "size": 9859,
-    "sha256": "806ce9dc9868618a1f264cfbd03902f41e27a183d1d0e24ab8358abcaf65f275"
+    "sha256": "806ce9dc9868618a1f264cfbd03902f41e27a183d1d0e24ab8358abcaf65f275",
+    "size": 9859
   }
 ]
