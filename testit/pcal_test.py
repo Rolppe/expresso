@@ -17,15 +17,21 @@ def check(name, cond, extra=''):
     print(('PASS ' if cond else 'FAIL ') + name + (' — ' + extra if extra else ''))
     if not cond: fails.append(name)
 
-def closed_plant(rise_per_s, leak_per_s=0.02, jump=0.0):
-    """Closed circuit: the pump only adds. `rise_per_s` while the relay is on, a slow leak down
-    otherwise, and `jump` adds a fixed step per stroke to model an overshooting dose."""
+def closed_plant(rise_per_s, leak_per_s=0.02, stroke_bar=0.0):
+    """Closed circuit: the pump only adds, and nothing takes pressure back out.
+
+    `rise_per_s` is the continuous rise while the relay is held on (the coarse phase). `stroke_bar`
+    is a fixed dose added on the relay's *rising edge*, which is how the real machine behaves: one
+    17 ms stroke is worth about 1 bar (measured 19.9.2026, closed circuit), and that dose does not
+    scale with how long the relay stays on."""
+    prev = [0]
     def plant_fn(dt_s):
         for _ in range(int(round(dt_s * 1000))):
             on = pins.get(11, 0)
             p = state['p'] + ((rise_per_s if on else -leak_per_s) / 1000.0)
-            if on and jump:
-                p += jump / 1000.0
+            if on and not prev[0] and stroke_bar:
+                p += stroke_bar
+            prev[0] = on
             state['p'] = p if p > 0.0 else 0.0
             clock[0] += 0.001
     return plant_fn
@@ -73,9 +79,18 @@ check('the end line names raw, n, the ripple and the window',
       all(k in end for k in ('raw=', 'n=', 'p_min=', 'p_max=', 'window=')), end)
 
 # 6. an overshoot does not start the counter and stores nothing
-bd, out = run_stage(closed_plant(3.0, jump=400.0), 8.0)
+# A dose far larger than the coarse phase leaves room for: the fine phase's first stroke lands
+# well past the target, and a closed circuit cannot give it back.
+bd, out = run_stage(closed_plant(3.0, stroke_bar=3.0), 8.0)
 check('an overshoot ends the run and stores no point',
       bd.pcal_raw.get('brew') is None and 'overshoot' in out, line(out, 'PCAL_ABORT') or 'ei ABORT-riviä')
+
+# A realistic dose (one stroke ~= 1 bar) must still settle: the criteria are on the 1 s average, so
+# a sawtooth of a stroke's size is not an overshoot.
+bd, out = run_stage(closed_plant(3.0, stroke_bar=1.0), 8.0)
+raw1 = bd.pcal_raw.get('brew')
+check('a one-bar stroke sawtooth still settles and stores a point',
+      raw1 is not None and abs(raw1 - 8.0) <= 1.5, line(out, 'PCAL_END') or line(out, 'PCAL_ABORT'))
 
 # 7. the vented zero cycles until the raw value stops moving, then writes the offset
 class _Sensor:

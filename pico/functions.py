@@ -305,9 +305,25 @@ async def run_shot(brew_data, utime, asyncio, pump_ratio_calculator, keep_runnin
 # machine, a tight restrictor - stored a point measured off a *rising* pressure, and the error
 # always pointed the same way. The run is now in phases and the measurement window starts only
 # after the pressure has settled (user, 19.9.2026).
-PCAL_COARSE_GAP = 0.5       # bar below the target where the full pump cycle stops
-PCAL_BAND = 0.4             # bar; settled means inside this band. Must exceed one stroke's rise
-PCAL_OVERSHOOT = 1.0        # bar above the target that ends the run: a closed circuit cannot undo it
+# Measured 19.9.2026, closed circuit: ONE pump stroke is worth about 1 bar - at a 2 bar target the
+# hold sawtoothed 1.05-2.82 bar, and at 8 bar every run tripped the old 1.0 bar overshoot limit at
+# 9.0-9.25. The dose is the pump's, not the software's, so the criteria are on a 1 s average of the
+# pressure rather than on the instantaneous reading: the sawtooth is real and it cancels in the mean,
+# which is also what a damped reference gauge shows.
+PCAL_COARSE_GAP = 1.0       # bar below the target where the full pump cycle stops (one stroke's room)
+# Settled does NOT mean "at the target": one stroke is worth about a bar, so the hold lands wherever
+# the last dose left it, and no band narrower than a dose can be reached on purpose. What the
+# calibration needs is a *stable* pressure whose true value the reference gauge reads - the target is
+# only where we aim. Settled therefore means the 1 s average stopped drifting, within reach of the aim.
+PCAL_DRIFT = 0.15           # bar; allowed change of the 1 s average over one second
+PCAL_REACH = 1.5            # bar; how far from the target the settled pressure may be
+PCAL_TOPUP = 0.2            # bar below the target where the fine phase fires one more stroke
+PCAL_OVERSHOOT = 1.5        # bar above the target, on the average, that ends the run as a runaway
+PCAL_AVG_TAU = 1.0          # s; low-pass that judges *settled* and *overshoot*
+PCAL_FAST_TAU = 0.3         # s; low-pass that drives the pump. Faster than PCAL_AVG_TAU so it does
+                            # not lag a full-duty rise, slower than the raw reading so a single
+                            # noisy sample cannot fire a stroke - and one stroke is worth a whole
+                            # bar, so a noise-triggered dose lands the hold a bar off target.
 PCAL_SETTLE_MS = 1000       # time inside the band before the hold starts
 PCAL_HOLD_MS = 30000        # measurement hold: the gauge is read by eye, so it is long
 PCAL_STROKE_MS = 17         # one 60 Hz mains cycle: the smallest dose the pump can give
@@ -327,12 +343,19 @@ async def pressure_calibration_run(brew_data, utime, asyncio, stage):
     brew_data.pressure_calibration_begin(stage, target)
     brew_data.set_mode('pressure calibration')
     RELAY_HEATER.value(0)
-    print('PCAL_START %s target=%.2f window=%d band=%.2f' % (stage, target, window_ms, PCAL_BAND))
+    print('PCAL_START %s target=%.2f window=%d drift=%.2f reach=%.2f' % (
+        stage, target, window_ms, PCAL_DRIFT, PCAL_REACH))
 
     raw_sum = 0.0
     raw_n = 0
     p_min = 99.0
     p_max = -99.0
+    p_avg = None
+    p_fast = None
+    p_ref = None
+    ref_t = utime.ticks_ms()
+    drift = 99.0
+    last_avg = utime.ticks_ms()
     reason = ''
     start = utime.ticks_ms()
     settled_since = None
@@ -353,6 +376,16 @@ async def pressure_calibration_run(brew_data, utime, asyncio, stage):
             if pressure > 12.0:
                 reason = 'overpressure %.1f bar' % pressure
                 break
+            dt = utime.ticks_diff(now, last_avg) / 1000.0
+            last_avg = now
+            if p_avg is None:
+                p_avg = pressure
+                p_fast = pressure
+            else:
+                a = dt / PCAL_AVG_TAU
+                p_avg += (pressure - p_avg) * (1.0 if a > 1.0 else a)
+                b = dt / PCAL_FAST_TAU
+                p_fast += (pressure - p_fast) * (1.0 if b > 1.0 else b)
 
             if hold_start is None:
                 if utime.ticks_diff(now, start) > PCAL_TIMEOUT_MS:
@@ -360,30 +393,41 @@ async def pressure_calibration_run(brew_data, utime, asyncio, stage):
                     break
                 # The pump only adds: in a closed circuit an overshoot is permanent, so it must not
                 # start the measurement window - it ends the run instead (user, 19.9.2026).
-                if pressure > target + PCAL_OVERSHOOT:
-                    reason = 'overshoot %.2f bar' % pressure
+                if p_avg > target + PCAL_OVERSHOOT:
+                    reason = 'overshoot %.2f bar' % p_avg
                     break
-                if pressure < target - PCAL_COARSE_GAP:
+                # The coarse switch reads the instantaneous pressure, not the average: at a full-duty
+                # rise the 1 s low-pass lags by seconds, and a laggy stop overshoots by more than the
+                # stroke it was meant to leave room for. The average is used only near the target,
+                # where the sawtooth - not the lag - is what has to be filtered out.
+                if p_fast < target - PCAL_COARSE_GAP:
                     RELAY_PUMP.value(1)                 # coarse phase: full cycle
                     settled_since = None
                 else:
                     RELAY_PUMP.value(0)                 # fine phase: one stroke per window
-                    if pressure < target - PCAL_BAND:
+                    # The top-up trigger is a control action and reads the instantaneous pressure:
+                    # on the laggy average the fine phase keeps dosing while the average catches up,
+                    # and each dose is a whole bar. The average judges *settled*; it does not drive.
+                    if p_fast < target - PCAL_TOPUP and utime.ticks_diff(now, last_stroke) >= window_ms:
+                        last_stroke = now
+                        RELAY_PUMP.value(1)
+                        await asyncio.sleep_ms(PCAL_STROKE_MS)
+                        RELAY_PUMP.value(0)
+                    if utime.ticks_diff(now, ref_t) >= 1000:
+                        drift = 99.0 if p_ref is None else abs(p_avg - p_ref)
+                        p_ref = p_avg
+                        ref_t = now
+                    if drift > PCAL_DRIFT or abs(p_avg - target) > PCAL_REACH:
                         settled_since = None
-                        if utime.ticks_diff(now, last_stroke) >= window_ms:
-                            last_stroke = now
-                            RELAY_PUMP.value(1)
-                            await asyncio.sleep_ms(PCAL_STROKE_MS)
-                            RELAY_PUMP.value(0)
                     elif settled_since is None:
                         settled_since = now
                     elif utime.ticks_diff(now, settled_since) >= PCAL_SETTLE_MS:
                         hold_start = now
-                        print('PCAL_SETTLED %s t=%.1f p=%.2f' % (
-                            stage, utime.ticks_diff(now, start) / 1000.0, pressure))
+                        print('PCAL_SETTLED %s t=%.1f p=%.2f drift=%.2f' % (
+                            stage, utime.ticks_diff(now, start) / 1000.0, p_avg, drift))
             else:
                 RELAY_PUMP.value(0)
-                if pressure < target - PCAL_BAND and utime.ticks_diff(now, last_stroke) >= window_ms:
+                if p_fast < target - PCAL_TOPUP and utime.ticks_diff(now, last_stroke) >= window_ms:
                     last_stroke = now
                     RELAY_PUMP.value(1)
                     await asyncio.sleep_ms(PCAL_STROKE_MS)
