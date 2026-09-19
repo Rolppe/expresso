@@ -723,6 +723,89 @@ async def pressure_capture_run(brew_data, utime, asyncio, ms):
         count, elapsed if count else 0, pmax_bar if count else 0.00, reason))
 
 
+PHOLD_PRINT_MS = 500        # PHOLD-rivin tulostusväli, ms (spec 1)
+PHOLD_MAX_S = 120           # ajon enimmäispituus, s (spec 2.6) — pyyntö rajataan jo classes.py:ssä
+
+
+async def pressure_hold_run(brew_data, utime, asyncio, seconds):
+    RELAY_PUMP, RELAY_SOLENOID, RELAY_HEATER = brew_data.get_relays()
+    SWITCH_BREW, SWITCH_WATER, SWITCH_STEAM = brew_data.get_switches()
+
+    sensor = brew_data.pressure_sensor.pressure_sensor
+    gain = brew_data.pressure_sensor.gain
+    offset = brew_data.pressure_sensor.offset
+    reason = 'ok'
+    p_filt = None
+    prev_filt = None
+    last_print = None
+    first_print = True
+    brew_data.set_mode('pressure hold')
+    print('PHOLD_START s=%d' % seconds)
+    try:
+        # Solenoid open before the pump (spec 2.1), same order as pressure_capture_run
+        # (functions.py:583-584): a closed circuit cannot be held at any bar by the restrictor.
+        RELAY_SOLENOID.value(1)
+        RELAY_PUMP.value(1)
+
+        start_t = utime.ticks_ms()
+        last_t = start_t
+        first_bar = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset
+        p_filt = first_bar
+        prev_filt = first_bar
+        last_print = start_t
+
+        while True:
+            if SWITCH_BREW.value() or SWITCH_WATER.value() or SWITCH_STEAM.value():
+                reason = 'switch'
+                break
+            if brew_data.dev_safe:
+                reason = 'devsafe'
+                break
+            if brew_data.phold_abort:
+                reason = 'stop'
+                break
+            bar = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset
+            # Overpressure stays on the raw sample (spec 2.5, same rule as pcap): a safety limit
+            # must react immediately, not with the filter's lag.
+            if bar > PCAP_OVER_BAR:
+                reason = 'overpressure'
+                break
+            now = utime.ticks_ms()
+            dt = utime.ticks_diff(now, last_t) / 1000.0
+            last_t = now
+            p_filt += (bar - p_filt) * min(1.0, dt / PCAP_FILT_TAU)
+
+            elapsed_ms = utime.ticks_diff(now, start_t)
+            if elapsed_ms >= seconds * 1000:
+                reason = 'ok'
+                break
+
+            print_dt = utime.ticks_diff(now, last_print)
+            if print_dt >= PHOLD_PRINT_MS:
+                if first_print:
+                    slope = 0.00
+                    first_print = False
+                else:
+                    slope = (p_filt - prev_filt) / (print_dt / 1000.0) if print_dt > 0 else 0.00
+                print('PHOLD t=%d bar=%.2f filt=%.2f slope=%.2f' % (elapsed_ms, bar, p_filt, slope))
+                prev_filt = p_filt
+                last_print = now
+
+            # Non-blocking yield (spec 2.4): 120 s must not starve BLE nor the watchdog task,
+            # and 5 ms is still 60x oversampling for the 0.3 s filter.
+            await asyncio.sleep_ms(5)
+    except Exception:
+        # One development command must not crash main.py's loop (korjaus 1B). PHOLD_END below is
+        # the host's only signal of what happened, since pico_dev.py phold waits on that marker.
+        reason = 'error'
+    finally:
+        RELAY_PUMP.value(0)
+        RELAY_SOLENOID.value(0)
+        brew_data.set_mode('IDLE')
+        brew_data.phold_abort = False
+        print('PHOLD_END reason=%s bar=%.2f' % (reason, p_filt if p_filt is not None else 0.00))
+
+
 # ============================================================================
 # FAST HEATUP
 # ============================================================================

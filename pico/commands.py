@@ -107,6 +107,17 @@ def handle_command(brew_data, command):
             except Exception:
                 brew_data.pcap_target_bar = None
 
+    elif command.startswith('phold:'):
+        # Free pump+valve run for restrictor balancing: phold:<s 1-120> | phold:stop.
+        arg = command.split(':', 1)[1]
+        if arg == 'stop':
+            brew_data.stop_pressure_hold()
+        else:
+            try:
+                brew_data.request_pressure_hold(float(arg))
+            except Exception:
+                pass
+
     elif command.startswith('tshot:'):
         # Remote test shot without the brew switch: tshot:<seconds 5-60> | tshot:stop
         arg = command.split(':', 1)[1]
