@@ -126,6 +126,9 @@ class BrewData:
         self.test_shot_request  = None      # seconds, queued by a command
         self.test_shot_abort    = False
         self.dev_safe           = False
+        # Remote pressure capture (pcap:<ms>): raw ADC waveform for mains-frequency analysis
+        self.pcap_request       = None      # ms, queued by a command (200-2500)
+        self.pcap_abort         = False
         # Learned pump feed-forward per phase (RAM, from the previous shot's average duty)
         self.learned_ff_pre     = 0.3
         self.learned_ff_brew    = 0.5
@@ -465,6 +468,22 @@ class BrewData:
             return False
         self.pzero_request = False
         return True
+
+    def request_pressure_capture(self, ms=2000):
+        if self.dev_safe:
+            return False
+        self.pcap_request = min(2500, max(200, int(ms)))
+        self.pcap_abort = False
+        return True
+
+    def take_pressure_capture_request(self):
+        ms = self.pcap_request
+        self.pcap_request = None
+        return ms
+
+    def stop_pressure_capture(self):
+        self.pcap_request = None
+        self.pcap_abort = True
 
     def pressure_calibration_save(self):
         self.pressure_sensor.save_calibration()
