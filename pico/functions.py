@@ -560,6 +560,50 @@ def pcap_gate(i, phase_us):
     return 1 if ((i * PCAP_RATE_US + phase_us) % PCAP_GATE_PERIOD_US) < PCAP_MAINS_US else 0
 
 
+# ============================================================================
+# TRAY GUARD (phold/pcap only — EXPRESSO-KAUKALOVAHTI, spec kohta 0)
+# ============================================================================
+
+TRAY_STALE_MS = 2000     # lukema vanhentuneeksi; sama arvo kuin tshot-polulla (functions.py:159-161)
+
+
+def tray_guard_start(brew_data, utime):
+    """Ennen releiden kytkentää. Palauttaa (state, None) tai (None, '<syy>')."""
+    limit = brew_data.get_weight_limit()
+    rise_limit = brew_data.get_weight_rise_limit()
+    if limit <= 0 and rise_limit <= 0:
+        return None, 'nolimit'
+    weight = brew_data.get_weight()
+    age = utime.ticks_diff(utime.ticks_ms(), brew_data.get_weight_ms())
+    if weight is None or age > TRAY_STALE_MS:
+        return None, 'noscale'
+    return {'start': weight, 'last_ms': None, 'over': 0}, None
+
+
+def tray_guard_check(brew_data, utime, state):
+    """Ajon aikana. Palauttaa None tai '<syy>'."""
+    limit = brew_data.get_weight_limit()
+    rise_limit = brew_data.get_weight_rise_limit()
+    weight = brew_data.get_weight()
+    age = utime.ticks_diff(utime.ticks_ms(), brew_data.get_weight_ms())
+    if weight is None or age > TRAY_STALE_MS:
+        return 'scalelost'
+    # Two consecutive *samples* over a limit, not two loop iterations (spec kohta 1, sama kuin
+    # tshot-polku functions.py:169-176): loop runs far faster than the scale, and single spikes of
+    # -16 g were seen in telemetry.
+    ms = brew_data.get_weight_ms()
+    if ms != state['last_ms']:
+        state['last_ms'] = ms
+        hit = (limit > 0 and weight >= limit) or \
+              (rise_limit > 0 and weight - state['start'] >= rise_limit)
+        state['over'] = state['over'] + 1 if hit else 0
+    if state['over'] >= 2:
+        if limit > 0 and weight >= limit:
+            return 'tray'
+        return 'trayrise'
+    return None
+
+
 async def pressure_capture_run(brew_data, utime, asyncio, ms):
     from array import array
     RELAY_PUMP, RELAY_SOLENOID, RELAY_HEATER = brew_data.get_relays()
@@ -585,6 +629,9 @@ async def pressure_capture_run(brew_data, utime, asyncio, ms):
         print('PCAP_END n=0 dur_us=0 pmax=0.00 reason=switch'); return
     if brew_data.dev_safe:
         print('PCAP_END n=0 dur_us=0 pmax=0.00 reason=devsafe'); return
+    tray_state, tray_reason = tray_guard_start(brew_data, utime)
+    if tray_reason:
+        print('PCAP_END n=0 dur_us=0 pmax=0.00 reason=%s' % tray_reason); return
 
     buf = array('H', bytes(2 * n))
     row_t = []
@@ -620,6 +667,10 @@ async def pressure_capture_run(brew_data, utime, asyncio, ms):
                 break
             if brew_data.pcap_abort:
                 reason = 'stop'
+                break
+            tray_reason = tray_guard_check(brew_data, utime, tray_state)
+            if tray_reason:
+                reason = tray_reason
                 break
             bar = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset
             if bar > pmax_bar: pmax_bar = bar
@@ -672,6 +723,9 @@ async def pressure_capture_run(brew_data, utime, asyncio, ms):
                         reason = 'devsafe'; aborted = True; break
                     if brew_data.pcap_abort:
                         reason = 'stop'; aborted = True; break
+                    tray_reason = tray_guard_check(brew_data, utime, tray_state)
+                    if tray_reason:
+                        reason = tray_reason; aborted = True; break
                     hold_bar = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset
                     if hold_bar > pmax_bar: pmax_bar = hold_bar
                     if hold_bar > PCAP_OVER_BAR:
@@ -697,38 +751,49 @@ async def pressure_capture_run(brew_data, utime, asyncio, ms):
             # Settling ended cleanly (target/plateau/timeout): run the capture. If it was aborted
             # (switch/devsafe/stop/overpressure) `reason` is already set and `settled` stays False,
             # so the capture below is skipped and PCAP_END reports n=0 with that reason.
-            t0 = utime.ticks_us()
-            next_t = t0
-            elapsed = 0
-            pump_state = 1     # RELAY_PUMP is already on from settling/hold (spec 3)
-            for i in range(n):
-                if SWITCH_BREW.value() or SWITCH_WATER.value() or SWITCH_STEAM.value():
-                    reason = 'switch'
-                    break
-                if brew_data.dev_safe:
-                    reason = 'devsafe'
-                    break
-                if brew_data.pcap_abort:
-                    reason = 'stop'
-                    break
-                if phase_us is not None:
-                    g = pcap_gate(i, phase_us)
-                    if g != pump_state:
-                        RELAY_PUMP.value(g)
-                        pump_state = g
-                while utime.ticks_diff(next_t, utime.ticks_us()) > 0: pass
-                v = sensor.read_u16()
-                elapsed = utime.ticks_diff(utime.ticks_us(), t0)
-                buf[i] = v
-                if i % PCAP_ROW == 0:
-                    row_t.append(elapsed)
-                count += 1
-                bar = gain * (v * PCAP_RAW_A + PCAP_RAW_B) + offset
-                if bar > pmax_bar: pmax_bar = bar
-                next_t = utime.ticks_add(next_t, PCAP_RATE_US)
-                if bar > PCAP_OVER_BAR:
-                    reason = 'overpressure'
-                    break
+            # Tray guard is checked just before and just after this loop, never inside it (spec
+            # kohta 2): the capture loop busy-waits and never yields, so a scale reading would look
+            # stale on every single pass.
+            tray_reason = tray_guard_check(brew_data, utime, tray_state)
+            if tray_reason:
+                reason = tray_reason
+            else:
+                t0 = utime.ticks_us()
+                next_t = t0
+                elapsed = 0
+                pump_state = 1     # RELAY_PUMP is already on from settling/hold (spec 3)
+                for i in range(n):
+                    if SWITCH_BREW.value() or SWITCH_WATER.value() or SWITCH_STEAM.value():
+                        reason = 'switch'
+                        break
+                    if brew_data.dev_safe:
+                        reason = 'devsafe'
+                        break
+                    if brew_data.pcap_abort:
+                        reason = 'stop'
+                        break
+                    if phase_us is not None:
+                        g = pcap_gate(i, phase_us)
+                        if g != pump_state:
+                            RELAY_PUMP.value(g)
+                            pump_state = g
+                    while utime.ticks_diff(next_t, utime.ticks_us()) > 0: pass
+                    v = sensor.read_u16()
+                    elapsed = utime.ticks_diff(utime.ticks_us(), t0)
+                    buf[i] = v
+                    if i % PCAP_ROW == 0:
+                        row_t.append(elapsed)
+                    count += 1
+                    bar = gain * (v * PCAP_RAW_A + PCAP_RAW_B) + offset
+                    if bar > pmax_bar: pmax_bar = bar
+                    next_t = utime.ticks_add(next_t, PCAP_RATE_US)
+                    if bar > PCAP_OVER_BAR:
+                        reason = 'overpressure'
+                        break
+                if reason == 'ok':
+                    tray_reason = tray_guard_check(brew_data, utime, tray_state)
+                    if tray_reason:
+                        reason = tray_reason
     finally:
         RELAY_PUMP.value(0)
         RELAY_SOLENOID.value(0)
@@ -762,6 +827,9 @@ async def pressure_hold_run(brew_data, utime, asyncio, seconds):
     prev_filt = None
     last_print = None
     first_print = True
+    tray_state, tray_reason = tray_guard_start(brew_data, utime)
+    if tray_reason:
+        print('PHOLD_END reason=%s bar=0.00' % tray_reason); return
     brew_data.set_mode('pressure hold')
     print('PHOLD_START s=%d' % seconds)
     try:
@@ -786,6 +854,10 @@ async def pressure_hold_run(brew_data, utime, asyncio, seconds):
                 break
             if brew_data.phold_abort:
                 reason = 'stop'
+                break
+            tray_reason = tray_guard_check(brew_data, utime, tray_state)
+            if tray_reason:
+                reason = tray_reason
                 break
             bar = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset
             # Overpressure stays on the raw sample (spec 2.5, same rule as pcap): a safety limit
