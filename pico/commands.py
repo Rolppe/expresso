@@ -2,6 +2,9 @@
 # COMMANDS — one dispatcher for BLE writes and serial "CMD <command>" lines (17.9.2026)
 # ============================================================================
 
+from functions import PCAP_GATE_PERIOD_US
+
+
 def _float_arg(command):
     return float(command.split(':', 1)[1])
 
@@ -92,10 +95,15 @@ def handle_command(brew_data, command):
             pass
 
     elif command.startswith('pcap:'):
-        # Raw pressure capture for mains-frequency analysis: pcap:<ms 200-2500>[:<bar>] | pcap:stop.
-        # The optional third field is the settling target bar (korjaus 2); classes.py is out of
-        # scope this round, so it rides on brew_data as a plain attribute, not a declared field.
+        # Raw pressure capture for mains-frequency analysis: pcap:<ms 200-2500>[:<bar>[:<phase_us>]]
+        # | pcap:stop. The optional third field is the settling target bar (korjaus 2); classes.py
+        # is out of scope this round, so it rides on brew_data as a plain attribute, not a declared
+        # field. The optional fourth field is the mains gate phase in microseconds (PWM-1B2-PORTITUS,
+        # spec 4) — it requires the target bar, since gating without a target would measure from an
+        # unknown state. It resets to None on every request, including stop and bad input, so a
+        # stale phase never survives into the next run.
         arg = command.split(':', 1)[1]
+        brew_data.pcap_gate_phase_us = None
         if arg == 'stop':
             brew_data.pcap_target_bar = None
             brew_data.stop_pressure_capture()
@@ -103,9 +111,14 @@ def handle_command(brew_data, command):
             try:
                 parts = arg.split(':')
                 brew_data.pcap_target_bar = float(parts[1]) if len(parts) > 1 else None
+                if len(parts) > 2:
+                    if brew_data.pcap_target_bar is None:
+                        raise ValueError('gate requires a target bar')
+                    brew_data.pcap_gate_phase_us = int(float(parts[2])) % PCAP_GATE_PERIOD_US
                 brew_data.request_pressure_capture(float(parts[0]))
             except Exception:
                 brew_data.pcap_target_bar = None
+                brew_data.pcap_gate_phase_us = None
 
     elif command.startswith('phold:'):
         # Free pump+valve run for restrictor balancing: phold:<s 1-120> | phold:stop.
