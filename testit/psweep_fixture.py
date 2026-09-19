@@ -192,6 +192,25 @@ def main():
         check('PSKIP_INV kertoo taitoksen huipun leveyden (width_bins)', False,
               w0[0] if w0 else '(ei PSKIP_INV-rivia)')
 
+    # 4b. Tuomio luetaan delay_ms:n hajonnasta, ei inv_ms:n (PWM-1B6, sääntö 14). Kun vaste
+    #     seuraa porttia, vaihesiirto siirtää porttia ja vastetta yhdessä, joten oikea suure on
+    #     delay_ms sellaisenaan. Kynnys on 1,5 binin leveys: 40 binia portin jakson yli.
+    inv_line = [ln for ln in out.splitlines() if ln.startswith('PSWEEP_INV')]
+    check('PSWEEP_INV tulostuu', len(inv_line) == 1, str(len(inv_line)))
+    if inv_line:
+        fl = fields(inv_line[0])
+        check('PSWEEP_INV kertoo delay_mean_ms:n ja delay_spread_ms:n',
+              'delay_mean_ms' in fl and 'delay_spread_ms' in fl, inv_line[0])
+        check('PSWEEP_INV kertoo yhä inv_ms:n kirjanpitoa varten',
+              'mean_ms' in fl and 'spread_ms' in fl, inv_line[0])
+        if 'delay_spread_ms' in fl and 'verdict' in fl:
+            bin_ms = PERIOD_US / 40.0 / 1000.0
+            want = 'vakaa' if float(fl['delay_spread_ms']) <= 1.5 * bin_ms else 'hajoaa'
+            check('verdict seuraa delay_spread_ms:n kynnystä (1,5 binia)',
+                  fl['verdict'] == want,
+                  'spread %s ms, kynnys %.2f ms, verdict %s' % (
+                      fl['delay_spread_ms'], 1.5 * bin_ms, fl['verdict']))
+
     # 5. Portittamaton loki ei kelpaa pyyhkäisyksi
     log4 = os.path.join(tmp, 'plain.log')
     with open(log4, 'w') as f:
