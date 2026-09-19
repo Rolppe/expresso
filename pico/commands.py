@@ -2,7 +2,7 @@
 # COMMANDS — one dispatcher for BLE writes and serial "CMD <command>" lines (17.9.2026)
 # ============================================================================
 
-from functions import PCAP_GATE_PERIOD_US, PSWEEP_N_MAX
+from functions import PCAP_GATE_PERIOD_US, PSWEEP_N_MAX, PSWEEP_MULT_MAX
 
 
 def _float_arg(command):
@@ -121,11 +121,13 @@ def handle_command(brew_data, command):
                 brew_data.pcap_gate_phase_us = None
 
     elif command.startswith('psweep:'):
-        # psweep:<ms 200-2500>:<bar>[:<n 2-8>] | psweep:stop (PWM-1B4-PYYHKAISY, spec 5). Kentät
-        # nollataan None:ksi joka pyynnöllä, myös stop:lla ja virheellisellä syötteellä.
+        # psweep:<ms 200-2500>:<bar>[:<n 2-8>[:<mult 2-16>]] | psweep:stop (PWM-1B4-PYYHKAISY,
+        # spec 5; kerroin PWM-1B6, spec 3). Kentät nollataan None:ksi joka pyynnöllä, myös
+        # stop:lla ja virheellisellä syötteellä — kelvoton kerroin hylkää koko pyynnön.
         arg = command.split(':', 1)[1]
         brew_data.psweep_target_bar = None
         brew_data.psweep_n = None
+        brew_data.psweep_mult = None
         if arg == 'stop':
             brew_data.abort_pressure_sweep()
         else:
@@ -136,10 +138,13 @@ def handle_command(brew_data, command):
                 brew_data.psweep_target_bar = float(parts[1])
                 if len(parts) > 2:
                     brew_data.psweep_n = min(PSWEEP_N_MAX, max(2, int(float(parts[2]))))
+                if len(parts) > 3:
+                    brew_data.psweep_mult = min(PSWEEP_MULT_MAX, max(2, int(float(parts[3]))))
                 brew_data.request_pressure_sweep(float(parts[0]))
             except Exception:
                 brew_data.psweep_target_bar = None
                 brew_data.psweep_n = None
+                brew_data.psweep_mult = None
 
     elif command.startswith('phold:'):
         # Free pump+valve run for restrictor balancing: phold:<s 1-120> | phold:stop.

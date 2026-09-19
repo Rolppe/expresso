@@ -8,7 +8,13 @@ Loki jakautuu `PCAP_START`-riveittäin segmentteihin. Portitetuille segmenteille
 menettely kuin `pskip_delay.analyze`:ssa (spec 2.2), tuotu sellaisenaan. `PSKIP_INV inv_ms`:n
 modulus on verkkojakso (segmentin oma `on_us`), ei portin jakso (sääntö 9, korjattu 19.9.2026).
 Referenssisegmenteistä (`gate=off`) luetaan vaihe ja verkkotaajuus `mains_freq.py`:n
-`refine_peak`/`goertzel`-funktioilla (spec 2.4)."""
+`refine_peak`/`goertzel`-funktioilla (spec 2.4).
+
+Tuomio luetaan `delay_ms`:n hajonnasta, ei `inv_ms`:n (PWM-1B6, sääntö 14): kun portin jakso on
+lyhyt mittausikkuna oikeaan, vaste seuraa porttia eikä yksittäistä iskua, ja vaihesiirto siirtää
+porttia ja vastetta yhdessä — oikea invariantti on `delay_ms` sellaisenaan, ympyrälaskettuna
+segmentin oman `period_us`:n yli. `mean_ms`/`spread_ms` (`inv_ms`:stä) jäävät riville
+kirjanpidoksi iskunvalintamallista."""
 
 import math
 import os
@@ -19,8 +25,6 @@ import tempfile
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from mains_freq import RAW_TO_BAR_GAIN, RAW_TO_BAR_OFFSET, goertzel, refine_peak  # noqa: E402
 from pskip_delay import analyze as pskip_analyze  # noqa: E402
-
-INV_STABLE_MS = 3.0   # sääntö 9 korjattu: raja verdict=vakaa -tuomiolle
 
 def parse_segments(path):
     """Jakaa lokin `PCAP_START`-riveittäin: otsikkokentät, raakanäytteet, `PCAP_END`:n
@@ -104,13 +108,16 @@ def process(path):
     lines.append('PSWEEP_SEGS n=%d gated=%d ref=%d fs=%.1f'
                   % (len(segs), len(gated), len(ref), fs_avg))
     mains_ms = gated[0]['on_us'] / 1000.0
+    period_ms = gated[0]['period_us'] / 1000.0
     inv_values = []
+    delay_values = []
     for s in gated:
         res = pskip_analyze(s['samples'], s['dur_us'], s['n'], s['gain'], s['offset'],
                              s['period_us'], s['phase_us'])
         width = fwhm_bins(res['fold'], res['bin'])
         inv_ms = (res['delay_ms'] - s['phase_us'] / 1000.0) % mains_ms
         inv_values.append(inv_ms)
+        delay_values.append(res['delay_ms'])
         lines.append('PSKIP_INV phase_us=%d delay_ms=%.3f inv_ms=%.3f amp=%.3f conf=%.2f '
                       'width_bins=%.1f' % (s['phase_us'], res['delay_ms'], inv_ms, res['amp'],
                                             res['conf'], width))
@@ -125,9 +132,12 @@ def process(path):
     spread_f = max(f_vals) - min(f_vals) if len(f_vals) > 1 else 0.0
     lines.append('PSWEEP_MAINS f=%.3f spread=%.3f from=ref n=%d' % (mean_f, spread_f, len(f_vals)))
     mean_ms, spread_ms = circular_stats(inv_values, mains_ms)
-    verdict = 'vakaa' if spread_ms < INV_STABLE_MS else 'hajoaa'
-    lines.append('PSWEEP_INV mean_ms=%.3f spread_ms=%.3f n=%d verdict=%s'
-                  % (mean_ms, spread_ms, len(inv_values), verdict))
+    delay_mean_ms, delay_spread_ms = circular_stats(delay_values, period_ms)
+    bin_ms = period_ms / 40.0
+    verdict = 'vakaa' if delay_spread_ms <= 1.5 * bin_ms else 'hajoaa'
+    lines.append('PSWEEP_INV mean_ms=%.3f spread_ms=%.3f delay_mean_ms=%.3f delay_spread_ms=%.3f '
+                  'n=%d verdict=%s'
+                  % (mean_ms, spread_ms, delay_mean_ms, delay_spread_ms, len(inv_values), verdict))
     return lines, 0
 
 # SELFTEST — synthetic sweep logs, spec kohta 3
