@@ -16,7 +16,7 @@ import asyncio
 # IMPORT FUNCTIONS, CLASSES AND CONFIGURATIONS
 from machine            import Pin, ADC
 from micropython        import const
-from functions          import save_settings, load_settings, print_values, fast_heatup, pre_infusion, pressure_calibration_run, pressure_zero_run, run_shot
+from functions          import save_settings, load_settings, print_values, fast_heatup, pre_infusion, pressure_calibration_run, pressure_zero_run, pressure_capture_run, run_shot
 from commands           import handle_command
 from classes            import BrewData, HeatingSpeedCalculator, Thermostat, TemperatureSensor, PressureSensor, PumpRatioCalculator, PumpPressureController
 from bluetooth_handler  import BLEHandler
@@ -179,7 +179,12 @@ async def local_program(brew_data):
         if brew_data.take_pressure_zero_request():
             await pressure_zero_run(brew_data, utime, asyncio)
             continue
-         
+
+        pcap_ms = brew_data.take_pressure_capture_request()
+        if pcap_ms:
+            await pressure_capture_run(brew_data, utime, asyncio, pcap_ms)
+            continue
+
         # PRINT VALUES
         if FEATURES['print_values_flag']:
             print_values(brew_data)

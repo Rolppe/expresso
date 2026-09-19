@@ -91,6 +91,17 @@ def handle_command(brew_data, command):
         except Exception:
             pass
 
+    elif command.startswith('pcap:'):
+        # Raw pressure capture for mains-frequency analysis: pcap:<ms 200-2500> | pcap:stop
+        arg = command.split(':', 1)[1]
+        if arg == 'stop':
+            brew_data.stop_pressure_capture()
+        else:
+            try:
+                brew_data.request_pressure_capture(float(arg))
+            except Exception:
+                pass
+
     elif command.startswith('tshot:'):
         # Remote test shot without the brew switch: tshot:<seconds 5-60> | tshot:stop
         arg = command.split(':', 1)[1]
