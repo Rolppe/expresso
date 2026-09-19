@@ -132,6 +132,11 @@ class BrewData:
         # Remote pressure hold (phold:<s>): free pump+valve run for restrictor balancing
         self.phold_request      = None      # seconds, queued by a command (1-120)
         self.phold_abort        = False
+        # Remote phase sweep (psweep:<ms>:<bar>[:<n>]): PWM-1B4-PYYHKAISY
+        self.psweep_request     = None      # ms, queued by a command (200-2500)
+        self.psweep_abort       = False
+        self.psweep_target_bar  = None      # bar, pakollinen kenttä (spec kohta 5)
+        self.psweep_n           = None      # vaihesiirtojen määrä 2-8, oletus 5
         # Learned pump feed-forward per phase (RAM, from the previous shot's average duty)
         self.learned_ff_pre     = 0.3
         self.learned_ff_brew    = 0.5
@@ -487,6 +492,22 @@ class BrewData:
     def stop_pressure_capture(self):
         self.pcap_request = None
         self.pcap_abort = True
+
+    def request_pressure_sweep(self, ms=2000):
+        if self.dev_safe:
+            return False
+        self.psweep_request = min(2500, max(200, int(ms)))
+        self.psweep_abort = False
+        return True
+
+    def take_pressure_sweep_request(self):
+        ms = self.psweep_request
+        self.psweep_request = None
+        return ms
+
+    def abort_pressure_sweep(self):
+        self.psweep_request = None
+        self.psweep_abort = True
 
     def request_pressure_hold(self, seconds=30):
         if self.dev_safe:
