@@ -92,15 +92,20 @@ def handle_command(brew_data, command):
             pass
 
     elif command.startswith('pcap:'):
-        # Raw pressure capture for mains-frequency analysis: pcap:<ms 200-2500> | pcap:stop
+        # Raw pressure capture for mains-frequency analysis: pcap:<ms 200-2500>[:<bar>] | pcap:stop.
+        # The optional third field is the settling target bar (korjaus 2); classes.py is out of
+        # scope this round, so it rides on brew_data as a plain attribute, not a declared field.
         arg = command.split(':', 1)[1]
         if arg == 'stop':
+            brew_data.pcap_target_bar = None
             brew_data.stop_pressure_capture()
         else:
             try:
-                brew_data.request_pressure_capture(float(arg))
+                parts = arg.split(':')
+                brew_data.pcap_target_bar = float(parts[1]) if len(parts) > 1 else None
+                brew_data.request_pressure_capture(float(parts[0]))
             except Exception:
-                pass
+                brew_data.pcap_target_bar = None
 
     elif command.startswith('tshot:'):
         # Remote test shot without the brew switch: tshot:<seconds 5-60> | tshot:stop

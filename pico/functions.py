@@ -537,6 +537,9 @@ PCAP_ROW = 20                # raw values per PCAP line (full rows only, see pro
 PCAP_RAW_A = 0.000314936
 PCAP_RAW_B = -3.522929
 PCAP_OVER_BAR = 11.0
+PCAP_SETTLE_MAX_MS = 15000   # hard cap on the event-driven settling phase (korjaus 2)
+PCAP_PLATEAU_MS = 1000       # plateau window: rise below PCAP_PLATEAU_BAR over this span ends settling
+PCAP_PLATEAU_BAR = 0.05
 
 
 async def pressure_capture_run(brew_data, utime, asyncio, ms):
@@ -544,7 +547,11 @@ async def pressure_capture_run(brew_data, utime, asyncio, ms):
     RELAY_PUMP, RELAY_SOLENOID, RELAY_HEATER = brew_data.get_relays()
     SWITCH_BREW, SWITCH_WATER, SWITCH_STEAM = brew_data.get_switches()
     n = int(ms)
-    print('PCAP_START rate=%d n=%d settle_ms=1000' % (1000000 // PCAP_RATE_US, n))
+    # Target bar is optional (pcap:<ms>[:<bar>]); classes.py/main.py are out of scope this round, so
+    # it travels as a plain attribute on brew_data set by commands.py, not a declared field.
+    target = getattr(brew_data, 'pcap_target_bar', None)
+    print('PCAP_START rate=%d n=%d settle=%s' % (
+        1000000 // PCAP_RATE_US, n, 'target' if target is not None else 'plateau'))
     if SWITCH_BREW.value() or SWITCH_WATER.value() or SWITCH_STEAM.value():
         print('PCAP_END n=0 dur_us=0 pmax=0.00 reason=switch'); return
     if brew_data.dev_safe:
@@ -558,17 +565,23 @@ async def pressure_capture_run(brew_data, utime, asyncio, ms):
     count = 0
     pmax_bar = -99.0
     reason = 'ok'
+    elapsed = 0
+    settled = False
     brew_data.set_mode('pressure capture')
     try:
         # Solenoid open before the pump, like every other pumping path (korjaus 1): a closed circuit
         # cannot be held at the kettle's chosen bar by the restrictor.
         RELAY_SOLENOID.value(1)
         RELAY_PUMP.value(1)
-        await asyncio.sleep_ms(1000)
-        t0 = utime.ticks_us()
-        next_t = t0
-        elapsed = 0
-        for i in range(n):
+
+        # Settling is event-driven, not time-driven (korjaus 2): the user sets the pressure with the
+        # restrictor, not the clock, so the pump runs until the pressure reaches the target, stops
+        # rising (plateau) or PCAP_SETTLE_MAX_MS elapses — whichever comes first. Non-blocking: every
+        # pass yields with sleep_ms(0) so the watchdog feeder (main.py:318-322) still gets a turn.
+        settle_t0 = utime.ticks_ms()
+        plateau_t = settle_t0
+        plateau_bar = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset
+        while not settled:
             if SWITCH_BREW.value() or SWITCH_WATER.value() or SWITCH_STEAM.value():
                 reason = 'switch'
                 break
@@ -578,19 +591,60 @@ async def pressure_capture_run(brew_data, utime, asyncio, ms):
             if brew_data.pcap_abort:
                 reason = 'stop'
                 break
-            while utime.ticks_diff(next_t, utime.ticks_us()) > 0: pass
-            v = sensor.read_u16()
-            elapsed = utime.ticks_diff(utime.ticks_us(), t0)
-            buf[i] = v
-            if i % PCAP_ROW == 0:
-                row_t.append(elapsed)
-            count += 1
-            bar = gain * (v * PCAP_RAW_A + PCAP_RAW_B) + offset
+            bar = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset
             if bar > pmax_bar: pmax_bar = bar
-            next_t = utime.ticks_add(next_t, PCAP_RATE_US)
             if bar > PCAP_OVER_BAR:
                 reason = 'overpressure'
                 break
+            now = utime.ticks_ms()
+            settle_ms = utime.ticks_diff(now, settle_t0)
+            settle_reason = None
+            if target is not None and bar >= target:
+                settle_reason = 'target'
+            elif utime.ticks_diff(now, plateau_t) >= PCAP_PLATEAU_MS:
+                if (bar - plateau_bar) < PCAP_PLATEAU_BAR:
+                    settle_reason = 'plateau'
+                else:
+                    plateau_t = now
+                    plateau_bar = bar
+            if settle_reason is None and settle_ms >= PCAP_SETTLE_MAX_MS:
+                settle_reason = 'timeout'
+            if settle_reason is not None:
+                print('PCAP_SETTLED bar=%.2f ms=%d reason=%s' % (bar, settle_ms, settle_reason))
+                settled = True
+                break
+            await asyncio.sleep_ms(0)
+
+        if settled:
+            # Settling ended cleanly (target/plateau/timeout): run the capture. If it was aborted
+            # (switch/devsafe/stop/overpressure) `reason` is already set and `settled` stays False,
+            # so the capture below is skipped and PCAP_END reports n=0 with that reason.
+            t0 = utime.ticks_us()
+            next_t = t0
+            elapsed = 0
+            for i in range(n):
+                if SWITCH_BREW.value() or SWITCH_WATER.value() or SWITCH_STEAM.value():
+                    reason = 'switch'
+                    break
+                if brew_data.dev_safe:
+                    reason = 'devsafe'
+                    break
+                if brew_data.pcap_abort:
+                    reason = 'stop'
+                    break
+                while utime.ticks_diff(next_t, utime.ticks_us()) > 0: pass
+                v = sensor.read_u16()
+                elapsed = utime.ticks_diff(utime.ticks_us(), t0)
+                buf[i] = v
+                if i % PCAP_ROW == 0:
+                    row_t.append(elapsed)
+                count += 1
+                bar = gain * (v * PCAP_RAW_A + PCAP_RAW_B) + offset
+                if bar > pmax_bar: pmax_bar = bar
+                next_t = utime.ticks_add(next_t, PCAP_RATE_US)
+                if bar > PCAP_OVER_BAR:
+                    reason = 'overpressure'
+                    break
     finally:
         RELAY_PUMP.value(0)
         RELAY_SOLENOID.value(0)
