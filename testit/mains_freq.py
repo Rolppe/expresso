@@ -28,6 +28,7 @@ MAINS_BAND = (40.0, 70.0)
 HARM2_BAND = (80.0, 140.0)
 BAND_STEP_HZ = 0.1
 PEAK_EXCLUDE_HZ = 1.0   # window excluded around the best bin before a second, distinct peak is sought
+DRIFT_WINDOW_S = 0.2    # korjaus 5: average the first/last 200 ms of the raw capture for DRIFT
 
 
 def parse_log(path):
@@ -95,6 +96,18 @@ def band_peak(x, fs, band, step=BAND_STEP_HZ, exclude_hz=PEAK_EXCLUDE_HZ):
     return best_f, best_amp, conf
 
 
+def drift(raw_samples, fs, window_s=DRIFT_WINDOW_S):
+    """korjaus 5: mean bar level over the capture's first and last `window_s` seconds, on the
+    un-detrended series (analyze()'s detrend removes exactly this drift) — tells whether the
+    amplitude reported by band_peak is comparable to another run, or was taken mid-ramp."""
+    n = len(raw_samples)
+    w = max(1, min(int(round(window_s * fs)), n // 2 if n >= 2 else n))
+    bars = [v * RAW_TO_BAR_GAIN + RAW_TO_BAR_OFFSET for v in raw_samples]
+    start_bar = sum(bars[:w]) / w
+    end_bar = sum(bars[-w:]) / w
+    return end_bar - start_bar, start_bar, end_bar
+
+
 def analyze(raw_samples, fs):
     x = detrend([float(v) for v in raw_samples])
     mains_f, mains_amp, mains_conf = band_peak(x, fs, MAINS_BAND)
@@ -103,8 +116,11 @@ def analyze(raw_samples, fs):
             'harm_f': harm_f, 'harm_amp': harm_amp * RAW_TO_BAR_GAIN, 'harm_conf': harm_conf}
 
 
-def print_result(r):
+def print_result(r, drift_stats=None):
     print('MAINS %.1f Hz amp=%.3f bar conf=%.2f' % (r['mains_f'], r['mains_amp'], r['mains_conf']))
+    if drift_stats is not None:
+        d_bar, start_bar, end_bar = drift_stats
+        print('DRIFT %.2f bar kaappauksen yli, alku %.2f loppu %.2f' % (d_bar, start_bar, end_bar))
     print('HARM2 %.1f Hz amp=%.3f bar' % (r['harm_f'], r['harm_amp']))
 
 
@@ -139,10 +155,21 @@ def selftest():
     for expected in (50.0, 60.0):
         samples, fs = synth_capture(expected, seed=int(expected))
         r = analyze(samples, fs)
-        print_result(r)
+        d_stats = drift(samples, fs)
+        print_result(r, d_stats)
         check('%.1f Hz found within 0.5 Hz' % expected, abs(r['mains_f'] - expected) <= 0.5,
               'got %.1f Hz' % r['mains_f'])
         check('%.1f Hz conf > 2.0' % expected, r['mains_conf'] > 2.0, 'got conf=%.2f' % r['mains_conf'])
+
+    # korjaus 5, one new assertion, expected value derived (coordinator correction, not hardcoded):
+    # the two DRIFT_WINDOW_S windows are centered at w/2 and T-w/2, so their gap is T-w, and the
+    # window-mean diff on a linear ramp is ramp_bar * (T-w)/T = ramp_bar * (1 - w/T).
+    ramp_bar_dr, n_dr, dt_s_dr = 2.0, 2000, 0.001
+    duration_s_dr = n_dr * dt_s_dr
+    expected_drift = ramp_bar_dr * (1.0 - DRIFT_WINDOW_S / duration_s_dr)
+    d_bar = drift(*synth_capture(50.0, n=n_dr, dt_s=dt_s_dr, ramp_bar=ramp_bar_dr, seed=50))[0]
+    check('DRIFT within 0.2 bar of derived %.2f' % expected_drift, abs(d_bar - expected_drift) <= 0.2,
+          'got %.2f bar' % d_bar)
 
     print('\nRESULT: %d failed' % len(fails))
     return 1 if fails else 0
@@ -160,7 +187,7 @@ def main(argv):
         sys.exit(1)
     fs = 1e6 * n / dur_us   # real sample rate, from PCAP_END's dur_us/n, not the nominal 1000 Hz
     r = analyze(samples, fs)
-    print_result(r)
+    print_result(r, drift(samples, fs))
     if r['mains_conf'] < 2.0:
         print('note: conf below 2.0, not enough to decide (reason=%s)' % reason)
 
