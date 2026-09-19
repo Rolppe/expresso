@@ -21,6 +21,7 @@ import glob
 import hashlib
 import json
 import os
+import shlex
 import subprocess
 import sys
 
@@ -37,8 +38,17 @@ def adb(*args, check=True):
     return subprocess.run([ADB, '-s', PHONE] + list(args), capture_output=True, text=True, check=check)
 
 
+def run_as_argv(shell_cmd):
+    """`adb shell` liittää argumentit välilyönnillä yhteen ennen laitteen kuorelle antamista, joten
+    lainausmerkit katoavat matkalla jos etäkomento on useampi erillinen argumentti. Palauttaa
+    argumenttilistan, jonka viimeinen alkio on yksi merkkijono `run-as <APP> sh -c <lainattu
+    komento>`, jotta se pysyy yhtenä palana adb shell:n läpi."""
+    remote = 'run-as %s sh -c %s' % (APP, shlex.quote(shell_cmd))
+    return [ADB, '-s', PHONE, 'shell', remote]
+
+
 def run_as(shell_cmd, check=True):
-    return adb('shell', 'run-as', APP, 'sh', '-c', shell_cmd, check=check)
+    return subprocess.run(run_as_argv(shell_cmd), capture_output=True, text=True, check=check)
 
 
 def default_files():
