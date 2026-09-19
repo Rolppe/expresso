@@ -320,9 +320,11 @@ PCAL_COARSE_GAP = 1.5       # bar below the target where the full pump cycle sto
 # only where we aim. Settled therefore means the 1 s average stopped drifting, within reach of the aim.
 PCAL_DRIFT = 0.15           # bar; allowed change of the 1 s average over one second
 PCAL_REACH = 1.5            # bar; how far from the target the settled pressure may be
-PCAL_QUIET_MS = 2000        # ms since the last stroke before the pressure counts as settled: a slow
-                            # creep can look drift-free while it is still being fed, and a point
-                            # measured mid-creep is exactly the defect this run was rebuilt to remove
+PCAL_DRIFT_MS = 2000        # ms over which the drift is measured. Not a quiet period: the circuit
+                            # leaks back fast enough that holding a pressure needs a stroke about
+                            # every window, so silence never comes (machine, 19.9.2026). A creep is
+                            # told from a steady sawtooth by the length of the window instead - over
+                            # 2 s a creep moves and a sawtooth does not.
 PCAL_TOPUP = 0.2            # bar below the target where the fine phase fires one more stroke
 PCAL_OVERSHOOT = 1.5        # bar above the target, on the average, that ends the run as a runaway
 PCAL_AVG_TAU = 1.0          # s; low-pass that judges *settled* and *overshoot*
@@ -423,12 +425,11 @@ async def pressure_calibration_run(brew_data, utime, asyncio, stage):
                         RELAY_PUMP.value(1)
                         await asyncio.sleep_ms(PCAL_STROKE_MS)
                         RELAY_PUMP.value(0)
-                    if utime.ticks_diff(now, ref_t) >= 1000:
+                    if utime.ticks_diff(now, ref_t) >= PCAL_DRIFT_MS:
                         drift = 99.0 if p_ref is None else abs(p_avg - p_ref)
                         p_ref = p_avg
                         ref_t = now
-                    quiet = utime.ticks_diff(now, last_stroke) >= PCAL_QUIET_MS
-                    if drift > PCAL_DRIFT or abs(p_avg - target) > PCAL_REACH or not quiet:
+                    if drift > PCAL_DRIFT or abs(p_avg - target) > PCAL_REACH:
                         settled_since = None
                     elif settled_since is None:
                         settled_since = now
