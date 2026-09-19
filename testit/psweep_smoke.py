@@ -9,7 +9,7 @@ lukeman sen sijaan että tuomitsisi ajon syyhyn `scalelost` (avoin vika 19.9.202
 
     python3 testit/psweep_smoke.py      RESULT: <n> failed, epänolla paluuarvo jos punaisia
 
-Ajo kestää noin 55 s: kuusi ajoa, joista pisin on vaakatesti (2 x 2500 ms segmenttiä).
+Ajo kestää noin 75 s: kuusi ajoa, joista pisin on vaakatesti (2 x 2500 ms segmenttiä).
 Toteuttaja ei muokkaa tätä tiedostoa (brief: must not).
 """
 
@@ -59,7 +59,8 @@ class BrewData:
     """Valelaite. `scale_live=True` päivittää vaa'an aikaleiman vain silmukan antaessa vuoron,
     kuten laitteella: kaappaussilmukka ei anna vuoroa, joten lukema vanhenee sen aikana."""
 
-    def __init__(self, target=4.9, n=None, raw=30000, scale_live=False, scale_dead=False):
+    def __init__(self, target=4.9, n=None, raw=30000, scale_live=False, scale_dead=False,
+                 scale_die_s=None):
         self.pump, self.solenoid, self.heater = Pin(), Pin(), Pin()
         self.brew, self.water, self.steam = Pin(), Pin(), Pin()
         self.pressure_sensor = Sensor(raw)
@@ -73,6 +74,7 @@ class BrewData:
         self.mode = None
         self.scale_live = scale_live
         self.scale_dead = scale_dead
+        self.scale_die_s = scale_die_s    # vaaka lakkaa päivittymästä näin monen sekunnin jälkeen
         self.weight_ms = int(time.monotonic() * 1000)
 
     def get_relays(self):
@@ -124,7 +126,10 @@ def run(bd, ms):
     """Ajaa pyyhkäisyn ja palauttaa tulosteen. Vaakatehtävä pyörii rinnalla kuten laitteella."""
 
     async def scale_task():
+        t0 = time.monotonic()
         while True:
+            if bd.scale_die_s is not None and time.monotonic() - t0 >= bd.scale_die_s:
+                return                     # vaaka kuolee kesken ajon
             bd.weight_ms = int(time.monotonic() * 1000)
             await asyncio.sleep(0.05)      # EXPRESSO-SCALE-POLL: 50 ms
 
@@ -254,13 +259,26 @@ def main():
     tail = out.strip().splitlines()[-1] if out.strip() else '(tyhjä)'
     check('elpyvällä vaa\'alla pyyhkäisy päättyy ok', 'reason=ok' in tail, tail)
 
-    # 6. Kuollut vaaka on yhä aito scalelost
+    # 6. Kesken ajon kuollut vaaka on yhä aito scalelost. Vaaka elää asettumisen (2 s) ja
+    #    pidon (3 s) läpi ja kuolee vasta ensimmäisen segmentin alettua, joten uudelleenhaku ei
+    #    saa tuoretta lukemaa eikä saa vaieta siitä. Ennen ajoa vanhentunut lukema on eri asia:
+    #    sen nappaa tray_guard_start syyllä noscale, eikä se kuulu tähän testiin.
+    bd = BrewData(target=4.9, n=2, scale_live=True, scale_die_s=5.2)
+    out = run(bd, 2500)
+    check('kesken ajon kuollut vaaka pysäyttää pyyhkäisyn', 'scalelost' in out,
+          out.strip().splitlines()[-1] if out.strip() else '(tyhjä)')
+    check('kuollut vaaka nähdään vasta kaappauksen alettua', len(starts(out)) >= 1,
+          'PCAP_START-rivejä %d' % len(starts(out)))
+    check('kuollut vaaka: pumppu pois', bd.pump.value() == 0)
+
+    # 6b. Ennen ajoa vanhentunut lukema torjutaan heti, ilman yhtäkään relettä
     bd = BrewData(target=4.9, n=2, scale_live=True, scale_dead=True)
     bd.weight_ms = int(time.monotonic() * 1000) - 60000
     out = run(bd, 200)
-    check('kuollut vaaka pysäyttää pyyhkäisyn', 'scalelost' in out,
+    check('ennen ajoa vanhentunut vaaka torjutaan syyllä noscale', 'reason=noscale' in out,
           out.strip().splitlines()[-1] if out.strip() else '(tyhjä)')
-    check('kuollut vaaka: pumppu pois', bd.pump.value() == 0)
+    check('noscale: ei yhtään kaappausta', not starts(out), str(len(starts(out))))
+    check('noscale: pumppu pois', bd.pump.value() == 0)
 
     # 7. Kytkin keskeyttää ennen yhtäkään relettä
     bd = BrewData(target=4.9, n=2)
