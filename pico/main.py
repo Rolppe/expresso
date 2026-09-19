@@ -39,6 +39,12 @@ temperature_sensor = TemperatureSensor(max31865, PINS, MAX31865_CONFIG)
 # INITIALIZE PRESSURE SENSOR HANDLER
 pressure_sensor = PressureSensor(utime, asyncio, Pin, PINS, ADC)
 
+# SCALE_POLL_MS (user decision, 19.9.2026): the HX711 answers at 11.6 samples/s (scale.py line 7),
+# a ~86 ms sample interval, so 50 ms catches every sample. 50*FLOW_MIN_POINTS(4)=200 ms fits inside
+# FLOW_WINDOW_MS=1000 with double margin; one missed reading is 2*50=100 ms, under
+# FLOW_STALE_MS=500; the tray watchdog (TRAY_STALE_MS=2000) sees two samples well before that.
+SCALE_POLL_MS = 50
+
 # INITIALIZE DRIP-TRAY SCALE (18.9.2026)
 # Two HX711 cells on the pins scale.py defaults to (DT 18/20, SCK 19); scale_cal.json holds the
 # calibration. link_ok() takes ~200 ms and is the only check that a scale is physically there - a
@@ -322,7 +328,7 @@ async def scale_reader(brew_data):
             brew_data.flow = tray_scale.flow(brew_data.flow_window_ms)
         except Exception:
             pass
-        await asyncio.sleep_ms(20)
+        await asyncio.sleep_ms(SCALE_POLL_MS)
 
 
 async def watchdog_feeder():
