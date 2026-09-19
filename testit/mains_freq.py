@@ -32,14 +32,23 @@ DRIFT_WINDOW_S = 0.2    # korjaus 5: average the first/last 200 ms of the raw ca
 
 
 def parse_log(path):
-    """Parse one pcap: capture out of a serial log; returns (samples, dur_us, n, reason) from the
-    last PCAP_START..PCAP_END block found."""
+    """Parse one pcap: capture out of a serial log; returns (samples, dur_us, n, reason, gain,
+    offset) from the last PCAP_START..PCAP_END block found. `gain`/`offset` are the sensor's live
+    calibration read from PCAP_START (korjaus 5, protokollalisäys vaihe 1b); default 1.0/0.0 when
+    the line predates that field."""
     samples, dur_us, n, reason = [], None, None, None
+    gain, offset = 1.0, 0.0
     with open(path, 'r', errors='replace') as f:
         for line in f:
             line = line.strip()
             if line.startswith('PCAP_START'):
                 samples, dur_us, n, reason = [], None, None, None
+                gain, offset = 1.0, 0.0
+                fields = dict(p.split('=', 1) for p in line.split()[1:] if '=' in p)
+                if 'gain' in fields:
+                    gain = float(fields['gain'])
+                if 'offset' in fields:
+                    offset = float(fields['offset'])
             elif line.startswith('PCAP_END'):
                 fields = dict(p.split('=', 1) for p in line.split()[1:] if '=' in p)
                 n = int(fields.get('n', len(samples)))
@@ -47,7 +56,7 @@ def parse_log(path):
                 reason = fields.get('reason', '')
             elif line.startswith('PCAP '):
                 samples.extend(int(v) for v in line.split()[3:])   # idx, t_us, then 20 raw values
-    return samples, dur_us, n, reason
+    return samples, dur_us, n, reason, gain, offset
 
 
 def detrend(x):
@@ -96,13 +105,16 @@ def band_peak(x, fs, band, step=BAND_STEP_HZ, exclude_hz=PEAK_EXCLUDE_HZ):
     return best_f, best_amp, conf
 
 
-def drift(raw_samples, fs, window_s=DRIFT_WINDOW_S):
+def drift(raw_samples, fs, gain=1.0, offset=0.0, window_s=DRIFT_WINDOW_S):
     """korjaus 5: mean bar level over the capture's first and last `window_s` seconds, on the
     un-detrended series (analyze()'s detrend removes exactly this drift) — tells whether the
-    amplitude reported by band_peak is comparable to another run, or was taken mid-ramp."""
+    amplitude reported by band_peak is comparable to another run, or was taken mid-ramp.
+
+    `gain`/`offset` are the sensor's live calibration (PCAP_START, protokollalisäys vaihe 1b);
+    defaults 1.0/0.0 reproduce the old, uncalibrated reading for logs that predate it."""
     n = len(raw_samples)
     w = max(1, min(int(round(window_s * fs)), n // 2 if n >= 2 else n))
-    bars = [v * RAW_TO_BAR_GAIN + RAW_TO_BAR_OFFSET for v in raw_samples]
+    bars = [gain * (v * RAW_TO_BAR_GAIN + RAW_TO_BAR_OFFSET) + offset for v in raw_samples]
     start_bar = sum(bars[:w]) / w
     end_bar = sum(bars[-w:]) / w
     return end_bar - start_bar, start_bar, end_bar
@@ -116,11 +128,13 @@ def analyze(raw_samples, fs):
             'harm_f': harm_f, 'harm_amp': harm_amp * RAW_TO_BAR_GAIN, 'harm_conf': harm_conf}
 
 
-def print_result(r, drift_stats=None):
+def print_result(r, drift_stats=None, gain=1.0, offset=0.0):
     print('MAINS %.1f Hz amp=%.3f bar conf=%.2f' % (r['mains_f'], r['mains_amp'], r['mains_conf']))
     if drift_stats is not None:
         d_bar, start_bar, end_bar = drift_stats
-        print('DRIFT %.2f bar kaappauksen yli, alku %.2f loppu %.2f' % (d_bar, start_bar, end_bar))
+        cal_note = ' (cal=raw)' if gain == 1.0 and offset == 0.0 else ''
+        print('DRIFT %.2f bar kaappauksen yli, alku %.2f loppu %.2f%s'
+              % (d_bar, start_bar, end_bar, cal_note))
     print('HARM2 %.1f Hz amp=%.3f bar' % (r['harm_f'], r['harm_amp']))
 
 
@@ -181,13 +195,13 @@ def main(argv):
     if len(argv) < 2:
         sys.stderr.write('usage: mains_freq.py <capture.log> | --selftest\n')
         sys.exit(2)
-    samples, dur_us, n, reason = parse_log(argv[1])
+    samples, dur_us, n, reason, gain, offset = parse_log(argv[1])
     if not samples or not dur_us or not n:
         sys.stderr.write('no PCAP data found in %s\n' % argv[1])
         sys.exit(1)
     fs = 1e6 * n / dur_us   # real sample rate, from PCAP_END's dur_us/n, not the nominal 1000 Hz
     r = analyze(samples, fs)
-    print_result(r, drift(samples, fs))
+    print_result(r, drift(samples, fs, gain, offset), gain, offset)
     if r['mains_conf'] < 2.0:
         print('note: conf below 2.0, not enough to decide (reason=%s)' % reason)
 
