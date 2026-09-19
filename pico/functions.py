@@ -546,6 +546,9 @@ PCAP_PLATEAU_MIN_BAR = 1.0   # plateau not even tested below this filtered bar (
                               # phase is a genuine plateau by any rise-based test, and must not qualify
 PCAP_FILT_TAU = 0.3          # one-pole low-pass time constant, s (korjaus 3): raw-sample sd is 1.595 bar,
                               # too noisy for either settling test on its own
+PCAP_HOLD_MS = 3000          # korjaus 5: dwell after the target/plateau condition fires, before capture
+                              # starts — 3*tau (plant tau=1/1.24 s) to 5%, plus PCAP_FILT_TAU's own lag,
+                              # rounded up (real_plant_sim.py: GAIN, LEAK = 6.7, 1.24)
 
 
 async def pressure_capture_run(brew_data, utime, asyncio, ms):
@@ -635,8 +638,40 @@ async def pressure_capture_run(brew_data, utime, asyncio, ms):
             if settle_reason is None and settle_ms >= PCAP_SETTLE_MAX_MS:
                 settle_reason = 'timeout'
             if settle_reason is not None:
-                print('PCAP_SETTLED bar=%.2f peak=%.2f ms=%d reason=%s' % (
-                    p_filt, pmax_bar, settle_ms, settle_reason))
+                # Hold phase (korjaus 5): the condition just fired, but the measurement window must
+                # start once the pressure has actually settled there, not on the same millisecond the
+                # condition triggers. The pump stays on for PCAP_HOLD_MS while p_filt keeps tracking,
+                # under the same interrupt conditions as settling (event-driven, non-blocking).
+                reach_ms = settle_ms
+                hold_start_bar = p_filt
+                hold_t0 = utime.ticks_ms()
+                hold_last_t = hold_t0
+                aborted = False
+                hold_ms = 0
+                while True:
+                    if SWITCH_BREW.value() or SWITCH_WATER.value() or SWITCH_STEAM.value():
+                        reason = 'switch'; aborted = True; break
+                    if brew_data.dev_safe:
+                        reason = 'devsafe'; aborted = True; break
+                    if brew_data.pcap_abort:
+                        reason = 'stop'; aborted = True; break
+                    hold_bar = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset
+                    if hold_bar > pmax_bar: pmax_bar = hold_bar
+                    if hold_bar > PCAP_OVER_BAR:
+                        reason = 'overpressure'; aborted = True; break
+                    hold_now = utime.ticks_ms()
+                    hold_dt = utime.ticks_diff(hold_now, hold_last_t) / 1000.0
+                    hold_last_t = hold_now
+                    p_filt += (hold_bar - p_filt) * min(1.0, hold_dt / PCAP_FILT_TAU)
+                    hold_ms = utime.ticks_diff(hold_now, hold_t0)
+                    if hold_ms >= PCAP_HOLD_MS:
+                        break
+                    await asyncio.sleep_ms(0)
+                if aborted:
+                    break
+                drift = p_filt - hold_start_bar
+                print('PCAP_SETTLED bar=%.2f peak=%.2f reach_ms=%d hold_ms=%d drift=%.2f reason=%s' % (
+                    p_filt, pmax_bar, reach_ms, hold_ms, drift, settle_reason))
                 settled = True
                 break
             await asyncio.sleep_ms(0)
