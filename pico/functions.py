@@ -565,6 +565,8 @@ def pcap_gate(i, phase_us):
 # ============================================================================
 
 TRAY_STALE_MS = 2000     # lukema vanhentuneeksi; sama arvo kuin tshot-polulla (functions.py:159-161)
+TRAY_RESYNC_MS = 300     # kaappauksen jälkeisen tarkistuksen enimmäisodotus tuoreelle lukemalle
+                         # (spec 0.2, avoimen vian korjaus): kaappaussilmukka ei anna vuoroa.
 
 
 def tray_guard_start(brew_data, utime):
@@ -604,8 +606,149 @@ def tray_guard_check(brew_data, utime, state):
     return None
 
 
-async def pressure_capture_run(brew_data, utime, asyncio, ms):
+def _sweep_break(brew_data, abort_attr):
+    """Switch/dev_safe/abort-tarkistus, yhteinen kolmelle kutsujalle. Palauttaa syyn tai None."""
+    SWITCH_BREW, SWITCH_WATER, SWITCH_STEAM = brew_data.get_switches()
+    if SWITCH_BREW.value() or SWITCH_WATER.value() or SWITCH_STEAM.value():
+        return 'switch'
+    if brew_data.dev_safe:
+        return 'devsafe'
+    if getattr(brew_data, abort_attr):
+        return 'stop'
+    return None
+
+
+async def tray_guard_recheck(brew_data, utime, asyncio, state):
+    """Kaappauksen jälkeinen tarkistus (spec 0.2): odottaa tuoretta weight_ms:ää enintään
+    TRAY_RESYNC_MS ennen tray_guard_check:ia."""
+    await asyncio.sleep_ms(0)
+    last_ms = brew_data.get_weight_ms()
+    start = utime.ticks_ms()
+    while utime.ticks_diff(utime.ticks_ms(), start) < TRAY_RESYNC_MS:
+        if brew_data.get_weight_ms() != last_ms: break
+        await asyncio.sleep_ms(10)
+    return tray_guard_check(brew_data, utime, state)
+
+
+async def pcap_settle(brew_data, utime, asyncio, sensor, gain, offset, target, tray_state):
+    """Asettumis- ja pitovaihe, irrotettu pressure_capture_run:sta (spec 0.1) niin että
+    pressure_sweep_run voi käyttää samaa. Mekaaninen siirto: samat vakiot, keskeytysehdot,
+    PCAP_SETTLED-tuloste ja sleep_ms(0) joka kierroksella. Palauttaa (settled, reason, p_filt)."""
+    reason = 'ok'
+    pmax_bar = -99.0
+    settle_t0 = utime.ticks_ms()
+    last_t = settle_t0
+    p_filt = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset   # one-pole filter seed
+    plateau_t = None          # korjaus 4: unseeded until PCAP_SETTLE_MIN_MS, then the filtered value
+    plateau_bar = None
+    settled = False
+    while not settled:
+        r = _sweep_break(brew_data, 'pcap_abort')
+        if r: reason = r; break
+        tray_reason = tray_guard_check(brew_data, utime, tray_state)
+        if tray_reason: reason = tray_reason; break
+        bar = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset
+        if bar > pmax_bar: pmax_bar = bar
+        if bar > PCAP_OVER_BAR:     # pmax/overpressure stay on the raw sample (korjaus 3)
+            reason = 'overpressure'; break
+        now = utime.ticks_ms()
+        dt = utime.ticks_diff(now, last_t) / 1000.0
+        last_t = now
+        p_filt += (bar - p_filt) * min(1.0, dt / PCAP_FILT_TAU)
+        settle_ms = utime.ticks_diff(now, settle_t0)
+        settle_reason = None
+        if p_filt < PCAP_PLATEAU_MIN_BAR or plateau_t is None:    # korjaus 4: fill-phase floor
+            plateau_t, plateau_bar = now, p_filt
+        if settle_ms >= PCAP_SETTLE_MIN_MS:
+            if target is not None and p_filt >= target:
+                settle_reason = 'target'
+            elif utime.ticks_diff(now, plateau_t) >= PCAP_PLATEAU_MS:
+                if (p_filt - plateau_bar) < PCAP_PLATEAU_BAR:
+                    settle_reason = 'plateau'
+                else:
+                    plateau_t, plateau_bar = now, p_filt
+        if settle_reason is None and settle_ms >= PCAP_SETTLE_MAX_MS:
+            settle_reason = 'timeout'
+        if settle_reason is not None:
+            # Hold phase (korjaus 5): pump stays on for PCAP_HOLD_MS while p_filt keeps tracking.
+            reach_ms = settle_ms
+            hold_start_bar = p_filt
+            hold_t0 = utime.ticks_ms()
+            hold_last_t = hold_t0
+            aborted = False
+            hold_ms = 0
+            while True:
+                r = _sweep_break(brew_data, 'pcap_abort')
+                if r: reason = r; aborted = True; break
+                tray_reason = tray_guard_check(brew_data, utime, tray_state)
+                if tray_reason: reason = tray_reason; aborted = True; break
+                hold_bar = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset
+                if hold_bar > pmax_bar: pmax_bar = hold_bar
+                if hold_bar > PCAP_OVER_BAR:
+                    reason = 'overpressure'; aborted = True; break
+                hold_now = utime.ticks_ms()
+                hold_dt = utime.ticks_diff(hold_now, hold_last_t) / 1000.0
+                hold_last_t = hold_now
+                p_filt += (hold_bar - p_filt) * min(1.0, hold_dt / PCAP_FILT_TAU)
+                hold_ms = utime.ticks_diff(hold_now, hold_t0)
+                if hold_ms >= PCAP_HOLD_MS: break
+                await asyncio.sleep_ms(0)
+            if aborted: break
+            drift = p_filt - hold_start_bar
+            print('PCAP_SETTLED bar=%.2f peak=%.2f reach_ms=%d hold_ms=%d drift=%.2f reason=%s' % (
+                p_filt, pmax_bar, reach_ms, hold_ms, drift, settle_reason))
+            settled = True
+            break
+        await asyncio.sleep_ms(0)
+    return settled, reason, p_filt
+
+
+async def _pcap_capture(brew_data, utime, asyncio, sensor, gain, offset, n, phase_us, abort_attr,
+                         restore_pump=False):
+    """Kaappaussilmukka + PCAP-rivit, yhteinen pressure_capture_run:lle ja pyyhkäisyn segmenteille.
+    PCAP_END jää kutsujalle (syy voi vielä muuttua). Palauttaa (reason, count, elapsed, pmax_bar, last_bar)."""
     from array import array
+    RELAY_PUMP, RELAY_SOLENOID, RELAY_HEATER = brew_data.get_relays()
+    buf = array('H', bytes(2 * n))
+    row_t = []
+    count = 0
+    pmax_bar = -99.0
+    elapsed = 0
+    last_bar = None
+    t0 = utime.ticks_us()
+    next_t = t0
+    pump_state = 1     # RELAY_PUMP is already on from settling/trim (spec 3)
+    reason = None
+    for i in range(n):
+        reason = _sweep_break(brew_data, abort_attr)
+        if reason: break
+        if phase_us is not None:
+            g = pcap_gate(i, phase_us)
+            if g != pump_state: RELAY_PUMP.value(g); pump_state = g
+        while utime.ticks_diff(next_t, utime.ticks_us()) > 0: pass
+        v = sensor.read_u16()
+        elapsed = utime.ticks_diff(utime.ticks_us(), t0)
+        buf[i] = v
+        if i % PCAP_ROW == 0: row_t.append(elapsed)
+        count += 1
+        bar = gain * (v * PCAP_RAW_A + PCAP_RAW_B) + offset
+        last_bar = bar
+        if bar > pmax_bar: pmax_bar = bar
+        next_t = utime.ticks_add(next_t, PCAP_RATE_US)
+        if bar > PCAP_OVER_BAR: reason = 'overpressure'; break
+    reason = reason or 'ok'
+    if restore_pump and phase_us is not None and pump_state != 1:
+        RELAY_PUMP.value(1)    # pump back on before the trim step that follows (psweep only)
+    full_rows = count // PCAP_ROW
+    for r in range(full_rows):
+        row_start = r * PCAP_ROW
+        vals = ' '.join(str(buf[row_start + j]) for j in range(PCAP_ROW))
+        print('PCAP %d %d %s' % (row_start, row_t[r], vals))
+        if (r + 1) % 10 == 0: await asyncio.sleep_ms(0)   # yield to watchdog (korjaus 3)
+    return reason, count, elapsed, pmax_bar, last_bar
+
+
+async def pressure_capture_run(brew_data, utime, asyncio, ms):
     RELAY_PUMP, RELAY_SOLENOID, RELAY_HEATER = brew_data.get_relays()
     SWITCH_BREW, SWITCH_WATER, SWITCH_STEAM = brew_data.get_switches()
     n = int(ms)
@@ -633,182 +776,163 @@ async def pressure_capture_run(brew_data, utime, asyncio, ms):
     if tray_reason:
         print('PCAP_END n=0 dur_us=0 pmax=0.00 reason=%s' % tray_reason); return
 
-    buf = array('H', bytes(2 * n))
-    row_t = []
     count = 0
     pmax_bar = -99.0
-    reason = 'ok'
     elapsed = 0
-    settled = False
     brew_data.set_mode('pressure capture')
     try:
-        # Solenoid open before the pump, like every other pumping path (korjaus 1): a closed circuit
-        # cannot be held at the kettle's chosen bar by the restrictor.
-        RELAY_SOLENOID.value(1)
+        RELAY_SOLENOID.value(1)     # solenoid before pump, like every other pumping path (korjaus 1)
         RELAY_PUMP.value(1)
-
-        # Settling is event-driven, not time-driven (korjaus 2): the user sets the pressure with the
-        # restrictor, not the clock, so the pump runs until the pressure reaches the target, stops
-        # rising (plateau) or PCAP_SETTLE_MAX_MS elapses — whichever comes first. Non-blocking: every
-        # pass yields with sleep_ms(0) so the watchdog feeder (main.py:318-322) still gets a turn.
-        settle_t0 = utime.ticks_ms()
-        last_t = settle_t0
-        first_bar = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset
-        p_filt = first_bar        # one-pole low-pass of the raw sample (korjaus 3); the filter has to
-        plateau_t = None          # start somewhere, but plateau_t/plateau_bar are not seeded from it
-        plateau_bar = None        # (korjaus 4): they stay unset until PCAP_SETTLE_MIN_MS has elapsed,
-                                   # then take the filtered value — never a single raw sample
-        while not settled:
-            if SWITCH_BREW.value() or SWITCH_WATER.value() or SWITCH_STEAM.value():
-                reason = 'switch'
-                break
-            if brew_data.dev_safe:
-                reason = 'devsafe'
-                break
-            if brew_data.pcap_abort:
-                reason = 'stop'
-                break
-            tray_reason = tray_guard_check(brew_data, utime, tray_state)
-            if tray_reason:
-                reason = tray_reason
-                break
-            bar = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset
-            if bar > pmax_bar: pmax_bar = bar
-            # Overpressure and pmax stay on the raw sample (korjaus 3, rule 4) — it's a safety limit
-            # and must react immediately, not with the filter's lag. Do not "unify" this with p_filt.
-            if bar > PCAP_OVER_BAR:
-                reason = 'overpressure'
-                break
-            now = utime.ticks_ms()
-            dt = utime.ticks_diff(now, last_t) / 1000.0
-            last_t = now
-            p_filt += (bar - p_filt) * min(1.0, dt / PCAP_FILT_TAU)
-            settle_ms = utime.ticks_diff(now, settle_t0)
-            settle_reason = None
-            # Fill-phase floor (korjaus 4): below PCAP_PLATEAU_MIN_BAR the plateau test is not even
-            # run — plateau_t/plateau_bar are kept pinned to "now", so a still-filling read can never
-            # look like a plateau once the floor is cleared.
-            if p_filt < PCAP_PLATEAU_MIN_BAR:
-                plateau_t = now
-                plateau_bar = p_filt
-            elif plateau_t is None:
-                plateau_t = now
-                plateau_bar = p_filt
-            if settle_ms >= PCAP_SETTLE_MIN_MS:
-                if target is not None and p_filt >= target:
-                    settle_reason = 'target'
-                elif utime.ticks_diff(now, plateau_t) >= PCAP_PLATEAU_MS:
-                    if (p_filt - plateau_bar) < PCAP_PLATEAU_BAR:
-                        settle_reason = 'plateau'
-                    else:
-                        plateau_t = now
-                        plateau_bar = p_filt
-            if settle_reason is None and settle_ms >= PCAP_SETTLE_MAX_MS:
-                settle_reason = 'timeout'
-            if settle_reason is not None:
-                # Hold phase (korjaus 5): the condition just fired, but the measurement window must
-                # start once the pressure has actually settled there, not on the same millisecond the
-                # condition triggers. The pump stays on for PCAP_HOLD_MS while p_filt keeps tracking,
-                # under the same interrupt conditions as settling (event-driven, non-blocking).
-                reach_ms = settle_ms
-                hold_start_bar = p_filt
-                hold_t0 = utime.ticks_ms()
-                hold_last_t = hold_t0
-                aborted = False
-                hold_ms = 0
-                while True:
-                    if SWITCH_BREW.value() or SWITCH_WATER.value() or SWITCH_STEAM.value():
-                        reason = 'switch'; aborted = True; break
-                    if brew_data.dev_safe:
-                        reason = 'devsafe'; aborted = True; break
-                    if brew_data.pcap_abort:
-                        reason = 'stop'; aborted = True; break
-                    tray_reason = tray_guard_check(brew_data, utime, tray_state)
-                    if tray_reason:
-                        reason = tray_reason; aborted = True; break
-                    hold_bar = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset
-                    if hold_bar > pmax_bar: pmax_bar = hold_bar
-                    if hold_bar > PCAP_OVER_BAR:
-                        reason = 'overpressure'; aborted = True; break
-                    hold_now = utime.ticks_ms()
-                    hold_dt = utime.ticks_diff(hold_now, hold_last_t) / 1000.0
-                    hold_last_t = hold_now
-                    p_filt += (hold_bar - p_filt) * min(1.0, hold_dt / PCAP_FILT_TAU)
-                    hold_ms = utime.ticks_diff(hold_now, hold_t0)
-                    if hold_ms >= PCAP_HOLD_MS:
-                        break
-                    await asyncio.sleep_ms(0)
-                if aborted:
-                    break
-                drift = p_filt - hold_start_bar
-                print('PCAP_SETTLED bar=%.2f peak=%.2f reach_ms=%d hold_ms=%d drift=%.2f reason=%s' % (
-                    p_filt, pmax_bar, reach_ms, hold_ms, drift, settle_reason))
-                settled = True
-                break
-            await asyncio.sleep_ms(0)
-
+        # Settling is event-driven (korjaus 2), extracted to pcap_settle (spec 0.1) so it's shared.
+        settled, reason, p_filt = await pcap_settle(
+            brew_data, utime, asyncio, sensor, gain, offset, target, tray_state)
         if settled:
-            # Settling ended cleanly (target/plateau/timeout): run the capture. If it was aborted
-            # (switch/devsafe/stop/overpressure) `reason` is already set and `settled` stays False,
-            # so the capture below is skipped and PCAP_END reports n=0 with that reason.
-            # Tray guard is checked just before and just after this loop, never inside it (spec
-            # kohta 2): the capture loop busy-waits and never yields, so a scale reading would look
-            # stale on every single pass.
+            # Tray guard just before and just after the capture loop, never inside it (spec 2): the
+            # loop busy-waits. Before stays direct; after uses tray_guard_recheck (spec 0.2 fix).
             tray_reason = tray_guard_check(brew_data, utime, tray_state)
             if tray_reason:
                 reason = tray_reason
             else:
-                t0 = utime.ticks_us()
-                next_t = t0
-                elapsed = 0
-                pump_state = 1     # RELAY_PUMP is already on from settling/hold (spec 3)
-                for i in range(n):
-                    if SWITCH_BREW.value() or SWITCH_WATER.value() or SWITCH_STEAM.value():
-                        reason = 'switch'
-                        break
-                    if brew_data.dev_safe:
-                        reason = 'devsafe'
-                        break
-                    if brew_data.pcap_abort:
-                        reason = 'stop'
-                        break
-                    if phase_us is not None:
-                        g = pcap_gate(i, phase_us)
-                        if g != pump_state:
-                            RELAY_PUMP.value(g)
-                            pump_state = g
-                    while utime.ticks_diff(next_t, utime.ticks_us()) > 0: pass
-                    v = sensor.read_u16()
-                    elapsed = utime.ticks_diff(utime.ticks_us(), t0)
-                    buf[i] = v
-                    if i % PCAP_ROW == 0:
-                        row_t.append(elapsed)
-                    count += 1
-                    bar = gain * (v * PCAP_RAW_A + PCAP_RAW_B) + offset
-                    if bar > pmax_bar: pmax_bar = bar
-                    next_t = utime.ticks_add(next_t, PCAP_RATE_US)
-                    if bar > PCAP_OVER_BAR:
-                        reason = 'overpressure'
-                        break
+                reason, count, elapsed, pmax_bar, _ = await _pcap_capture(
+                    brew_data, utime, asyncio, sensor, gain, offset, n, phase_us, 'pcap_abort')
                 if reason == 'ok':
-                    tray_reason = tray_guard_check(brew_data, utime, tray_state)
-                    if tray_reason:
-                        reason = tray_reason
+                    tray_reason = await tray_guard_recheck(brew_data, utime, asyncio, tray_state)
+                    if tray_reason: reason = tray_reason
     finally:
         RELAY_PUMP.value(0)
         RELAY_SOLENOID.value(0)
         brew_data.set_mode('IDLE')
         brew_data.pcap_abort = False
-
-    full_rows = count // PCAP_ROW
-    for r in range(full_rows):
-        row_start = r * PCAP_ROW
-        vals = ' '.join(str(buf[row_start + j]) for j in range(PCAP_ROW))
-        print('PCAP %d %d %s' % (row_start, row_t[r], vals))
-        if (r + 1) % 10 == 0:   # yield to the watchdog task every ten lines (korjaus 3)
-            await asyncio.sleep_ms(0)
     print('PCAP_END n=%d dur_us=%d pmax=%.2f reason=%s' % (
         count, elapsed if count else 0, pmax_bar if count else 0.00, reason))
+
+
+# PHASE SWEEP (PWM-1B4-PYYHKAISY, säännöt 10-13): segmentit ref, p_0..p_{n-1}, ref, trimmaus väliin.
+PSWEEP_N_DEFAULT = 5         # vaihesiirtojen määrä, kun kenttää ei anneta (sääntö 10)
+PSWEEP_N_MAX = 8
+PSWEEP_TRIM_BAR = 0.3        # kuollut alue tavoitteen ympärillä (sääntö 13)
+PSWEEP_TRIM_MS = 8000        # trimmausaskeleen enimmäiskesto
+PSWEEP_TRIM_PRINT_MS = 500   # ei omaa tulostetta askeleen aikana; yksi rivi lopuksi
+
+
+def psweep_phases(n):
+    """Tasavälein portin jakson yli, ensimmäinen 0 (sääntö 10)."""
+    return [k * PCAP_GATE_PERIOD_US // n for k in range(n)]
+
+
+async def _psweep_segment(brew_data, utime, asyncio, sensor, gain, offset, tray_state, seg, ms,
+                           phase_us):
+    """Yksi pyyhkäisyn segmentti: kelvollinen pcap-loki (spec 3) plus seg=<k>, kaappaus jaettua
+    _pcap_capture:a käyttäen. Tray guard suorana ennen, tray_guard_recheck:llä jälkeen (spec 0.2).
+    Palauttaa (reason, viimeinen bar tai None)."""
+    n = int(ms)
+    if phase_us is not None:
+        print('PCAP_START rate=%d n=%d settle=target gain=%.4f offset=%.3f seg=%d gate=on period_us=%d on_us=%d phase_us=%d' % (
+            1000000 // PCAP_RATE_US, n, gain, offset, seg, PCAP_GATE_PERIOD_US, PCAP_MAINS_US, phase_us))
+    else:
+        print('PCAP_START rate=%d n=%d settle=target gain=%.4f offset=%.3f seg=%d gate=off' % (
+            1000000 // PCAP_RATE_US, n, gain, offset, seg))
+    tray_reason = tray_guard_check(brew_data, utime, tray_state)
+    if tray_reason:
+        reason, count, elapsed, pmax_bar, last_bar = tray_reason, 0, 0, 0.00, None
+    else:
+        reason, count, elapsed, pmax_bar, last_bar = await _pcap_capture(
+            brew_data, utime, asyncio, sensor, gain, offset, n, phase_us, 'psweep_abort', restore_pump=True)
+        if reason == 'ok':
+            tray_reason = await tray_guard_recheck(brew_data, utime, asyncio, tray_state)
+            if tray_reason: reason = tray_reason
+    print('PCAP_END n=%d dur_us=%d pmax=%.2f seg=%d reason=%s' % (
+        count, elapsed if count else 0, pmax_bar if count else 0.00, seg, reason))
+    return reason, last_bar
+
+
+async def _psweep_trim(brew_data, utime, asyncio, sensor, gain, offset, target, tray_state,
+                        prev_seg, seed_bar):
+    """Trimmausaskel segmenttien väliin (spec 4, sääntö 13): palauttaa paineen kuolleeseen
+    alueeseen, sama suodin kuin asettumisessa, alkuarvona edellisen segmentin viimeinen lukema."""
+    RELAY_PUMP, RELAY_SOLENOID, RELAY_HEATER = brew_data.get_relays()
+    reason = 'ok'
+    p_filt = seed_bar
+    t0 = utime.ticks_ms()
+    last_t = t0
+    while True:
+        if p_filt > target + PSWEEP_TRIM_BAR:
+            RELAY_PUMP.value(0); RELAY_SOLENOID.value(1)
+        elif p_filt < target - PSWEEP_TRIM_BAR:
+            RELAY_PUMP.value(1); RELAY_SOLENOID.value(0)
+        else:
+            break
+        await asyncio.sleep_ms(2)
+        r = _sweep_break(brew_data, 'psweep_abort')
+        if r: reason = r; break
+        tray_reason = tray_guard_check(brew_data, utime, tray_state)
+        if tray_reason: reason = tray_reason; break
+        now = utime.ticks_ms()
+        dt = utime.ticks_diff(now, last_t) / 1000.0
+        last_t = now
+        bar = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset
+        p_filt += (bar - p_filt) * min(1.0, dt / PCAP_FILT_TAU)
+        if utime.ticks_diff(now, t0) >= PSWEEP_TRIM_MS: reason = 'timeout'; break
+    ms_elapsed = utime.ticks_diff(utime.ticks_ms(), t0)
+    RELAY_SOLENOID.value(0)
+    RELAY_PUMP.value(1)
+    print('PSWEEP_TRIM seg=%d bar=%.2f ms=%d reason=%s' % (prev_seg, p_filt, ms_elapsed, reason))
+    return reason
+
+
+async def pressure_sweep_run(brew_data, utime, asyncio, ms):
+    """Vaihesiirtopyyhkäisy yhtenä laitekomentona (PWM-1B4, säännöt 10-13): ref, p_0..p_{n-1}, ref."""
+    SWITCH_BREW, SWITCH_WATER, SWITCH_STEAM = brew_data.get_switches()
+    RELAY_PUMP, RELAY_SOLENOID, RELAY_HEATER = brew_data.get_relays()
+    seg_ms = int(ms)
+    target = getattr(brew_data, 'psweep_target_bar', None)
+    n = getattr(brew_data, 'psweep_n', None) or PSWEEP_N_DEFAULT
+    sensor = brew_data.pressure_sensor.pressure_sensor
+    gain = brew_data.pressure_sensor.gain
+    offset = brew_data.pressure_sensor.offset
+    print('PSWEEP_START segs=%d n=%d ms=%d target=%.2f period_us=%d on_us=%d' % (
+        n + 2, n, seg_ms, target if target is not None else 0.0, PCAP_GATE_PERIOD_US, PCAP_MAINS_US))
+    if SWITCH_BREW.value() or SWITCH_WATER.value() or SWITCH_STEAM.value():
+        print('PSWEEP_END segs=0 dur_ms=0 reason=switch'); return
+    if brew_data.dev_safe:
+        print('PSWEEP_END segs=0 dur_ms=0 reason=devsafe'); return
+    tray_state, tray_reason = tray_guard_start(brew_data, utime)
+    if tray_reason: print('PSWEEP_END segs=0 dur_ms=0 reason=%s' % tray_reason); return
+    segs_done = 0
+    reason = 'ok'
+    dur_ms = 0
+    brew_data.set_mode('pressure sweep')
+    try:
+        RELAY_SOLENOID.value(1)     # solenoid before pump, like every other pumping path
+        RELAY_PUMP.value(1)
+        settled, reason, p_filt = await pcap_settle(
+            brew_data, utime, asyncio, sensor, gain, offset, target, tray_state)
+        if settled:
+            dur_t0 = utime.ticks_ms()      # dur_ms on asettumisen jälkeinen kesto (spec 2.7)
+            phase_list = [None] + list(psweep_phases(n)) + [None]     # ref, p_0..p_{n-1}, ref
+            last_bar = p_filt
+            for k, phase_us in enumerate(phase_list):
+                seg_reason, seg_last_bar = await _psweep_segment(
+                    brew_data, utime, asyncio, sensor, gain, offset, tray_state, k, seg_ms, phase_us)
+                segs_done += 1
+                if seg_last_bar is not None:
+                    last_bar = seg_last_bar
+                if seg_reason != 'ok':
+                    reason = seg_reason
+                    break
+                if k < len(phase_list) - 1:    # trim between segments (spec 2.6); timeout continues
+                    trim_reason = await _psweep_trim(
+                        brew_data, utime, asyncio, sensor, gain, offset, target, tray_state, k, last_bar)
+                    if trim_reason not in ('ok', 'timeout'):
+                        reason = trim_reason
+                        break
+            dur_ms = utime.ticks_diff(utime.ticks_ms(), dur_t0)
+    finally:
+        RELAY_PUMP.value(0)
+        RELAY_SOLENOID.value(0)
+        brew_data.set_mode('IDLE')
+        brew_data.psweep_abort = False
+    print('PSWEEP_END segs=%d dur_ms=%d reason=%s' % (segs_done, dur_ms, reason))
 
 
 PHOLD_PRINT_MS = 500        # PHOLD-rivin tulostusväli, ms (spec 1)

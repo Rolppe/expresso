@@ -2,7 +2,7 @@
 # COMMANDS — one dispatcher for BLE writes and serial "CMD <command>" lines (17.9.2026)
 # ============================================================================
 
-from functions import PCAP_GATE_PERIOD_US
+from functions import PCAP_GATE_PERIOD_US, PSWEEP_N_MAX
 
 
 def _float_arg(command):
@@ -119,6 +119,27 @@ def handle_command(brew_data, command):
             except Exception:
                 brew_data.pcap_target_bar = None
                 brew_data.pcap_gate_phase_us = None
+
+    elif command.startswith('psweep:'):
+        # psweep:<ms 200-2500>:<bar>[:<n 2-8>] | psweep:stop (PWM-1B4-PYYHKAISY, spec 5). Kentät
+        # nollataan None:ksi joka pyynnöllä, myös stop:lla ja virheellisellä syötteellä.
+        arg = command.split(':', 1)[1]
+        brew_data.psweep_target_bar = None
+        brew_data.psweep_n = None
+        if arg == 'stop':
+            brew_data.abort_pressure_sweep()
+        else:
+            try:
+                parts = arg.split(':')
+                if len(parts) < 2:
+                    raise ValueError('psweep requires a target bar')
+                brew_data.psweep_target_bar = float(parts[1])
+                if len(parts) > 2:
+                    brew_data.psweep_n = min(PSWEEP_N_MAX, max(2, int(float(parts[2]))))
+                brew_data.request_pressure_sweep(float(parts[0]))
+            except Exception:
+                brew_data.psweep_target_bar = None
+                brew_data.psweep_n = None
 
     elif command.startswith('phold:'):
         # Free pump+valve run for restrictor balancing: phold:<s 1-120> | phold:stop.

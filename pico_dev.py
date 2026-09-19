@@ -14,6 +14,8 @@ Usage:
   pico_dev.py shot <seconds> [out.log]  CMD tshot:<seconds>, capture PI/TS lines until TS_END
   pico_dev.py pcap <ms>[:<bar>[:<phase_us>]] [out.log]  CMD pcap:<ms>[:<bar>[:<phase_us>]], capture
                                         PCAP lines until PCAP_END
+  pico_dev.py psweep <ms>:<bar>[:<n>] [out.log]  CMD psweep:<ms>:<bar>[:<n>], capture PSWEEP/PCAP
+                                        lines until PSWEEP_END
   pico_dev.py phold <s> [out.log]       CMD phold:<s>, capture PHOLD lines until PHOLD_END
   pico_dev.py capture <seconds> [out]   print/save serial output (no interrupt)
   pico_dev.py verify <MANIFEST.json>    SHA-256 of every file on the Pico vs. the manifest
@@ -196,6 +198,21 @@ def pcap(ms, out_path=None):
     return 0
 
 
+def psweep(arg, out_path=None):
+    # Same pattern as pcap(), but stop marker is PSWEEP_END and timeout is at least 180 s
+    # (PWM-1B4-PYYHKAISY): a sweep is seven segments and six trim steps at the default n=5.
+    link = Link()
+    link.send(('CMD psweep:%s\r\n' % arg).encode())
+    tail = capture(180, out_path, stop_marker=b'PSWEEP_END', link=link)
+    text = tail.decode('utf-8', 'replace')
+    line = next((l for l in text.splitlines() if l.startswith('PSWEEP_END')), None)
+    reason = line.split('reason=')[-1].strip() if line and 'reason=' in line else None
+    if not line or reason != 'ok':
+        print('PSWEEP_FAIL reason=%s' % (reason or 'no_end'))
+        return 1
+    return 0
+
+
 def phold(seconds, out_path=None):
     # One connection for the command and the capture, same pattern as pcap()/shot(): the bridge
     # serves a single client (PICO-HALLINTA.md luku 3).
@@ -269,6 +286,8 @@ if __name__ == '__main__':
         shot(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else None)
     elif op == 'pcap':
         sys.exit(pcap(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else None))
+    elif op == 'psweep':
+        sys.exit(psweep(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else None))
     elif op == 'phold':
         sys.exit(phold(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else None))
     elif op == 'capture':
