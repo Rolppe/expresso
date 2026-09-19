@@ -310,13 +310,19 @@ async def run_shot(brew_data, utime, asyncio, pump_ratio_calculator, keep_runnin
 # 9.0-9.25. The dose is the pump's, not the software's, so the criteria are on a 1 s average of the
 # pressure rather than on the instantaneous reading: the sawtooth is real and it cancels in the mean,
 # which is also what a damped reference gauge shows.
-PCAL_COARSE_GAP = 1.0       # bar below the target where the full pump cycle stops (one stroke's room)
+PCAL_COARSE_GAP = 1.5       # bar below the target where the full pump cycle stops. Room for one
+                            # stroke (~1 bar) plus the reading's own lag: the closed circuit rises
+                            # ~3.5 bar/s at full duty, so a late stop is a bar of overshoot that
+                            # cannot be undone.
 # Settled does NOT mean "at the target": one stroke is worth about a bar, so the hold lands wherever
 # the last dose left it, and no band narrower than a dose can be reached on purpose. What the
 # calibration needs is a *stable* pressure whose true value the reference gauge reads - the target is
 # only where we aim. Settled therefore means the 1 s average stopped drifting, within reach of the aim.
 PCAL_DRIFT = 0.15           # bar; allowed change of the 1 s average over one second
 PCAL_REACH = 1.5            # bar; how far from the target the settled pressure may be
+PCAL_QUIET_MS = 2000        # ms since the last stroke before the pressure counts as settled: a slow
+                            # creep can look drift-free while it is still being fed, and a point
+                            # measured mid-creep is exactly the defect this run was rebuilt to remove
 PCAL_TOPUP = 0.2            # bar below the target where the fine phase fires one more stroke
 PCAL_OVERSHOOT = 1.5        # bar above the target, on the average, that ends the run as a runaway
 PCAL_AVG_TAU = 1.0          # s; low-pass that judges *settled* and *overshoot*
@@ -393,14 +399,18 @@ async def pressure_calibration_run(brew_data, utime, asyncio, stage):
                     break
                 # The pump only adds: in a closed circuit an overshoot is permanent, so it must not
                 # start the measurement window - it ends the run instead (user, 19.9.2026).
-                if p_avg > target + PCAL_OVERSHOOT:
-                    reason = 'overshoot %.2f bar' % p_avg
+                if p_avg > target + PCAL_OVERSHOOT or pressure > target + 2.5:
+                    reason = 'overshoot %.2f bar' % (p_avg if p_avg > target + PCAL_OVERSHOOT else pressure)
                     break
                 # The coarse switch reads the instantaneous pressure, not the average: at a full-duty
                 # rise the 1 s low-pass lags by seconds, and a laggy stop overshoots by more than the
                 # stroke it was meant to leave room for. The average is used only near the target,
                 # where the sawtooth - not the lag - is what has to be filtered out.
-                if p_fast < target - PCAL_COARSE_GAP:
+                # Each timescale drives what it is good for. The coarse stop reads the fastest
+                # value available: stopping a little early is harmless - the fine phase tops up -
+                # while stopping late cannot be undone. Judging it on p_fast cost an
+                # 'overpressure 12.0 bar' abort on the machine, 19.9.2026.
+                if pressure < target - PCAL_COARSE_GAP:
                     RELAY_PUMP.value(1)                 # coarse phase: full cycle
                     settled_since = None
                 else:
@@ -417,7 +427,8 @@ async def pressure_calibration_run(brew_data, utime, asyncio, stage):
                         drift = 99.0 if p_ref is None else abs(p_avg - p_ref)
                         p_ref = p_avg
                         ref_t = now
-                    if drift > PCAL_DRIFT or abs(p_avg - target) > PCAL_REACH:
+                    quiet = utime.ticks_diff(now, last_stroke) >= PCAL_QUIET_MS
+                    if drift > PCAL_DRIFT or abs(p_avg - target) > PCAL_REACH or not quiet:
                         settled_since = None
                     elif settled_since is None:
                         settled_since = now
