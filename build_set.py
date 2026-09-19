@@ -109,13 +109,35 @@ def parse_stat_sizes(text):
 
 
 def build_manifest(rows, sizes):
-    """Manifesti on JSON-lista {'name','size','sha256'}; MANIFEST.json itse ei ole listassa."""
+    """Manifesti on JSON-lista {'name','size','sha256'}; MANIFEST.json itse ei ole listassa.
+    Jokaisella merkinnällä on oltava kokonaislukukoko — puuttuva koko (esim. stat epäonnistui) on
+    virhe, joka keskeyttää ajon ennen manifestin työntämistä."""
     man = []
+    missing = []
     for name, sha in sorted(rows.items()):
         if name == '/MANIFEST.json':
             continue
-        man.append({'name': name, 'size': sizes.get(name), 'sha256': sha})
+        size = sizes.get(name)
+        if size is None:
+            missing.append(name)
+        man.append({'name': name, 'size': size, 'sha256': sha})
+    if missing:
+        raise RuntimeError('koko puuttuu manifestista: %s' % ', '.join(missing))
     return man
+
+
+def list_remote_files(dir_path):
+    """Tiedostojen suhteelliset nimet `dir_path`:n alla (`find <dir> -type f`)."""
+    r = run_as('find %s -type f' % dir_path)
+    if r.returncode != 0:
+        raise RuntimeError('tiedostolistaus epäonnistui: %s: %s' % (dir_path, r.stderr.strip()))
+    prefix = dir_path.rstrip('/') + '/'
+    names = set()
+    for line in r.stdout.strip('\n').split('\n'):
+        if not line.strip():
+            continue
+        names.add(line[len(prefix):] if line.startswith(prefix) else line)
+    return names
 
 
 def list_sets():
@@ -198,12 +220,25 @@ def build(new_name, base, files):
     if r.returncode != 0:
         raise RuntimeError('pohjan kopiointi epäonnistui: %s' % r.stderr.strip())
 
+    # `adb shell` ei kaikissa versioissa välitä etäkomennon paluuarvoa, joten epäonnistunut
+    # `cp -r` voi näyttää onnistuneelta — todenna listaamalla molemmat puolet.
+    base_files = list_remote_files(base_dir)
+    new_files = list_remote_files(new_dir)
+    print('base=%d new=%d' % (len(base_files), len(new_files)))
+    missing_from_copy = sorted(base_files - new_files)
+    if missing_from_copy:
+        raise RuntimeError('pohjan kopiointi jätti puuttumaan: %s' % ', '.join(missing_from_copy))
+
     for name in files:
         push_and_verify(os.path.join(PICO_DIR, name), name, new_dir)
 
     r = run_as("find %s -type f ! -name MANIFEST.json -exec sha256sum {} \\;" % new_dir)
+    if r.returncode != 0:
+        raise RuntimeError('sha256sum-ajo epäonnistui: %s' % r.stderr.strip())
     rows = parse_sha256sum(r.stdout)
     r = run_as("find %s -type f ! -name MANIFEST.json -exec stat -c '%%n %%s' {} \\;" % new_dir)
+    if r.returncode != 0:
+        raise RuntimeError('stat-ajo epäonnistui: %s' % r.stderr.strip())
     sizes = parse_stat_sizes(r.stdout)
     manifest = build_manifest(rows, sizes)
 
