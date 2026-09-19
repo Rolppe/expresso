@@ -75,18 +75,44 @@ def detrend(x):
     return [v - (mean_x + slope * (i - mean_i)) for i, v in enumerate(x)]
 
 
-def goertzel_amp(x, fs, freq):
-    """Goertzel single-frequency estimate; returns the equivalent sinusoid amplitude."""
+def goertzel(x, fs, freq):
+    """(amplitudi, vaihe radiaaneina) — vaihe on kosinin vaihe näytteen 0 hetkellä."""
     n = len(x)
     if n == 0:
-        return 0.0
-    coeff = 2.0 * math.cos(2.0 * math.pi * freq / fs)
-    s1 = s2 = 0.0
+        return 0.0, 0.0
+    w = 2.0 * math.pi * freq / fs
+    coeff = 2.0 * math.cos(w); s1 = s2 = 0.0
     for v in x:
-        s0 = v + coeff * s1 - s2
-        s2, s1 = s1, s0
-    power = max(0.0, s1 * s1 + s2 * s2 - coeff * s1 * s2)
-    return 2.0 * math.sqrt(power) / n
+        s0 = v + coeff * s1 - s2; s2, s1 = s1, s0
+    re = s1 - s2 * math.cos(w); im = s2 * math.sin(w)
+    return 2.0 * math.sqrt(max(0.0, re * re + im * im)) / n, math.atan2(-im, re)
+
+def goertzel_amp(x, fs, freq):
+    """Thin wrapper around goertzel() (PWM-1B5 kohta 1). The new form is algebraically the same as
+    the old one (re^2+im^2 == s1^2+s2^2-coeff*s1*s2), but not bit-identical: measured over 200
+    random inputs, 125 differ in the last ulp, worst relative difference 1.3e-15. pskip_delay.py
+    imports this by name, pskip_fixture.py is its measure."""
+    return goertzel(x, fs, freq)[0]
+
+def refine_peak(x, fs, lo=49.0, hi=51.2, step=0.02):
+    """Goertzel-haku askeleella `step` + paraabelin huippu kolmesta pisteestä; (freq, amp). Signaali
+    keskiarvoistetaan nollaan ennen hakua (PWM-1B5 kohta 1)."""
+    n = len(x)
+    if n == 0:
+        return lo, 0.0
+    mean_x = sum(x) / n
+    xc = [v - mean_x for v in x]
+    steps = int(round((hi - lo) / step))
+    freqs = [lo + i * step for i in range(steps + 1)]
+    amps = [goertzel_amp(xc, fs, f) for f in freqs]
+    best_i = max(range(len(amps)), key=lambda i: amps[i])
+    if 0 < best_i < len(amps) - 1:
+        y0, y1, y2 = amps[best_i - 1], amps[best_i], amps[best_i + 1]
+        denom = y0 - 2.0 * y1 + y2
+        delta = 0.5 * (y0 - y2) / denom if abs(denom) > 1e-12 else 0.0
+        delta = max(-1.0, min(1.0, delta))
+        return freqs[best_i] + delta * step, y1 - 0.25 * (y0 - y2) * delta
+    return freqs[best_i], amps[best_i]
 
 
 def band_peak(x, fs, band, step=BAND_STEP_HZ, exclude_hz=PEAK_EXCLUDE_HZ):
