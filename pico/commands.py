@@ -59,6 +59,26 @@ def handle_command(brew_data, command):
             brew_data.pcal_state = 'error'
             brew_data.pcal_msg = 'command failed: ' + str(e)
 
+    elif command.startswith('pcalset:'):
+        # pcalset:<gain>:<offset> writes the sensor calibration directly and saves it. The wizard's
+        # own run is a locked-line tool: its dosing is a fixed stroke per window, which is too much
+        # for a closed circuit (a bar a stroke) and far too little for a flowing one (duty 0.034
+        # against the 0.13 a real hold needs, measured 19.9.2026). A calibration measured during
+        # ordinary shots therefore needs a way in that does not go through the wizard.
+        try:
+            parts = command.split(':')
+            gain = float(parts[1])
+            offset = float(parts[2])
+            sensor = brew_data.pressure_sensor
+            if not sensor.calibration_valid(gain, offset):
+                print('PCALSET_REJECT gain=%.4f offset=%.3f' % (gain, offset))
+            else:
+                sensor.set_calibration(gain, offset)
+                sensor.save_calibration()
+                print('PCALSET_OK gain=%.4f offset=%.3f' % (sensor.gain, sensor.offset))
+        except Exception as e:
+            print('PCALSET_FAIL %s' % e)
+
     elif command.startswith('pzero:'):
         # Vented zero: heater off, solenoid cycled until the raw value stops moving. A resting
         # reading is not a zero (PCAL-KORJAUS, 19.9.2026).
