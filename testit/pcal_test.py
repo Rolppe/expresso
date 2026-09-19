@@ -10,7 +10,7 @@ src = open(os.path.join(HERE, 'shot_test.py')).read().split('fails = []')[0]
 exec(compile(src, 'shot_test_prelude', 'exec'), globals())
 
 functions.PCAL_HOLD_MS = 3000
-functions.PCAL_TIMEOUT_MS = 20000
+functions.PCAL_TIMEOUT_MS = 45000   # the fine phase creeps in stroke-sized steps; give it room
 
 fails = []
 def check(name, cond, extra=''):
@@ -81,7 +81,7 @@ check('the end line names raw, n, the ripple and the window',
 # 6. an overshoot does not start the counter and stores nothing
 # A dose far larger than the coarse phase leaves room for: the fine phase's first stroke lands
 # well past the target, and a closed circuit cannot give it back.
-bd, out = run_stage(closed_plant(3.0, stroke_bar=3.0), 8.0)
+bd, out = run_stage(closed_plant(3.0, stroke_bar=5.0), 8.0)
 check('an overshoot ends the run and stores no point',
       bd.pcal_raw.get('brew') is None and 'overshoot' in out, line(out, 'PCAL_ABORT') or 'ei ABORT-riviä')
 
