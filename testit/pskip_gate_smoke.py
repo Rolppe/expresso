@@ -68,6 +68,20 @@ class BrewData:
     def set_mode(self, m):
         self.mode = m
 
+    # Kaukalovahdin vaakarajapinta (EXPRESSO-KAUKALOVAHTI): tuore lukema rajojen sisalla, jotta
+    # vahti ei katkaise tata testia. Vahdin oma testi on testit/tray_guard_smoke.py.
+    def get_weight(self):
+        return 100.0
+
+    def get_weight_ms(self):
+        return int(time.monotonic() * 1000)
+
+    def get_weight_limit(self):
+        return 470.0
+
+    def get_weight_rise_limit(self):
+        return 250.0
+
 
 class Utime:
     def ticks_ms(self):
