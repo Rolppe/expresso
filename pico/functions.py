@@ -539,7 +539,9 @@ PCAP_RAW_B = -3.522929
 PCAP_OVER_BAR = 11.0
 PCAP_SETTLE_MAX_MS = 15000   # hard cap on the event-driven settling phase (korjaus 2)
 PCAP_PLATEAU_MS = 1000       # plateau window: rise below PCAP_PLATEAU_BAR over this span ends settling
-PCAP_PLATEAU_BAR = 0.05
+PCAP_PLATEAU_BAR = 0.15      # measured: filtered noise sd 0.034 bar -> 1s-apart diff sd ~0.048 bar (korjaus 3)
+PCAP_FILT_TAU = 0.3          # one-pole low-pass time constant, s (korjaus 3): raw-sample sd is 1.595 bar,
+                              # too noisy for either settling test on its own
 
 
 async def pressure_capture_run(brew_data, utime, asyncio, ms):
@@ -579,8 +581,11 @@ async def pressure_capture_run(brew_data, utime, asyncio, ms):
         # rising (plateau) or PCAP_SETTLE_MAX_MS elapses — whichever comes first. Non-blocking: every
         # pass yields with sleep_ms(0) so the watchdog feeder (main.py:318-322) still gets a turn.
         settle_t0 = utime.ticks_ms()
-        plateau_t = settle_t0
-        plateau_bar = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset
+        last_t = settle_t0
+        first_bar = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset
+        p_filt = first_bar        # one-pole low-pass of the raw sample (korjaus 3); both settling
+        plateau_t = settle_t0     # tests below read this, never the raw sample directly
+        plateau_bar = p_filt
         while not settled:
             if SWITCH_BREW.value() or SWITCH_WATER.value() or SWITCH_STEAM.value():
                 reason = 'switch'
@@ -593,24 +598,30 @@ async def pressure_capture_run(brew_data, utime, asyncio, ms):
                 break
             bar = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset
             if bar > pmax_bar: pmax_bar = bar
+            # Overpressure and pmax stay on the raw sample (korjaus 3, rule 4) — it's a safety limit
+            # and must react immediately, not with the filter's lag. Do not "unify" this with p_filt.
             if bar > PCAP_OVER_BAR:
                 reason = 'overpressure'
                 break
             now = utime.ticks_ms()
+            dt = utime.ticks_diff(now, last_t) / 1000.0
+            last_t = now
+            p_filt += (bar - p_filt) * min(1.0, dt / PCAP_FILT_TAU)
             settle_ms = utime.ticks_diff(now, settle_t0)
             settle_reason = None
-            if target is not None and bar >= target:
+            if target is not None and p_filt >= target:
                 settle_reason = 'target'
             elif utime.ticks_diff(now, plateau_t) >= PCAP_PLATEAU_MS:
-                if (bar - plateau_bar) < PCAP_PLATEAU_BAR:
+                if (p_filt - plateau_bar) < PCAP_PLATEAU_BAR:
                     settle_reason = 'plateau'
                 else:
                     plateau_t = now
-                    plateau_bar = bar
+                    plateau_bar = p_filt
             if settle_reason is None and settle_ms >= PCAP_SETTLE_MAX_MS:
                 settle_reason = 'timeout'
             if settle_reason is not None:
-                print('PCAP_SETTLED bar=%.2f ms=%d reason=%s' % (bar, settle_ms, settle_reason))
+                print('PCAP_SETTLED bar=%.2f peak=%.2f ms=%d reason=%s' % (
+                    p_filt, pmax_bar, settle_ms, settle_reason))
                 settled = True
                 break
             await asyncio.sleep_ms(0)
