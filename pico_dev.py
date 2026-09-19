@@ -13,6 +13,7 @@ Usage:
                                         and print serial output for <seconds> (default 3)
   pico_dev.py shot <seconds> [out.log]  CMD tshot:<seconds>, capture PI/TS lines until TS_END
   pico_dev.py pcap <ms>[:<bar>] [out.log]  CMD pcap:<ms>[:<bar>], capture PCAP lines until PCAP_END
+  pico_dev.py phold <s> [out.log]       CMD phold:<s>, capture PHOLD lines until PHOLD_END
   pico_dev.py capture <seconds> [out]   print/save serial output (no interrupt)
   pico_dev.py verify <MANIFEST.json>    SHA-256 of every file on the Pico vs. the manifest
   pico_dev.py watchdog-test             Ctrl-C and stop feeding: the Pico must reset itself (≤ 8 s)
@@ -194,6 +195,21 @@ def pcap(ms, out_path=None):
     return 0
 
 
+def phold(seconds, out_path=None):
+    # One connection for the command and the capture, same pattern as pcap()/shot(): the bridge
+    # serves a single client (PICO-HALLINTA.md luku 3).
+    link = Link()
+    link.send(('CMD phold:%s\r\n' % seconds).encode())
+    tail = capture(float(seconds) + 20, out_path, stop_marker=b'PHOLD_END', link=link)
+    text = tail.decode('utf-8', 'replace')
+    line = next((l for l in text.splitlines() if l.startswith('PHOLD_END')), None)
+    reason = line.split('reason=')[-1].split()[0].strip() if line and 'reason=' in line else None
+    if not line or reason not in ('ok', 'stop'):
+        print('PHOLD_FAIL reason=%s' % (reason or 'no_end'))
+        return 1
+    return 0
+
+
 def verify(manifest_path):
     manifest = json.load(open(manifest_path))
     link = Link()
@@ -252,6 +268,8 @@ if __name__ == '__main__':
         shot(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else None)
     elif op == 'pcap':
         sys.exit(pcap(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else None))
+    elif op == 'phold':
+        sys.exit(phold(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else None))
     elif op == 'capture':
         capture(float(sys.argv[2]), sys.argv[3] if len(sys.argv) > 3 else None)
     elif op == 'verify':
