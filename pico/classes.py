@@ -761,6 +761,25 @@ class PumpPressureController:
         self._set(self.utime.ticks_diff(now, self.window_start) < on_ms, now, force=True)
         return self.on
 
+    def apply_duty(self, duty, pressure=None):
+        """Apply a duty computed elsewhere (outer FlowController, VIRTAUSSAATO-2 18.9.2026) through
+        the same time-proportional window as update()'s tail. No PI, no continuous_error branch, no
+        integral: the caller already decided the duty."""
+        now = self.utime.ticks_ms()
+        if pressure is not None:
+            self.filtered = pressure
+        dt = self.utime.ticks_diff(now, self.last_update) / 1000.0
+        self.last_update = now
+        if dt > 0.2:
+            dt = 0.2
+        self.duty = duty
+        self.duty_avg += (self.duty - self.duty_avg) * (dt / 5.0)
+        if self.utime.ticks_diff(now, self.window_start) >= self.window_ms:
+            self.window_start = now
+        on_ms = int(self.duty * self.window_ms / self.step_ms + 0.5) * self.step_ms
+        self._set(self.utime.ticks_diff(now, self.window_start) < on_ms, now, force=True)
+        return self.on
+
     def stop(self):
         self.on = False
         self.relay.value(0)
@@ -768,26 +787,28 @@ class PumpPressureController:
 
 
 # ============================================================================
-# FLOW CONTROLLER (outer cascade loop, VIRTAUSSAATO 18.9.2026)
+# FLOW CONTROLLER (outer duty loop, VIRTAUSSAATO-2 18.9.2026)
 # ============================================================================
 
 class FlowController:
-    """Outer flow loop: PI on flow (g/s) that outputs a pressure setpoint for the existing
-    PumpPressureController (the inner loop, unchanged). See paketit/VIRTAUSSAATO.spec.md."""
-    def __init__(self, utime, target, p_start, kp=0.55, ki=2.0, p_min=2.0, p_max=10.5,
-                 rate_bar_s=2.2, lead=0.8, update_ms=100, stale_limit=3):
+    """Outer flow loop: PI on flow (g/s) that outputs a pump duty (0-1) directly, with pressure
+    only as a ceiling override, applied via PumpPressureController.apply_duty. See
+    paketit/VIRTAUSSAATO-2.spec.md. Replaces the pressure-setpoint cascade (VIRTAUSSAATO.spec.md):
+    that cascade asked for a *pressure*, and an open valve needs a *high* duty to hold pressure
+    low, so the cascade asked for the wrong quantity (paketit/VIRTAUSSAATO-2.md)."""
+    def __init__(self, utime, target, duty_start, kp=0.17, ki=0.13, p_max=10.5, p_margin=3.0,
+                 update_ms=100, stale_limit=3):
         self.utime = utime
         self.target = target
         self.kp = kp
         self.ki = ki
-        self.p_min = p_min
         self.p_max = p_max
-        self.rate_bar_s = rate_bar_s
-        self.lead = lead
+        self.p_margin = p_margin
         self.update_ms = update_ms
         self.stale_limit = stale_limit
-        self.sp = float(p_start)
+        self.duty = float(duty_start)
         self.e_prev = None
+        self.e_avg = None
         self.stale = 0
         self.failed = False
         self.sat_ms = 0.0
@@ -802,7 +823,7 @@ class FlowController:
             return None
         now = self.utime.ticks_ms()
         if self.utime.ticks_diff(now, self.last_update) < self.update_ms:
-            return self.sp
+            return self.duty
         dt = self.utime.ticks_diff(now, self.last_update) / 1000.0
         if dt > 0.5:
             dt = 0.5
@@ -812,28 +833,26 @@ class FlowController:
             if self.stale >= self.stale_limit:
                 self.failed = True
                 return None
-            return self.sp
+            return self.duty
         self.stale = 0
         e = self.target - flow
         de = 0.0 if self.e_prev is None else e - self.e_prev
         self.e_prev = e
-        sp_new = self.sp + self.kp * de + self.ki * e * dt
-        lo = self.sp - self.rate_bar_s * dt
-        hi = self.sp + self.rate_bar_s * dt
-        sp_new = lo if sp_new < lo else (hi if sp_new > hi else sp_new)
-        lo = pressure - self.lead
-        hi = pressure + self.lead
-        sp_new = lo if sp_new < lo else (hi if sp_new > hi else sp_new)
-        sp_new = self.p_min if sp_new < self.p_min else (self.p_max if sp_new > self.p_max else sp_new)
-        self.sp = sp_new
-        # Saturation is measured from the actual pressure, not the setpoint (VIRTAUSSAATO
-        # correction-1, K1): the lead clamp keeps sp within pressure +- lead of a pressure that
-        # itself wobbles near the ceiling, so sp reaching p_max never holds for a full 2 s. What
-        # matters is that pressure is at its limit and flow still misses the target.
-        # sat_ms is a leaky counter and saturated a Schmitt trigger (correction-3, K7): one noisy
-        # flow sample must not zero a 2 s dwell, since the same 0.25 g scale noise (real hardware)
-        # would make the flag flicker in the log on the real machine too.
-        if (pressure >= self.p_max - 0.5 and e > 0.1) or (pressure <= self.p_min + 0.5 and e < -0.1):
+        duty_new = self.duty + self.kp * de + self.ki * e * dt
+        # Pressure ceiling override (VIRTAUSSAATO-2 rule 2), not a setpoint: cap is how much duty
+        # headroom is left before p_max, and the applied duty is min(duty_pi, duty_cap).
+        cap = (self.p_max - pressure) / self.p_margin
+        cap = 0.0 if cap < 0.0 else (1.0 if cap > 1.0 else cap)
+        self.duty = min(max(duty_new, 0.0), 1.0, cap)
+        # VIRTAUSSAATO-2.correction-5.md K8: fsat measures the filtered error, not "is the cap
+        # binding right now" (that was unobservable in the log and noise-driven: duty wobbles
+        # around the cap, and every dip leaked the counter dry). e_avg is a 1.0 s low-pass on e;
+        # the 0.2 g/s threshold is 3x the filtered noise floor (scale noise 0.21 g/s -> ~0.07 g/s
+        # after the 1.0 s filter). The lower branch (duty pinned at 0) is gone: the pump is the
+        # only water source, so zero duty is zero flow, not a state the flag needs to catch.
+        # sat_ms stays a leaky counter and saturated a Schmitt trigger (correction-3 K7, unchanged).
+        self.e_avg = e if self.e_avg is None else self.e_avg + (e - self.e_avg) * min(1.0, dt / 1.0)
+        if self.e_avg > 0.2:
             self.sat_ms += dt * 1000
         else:
             self.sat_ms -= 0.5 * dt * 1000
@@ -842,7 +861,7 @@ class FlowController:
             self.saturated = True
         elif self.sat_ms <= 0:
             self.saturated = False
-        return self.sp
+        return self.duty
 
 
 # ============================================================================

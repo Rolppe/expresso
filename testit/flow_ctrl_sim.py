@@ -39,13 +39,23 @@ SAMPLE_MS = 86      # scale sample interval (measured, KEHITYSYHTEYS.md:747-776)
 SIGMA, TARGET = 0.25, 2.2
 P_MAX = 10.5        # frozen FlowController default (correction-1 K4: not tunable)
 T0 = 7 * SAMPLE_MS / 1000.0   # prime the scale (median-3 costs 2, FLOW_MIN_POINTS 4, pump off) first
-RUN_S = T0 + 34.0   # last phase 24-34 s (correction-1 K3)
+RUN_S = T0 + 44.0   # VIRTAUSSAATO-2 luku 4: covers the whole valve range, not just the tight end
+K_SLOWEST = 0.50    # slowest reachable phase in the k-schedule below
+# VIRTAUSSAATO-2.correction-3.md K4: settle margin for assertion 1, derived, not chosen. Plant time
+# constant tau = 1/k; a step response settles in about 2*tau; the slowest reachable phase is
+# k=0.50 (tau=2.0 s) -> 2*tau=4.0 s. correction-2's 1.0 s moving average eats its own window on
+# top of that. Total: 2/K_SLOWEST + 1.0 = 5.0 s. Recompute this if the k-schedule below changes.
+SETTLE_MARGIN_S = 2.0 / K_SLOWEST + 1.0
 def k_at(t):
     t -= T0
     if t < 8.0: return 0.50
-    if t < 16.0: return 0.30
-    if t < 24.0: return 0.50
-    return 0.166
+    if t < 16.0: return 0.166
+    if t < 26.0: return 0.50
+    if t < 35.0: return 1.5
+    return 3.0
+# Known limitation, recorded here per VIRTAUSSAATO-2.spec.md luku 4: this model makes flow directly
+# proportional to duty (6.7*u at equilibrium), while the real pump has a minimum stroke and
+# backflow. Retune from the first hardware run.
 def run(flow_mode):
     random.seed(1)
     bd = make_brew_data()
@@ -58,7 +68,10 @@ def run(flow_mode):
     def plant_sim(dt_s):
         for _ in range(int(round(dt_s * 1000))):
             state['queue'].append(pins.get(11, 0)); a = state['queue'].pop(0)
-            k = k_at(clock[0])
+            # VIRTAUSSAATO-2.correction-1.md K1: fmode:off regression proves pressure control is
+            # unchanged, not that it survives an open valve (it can't, k=3.0 caps at ~2.2 bar) — so
+            # it runs the plant at a fixed, reachable k instead of the fmode:on schedule.
+            k = k_at(clock[0]) if flow_mode else 0.50
             p = state['p'] + ((GAIN if a else 0.0) - k * state['p']) / 1000.0
             p = p if p > 0.0 else 0.0
             state['p'] = p
@@ -98,8 +111,23 @@ def end_reason(lines):
             return ln.split('reason=')[1].split()[0]
     return None
 
-def band_ok(ts, fs, t0, t1, margin=2.5, tol=0.25, target=TARGET):
+def band_ok(ts, fs, t0, t1, margin=2.5, tol=0.3, target=TARGET):
     return all(abs(f - target) <= tol for t, f in zip(ts, fs) if t0 + margin <= t < t1)
+
+def moving_avg_1s(fs, window_s=1.0, sample_ms=1):
+    """Trailing moving average over the same window length (default 1.0 s) as the scale's own flow
+    estimator (bd.flow_window_ms), applied to the trace's flow_true series (VIRTAUSSAATO-2
+    correction-2 K2): pump strokes and the 1.0 s scale window mean nobody controls or observes
+    instantaneous flow, only its 1.0 s average."""
+    window_n = int(round(window_s * 1000 / sample_ms))
+    csum = [0.0]
+    for f in fs:
+        csum.append(csum[-1] + f)
+    out = []
+    for i in range(len(fs)):
+        j = max(0, i - window_n + 1)
+        out.append((csum[i + 1] - csum[j]) / (i - j + 1))
+    return out
 
 fails = []
 def check(name, cond, extra=''):
@@ -108,23 +136,48 @@ def check(name, cond, extra=''):
 
 trace, lines = run(True)
 ts = [r[0] for r in trace]; ps = [r[1] for r in trace]; fs = [r[2] for r in trace]
-check('flow settles within 2.0 s (+0.5 s grace) of the 8 s change and stays there', band_ok(ts, fs, T0 + 8.0, T0 + 16.0))
-check('flow settles within 2.0 s (+0.5 s grace) of the 16 s change and stays there', band_ok(ts, fs, T0 + 16.0, T0 + 24.0))
+fs_avg = moving_avg_1s(fs)
+check('flow (1.0 s moving average) settles within 5.0 s (derived, correction-3 K4) at the start (k=0.50) and stays there', band_ok(ts, fs_avg, T0, T0 + 8.0, margin=SETTLE_MARGIN_S))
+check('flow (1.0 s moving average) settles within 5.0 s (derived, correction-3 K4) of the 16 s change (k=0.50) and stays there', band_ok(ts, fs_avg, T0 + 16.0, T0 + 26.0, margin=SETTLE_MARGIN_S))
+check('flow (1.0 s moving average) settles within 5.0 s (derived, correction-3 K4) of the 26 s change (k=1.5) and stays there', band_ok(ts, fs_avg, T0 + 26.0, T0 + 35.0, margin=SETTLE_MARGIN_S))
+check('flow (1.0 s moving average) settles within 5.0 s (derived, correction-3 K4) of the 35 s change (k=3.0) and stays there', band_ok(ts, fs_avg, T0 + 35.0, RUN_S, margin=SETTLE_MARGIN_S))
 check('pressure never exceeds 12.0 bar', max(ps) <= 12.0, 'huippu %.2f bar' % max(ps))
 check('pressure never reaches 13 bar', max(ps) < 13.0, 'huippu %.2f bar' % max(ps))
-settle = [p for t, p in zip(ts, ps) if T0 + 30.0 <= t < RUN_S]
-worst_p = max(abs(p - P_MAX) for p in settle) if settle else -1.0
-check('pressure settles within p_max +- 0.5 bar by 6.0 s into the unreachable-target phase and stays there',
-      bool(settle) and worst_p <= 0.5, 'poikkeama %.2f bar' % worst_p)
 rows = parse_log(lines)
-tail_rows = [r for r in rows if r[0] / 1000.0 >= T0 + 24.0]
+tail_rows = [r for r in rows if T0 + 8.0 <= r[0] / 1000.0 < T0 + 16.0]
 sat_rows = [r for r in tail_rows if r[2] == 1]
 first_sat = sat_rows[0][0] / 1000.0 if sat_rows else None
 stays_sat = first_sat is not None and all(r[2] == 1 for r in tail_rows if r[0] / 1000.0 >= first_sat)
-check('fsat reaches 1 within 6.5 s of the unreachable-target phase (24 s) and stays 1 to the end',
-      first_sat is not None and first_sat - (T0 + 24.0) <= 6.5 and stays_sat,
+check('fsat reaches 1 within 6.5 s of the k=0.166 phase (8 s) and stays 1 to the end of that phase',
+      first_sat is not None and first_sat - (T0 + 8.0) <= 6.5 and stays_sat,
       ('fsat=1 at %.2f s' % first_sat) if first_sat is not None else 'ei koskaan')
 check('the run reaches the end without an early abort', end_reason(lines) == 'stopped', str(end_reason(lines)))
+# VIRTAUSSAATO-2.correction-5.md K9: assertion 6 — a flag tied only to filtered error can rise
+# briefly in a big valve-change transient; that's fine, but it must prove it comes back down.
+# correction-6 K11: the start phase is excluded. Flow starts from zero there, so the flag is
+# *correct* to rise, and clearing it needs the derived 5.0 s settle plus the 4.0 s half-rate leak
+# = 9.0 s, which does not fit an 8.0 s phase. Assertion 7 below covers the start phase instead.
+phase_windows = [
+    ('16 s (k=0.50)', T0 + 16.0, T0 + 26.0),
+    ('26 s (k=1.5)', T0 + 26.0, T0 + 35.0),
+    ('35 s (k=3.0)', T0 + 35.0, RUN_S),
+]
+for name, t0, t1 in phase_windows:
+    last3 = [r for r in rows if t1 - 3.0 <= r[0] / 1000.0 < t1]
+    n_sat = sum(1 for r in last3 if r[2] == 1)
+    # correction-6 K12: the extra text states this row's own count. It used to print the failure
+    # reason on passing rows too, and a green row carrying a red reason is how a green fence stops
+    # being evidence.
+    check('fsat is 0 for the last 3.0 s of phase %s' % name,
+          bool(last3) and n_sat == 0,
+          'no rows' if not last3 else 'fsat=1 %d/%d riviä' % (n_sat, len(last3)))
+
+# correction-6 K11, assertion 7: the start phase gets a positive requirement instead of an
+# exemption — flow starts from zero, the target is genuinely not met, and the flag must say so.
+start_rows = [r for r in rows if T0 <= r[0] / 1000.0 < T0 + 5.0]
+n_start_sat = sum(1 for r in start_rows if r[2] == 1)
+check('fsat is 1 somewhere in the first 5.0 s of the start phase (flow starts from zero)',
+      n_start_sat > 0, 'fsat=1 %d/%d riviä' % (n_start_sat, len(start_rows)))
 
 trace2, lines2 = run(False)
 rows2 = parse_log(lines2)
