@@ -12,7 +12,7 @@ Usage:
   pico_dev.py cmd <command> [seconds]   send "CMD <command>" to the running firmware (no interrupt)
                                         and print serial output for <seconds> (default 3)
   pico_dev.py shot <seconds> [out.log]  CMD tshot:<seconds>, capture PI/TS lines until TS_END
-  pico_dev.py pcap <ms> [out.log]       CMD pcap:<ms>, capture PCAP lines until PCAP_END
+  pico_dev.py pcap <ms>[:<bar>] [out.log]  CMD pcap:<ms>[:<bar>], capture PCAP lines until PCAP_END
   pico_dev.py capture <seconds> [out]   print/save serial output (no interrupt)
   pico_dev.py verify <MANIFEST.json>    SHA-256 of every file on the Pico vs. the manifest
   pico_dev.py watchdog-test             Ctrl-C and stop feeding: the Pico must reset itself (≤ 8 s)
@@ -177,10 +177,14 @@ def shot(seconds, out_path=None):
 
 def pcap(ms, out_path=None):
     # One connection for the command and the capture, same pattern as shot(): the bridge serves
-    # a single client (PICO-HALLINTA.md luku 3).
+    # a single client (PICO-HALLINTA.md luku 3). ms is <ms>[:<bar>] (korjaus 4); the whole argument
+    # goes to the firmware unchanged, only the <ms> part feeds the host-side timeout.
+    ms_part = ms.split(':', 1)[0]
     link = Link()
     link.send(('CMD pcap:%s\r\n' % ms).encode())
-    tail = capture(float(ms) / 1000.0 + 20, out_path, stop_marker=b'PCAP_END', link=link)
+    # Settling is now event-driven and can take up to PCAP_SETTLE_MAX_MS (15 s, korjaus 4) before the
+    # capture itself even starts, on top of the pre-existing 20 s margin.
+    tail = capture(float(ms_part) / 1000.0 + 15 + 20, out_path, stop_marker=b'PCAP_END', link=link)
     text = tail.decode('utf-8', 'replace')
     line = next((l for l in text.splitlines() if l.startswith('PCAP_END')), None)
     reason = line.split('reason=')[-1].strip() if line and 'reason=' in line else None
