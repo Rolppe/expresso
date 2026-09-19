@@ -196,6 +196,12 @@ async def local_program(brew_data):
             await pressure_sweep_run(brew_data, utime, asyncio, psweep_ms)
             continue
 
+        mcal_ms = brew_data.take_mains_calibration_request()
+        if mcal_ms:
+            from functions import mains_calibrate
+            await mains_calibrate(brew_data, utime, asyncio, mcal_ms)
+            continue
+
         phold_s = brew_data.take_pressure_hold_request()
         if phold_s:
             await pressure_hold_run(brew_data, utime, asyncio, phold_s)

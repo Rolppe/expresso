@@ -554,6 +554,11 @@ PCAP_HOLD_MS = 3000          # korjaus 5: dwell after the target/plateau conditi
                               # starts — 3*tau (plant tau=1/1.24 s) to 5%, plus PCAP_FILT_TAU's own lag,
                               # rounded up (real_plant_sim.py: GAIN, LEAK = 6.7, 1.24)
 
+MCAL_VENT_ON_MS = 500        # purkusykli (TILAUS-H, spec 2): venttiili paalla
+MCAL_VENT_OFF_MS = 200       # ...ja pois, toisto kunnes paine ei enaa laske
+MCAL_VENT_MAX_CYCLES = 200   # karkausraja: ylitys on vika, ei normaali lopetus (spec 2)
+MCAL_GRID = [49.0 + 0.4 * k for k in range(7)]   # hila 49,0-51,4 Hz (spec 3.5)
+
 
 def pcap_gate(i, phase_us, period_us=None):
     """1 = pumppu päällä. Päälläolo on aina yksi verkkojakso; `period_us` päättää, kuinka
@@ -946,6 +951,88 @@ async def pressure_sweep_run(brew_data, utime, asyncio, ms):
         brew_data.psweep_abort = False
     print('PSWEEP_END segs=%d dur_ms=%d reason=%s' % (segs_done, dur_ms, reason))
 
+
+async def _mcal_vent(brew_data, utime, asyncio, sensor, gain, offset):
+    """Purkusykli (TILAUS-H, spec 2): palauttaa (cycles, bar); cycles==MCAL_VENT_MAX_CYCLES on vika."""
+    RELAY_PUMP, RELAY_SOLENOID, RELAY_HEATER = brew_data.get_relays()
+    bar = prev_end = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset
+    cycles = 0
+    while True:
+        cycles += 1
+        RELAY_SOLENOID.value(1); await asyncio.sleep_ms(MCAL_VENT_ON_MS)
+        RELAY_SOLENOID.value(0); await asyncio.sleep_ms(MCAL_VENT_OFF_MS)
+        bar = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset
+        if prev_end - bar < PCAP_PLATEAU_BAR or cycles >= MCAL_VENT_MAX_CYCLES: break
+        prev_end = bar
+    print('MAINSCAL_VENT cycles=%d bar=%.2f' % (cycles, bar))
+    return cycles, bar
+
+async def mains_calibrate(brew_data, utime, asyncio, ms=2000):
+    """Ajonaikainen verkkotaajuuden ja vaiheen mittaus paineväreilystä (TILAUS-F/G/H, spec 3)."""
+    from math import cos, sin, atan2, pi
+    RELAY_PUMP, RELAY_SOLENOID, RELAY_HEATER = brew_data.get_relays()
+    SWITCH_BREW, SWITCH_WATER, SWITCH_STEAM = brew_data.get_switches()
+
+    def mcal_break():
+        if SWITCH_BREW.value() or SWITCH_WATER.value() or SWITCH_STEAM.value(): return 'switch'
+        if brew_data.dev_safe: return 'devsafe'
+        if getattr(brew_data, 'mcal_abort', False): return 'stop'
+        return None
+
+    reason = mcal_break()
+    if reason: print('MAINSCAL_END reason=%s' % reason); return
+    sensor, gain, offset = brew_data.pressure_sensor.pressure_sensor, brew_data.pressure_sensor.gain, brew_data.pressure_sensor.offset
+    n = int(ms)
+    brew_data.set_mode('mains calibration')
+    try:
+        cycles, _ = await _mcal_vent(brew_data, utime, asyncio, sensor, gain, offset)
+        if cycles >= MCAL_VENT_MAX_CYCLES:
+            print('MAINSCAL_END reason=vent_runaway'); return
+        RELAY_SOLENOID.value(1); RELAY_PUMP.value(1)
+        fs_nom = 1e6 / PCAP_RATE_US
+        ws = [2 * pi * f / fs_nom for f in MCAL_GRID]
+        coeffs = [2 * cos(w) for w in ws]
+        s1, s2 = [0.0] * len(MCAL_GRID), [0.0] * len(MCAL_GRID)
+        count, elapsed = 0, 0
+        t0 = next_t = utime.ticks_us()
+        for i in range(n):
+            reason = mcal_break()
+            if reason: break
+            while utime.ticks_diff(next_t, utime.ticks_us()) > 0: pass
+            x = float(sensor.read_u16())
+            elapsed = utime.ticks_diff(utime.ticks_us(), t0); count += 1
+            for k in range(len(MCAL_GRID)):
+                s0 = x + coeffs[k] * s1[k] - s2[k]
+                s2[k], s1[k] = s1[k], s0
+            next_t = utime.ticks_add(next_t, PCAP_RATE_US)
+        reason = reason or 'ok'
+        if reason != 'ok' or count == 0:
+            print('MAINSCAL_END reason=%s' % reason); return
+        amps, bins = [], []
+        for k in range(len(MCAL_GRID)):
+            re, im = s1[k] - s2[k] * cos(ws[k]), s2[k] * sin(ws[k])
+            amps.append((re * re + im * im) ** 0.5); bins.append((re, im))
+        peak = amps.index(max(amps))
+        delta = 0.0
+        if 0 < peak < len(MCAL_GRID) - 1:
+            a0, a1, a2 = amps[peak - 1], amps[peak], amps[peak + 1]
+            denom = a0 - 2 * a1 + a2
+            if denom: delta = 0.5 * (a0 - a2) / denom
+        fs_meas = count / (elapsed / 1e6)
+        f = (MCAL_GRID[peak] + delta * (MCAL_GRID[1] - MCAL_GRID[0])) * (fs_meas / fs_nom)
+        re, im = bins[peak]
+        period_us = 1e6 / f
+        phase_us = (atan2(-im, re) / (2 * pi) * period_us) % period_us
+        amp = amps[peak]
+        ranked = sorted(amps, reverse=True)
+        conf = ranked[0] / ranked[1] if ranked[1] else 0.0
+        brew_data.mains_hz, brew_data.mains_period_us, brew_data.mains_phase_us = f, period_us, phase_us
+        print('MAINSCAL f=%.3f phase_us=%.0f amp=%.3f conf=%.2f n=%d ms=%d' % (
+            f, phase_us, amp, conf, count, elapsed // 1000))
+    finally:
+        RELAY_PUMP.value(0); RELAY_SOLENOID.value(0)
+        brew_data.set_mode('IDLE')
+        brew_data.mcal_abort = False
 
 PHOLD_PRINT_MS = 500        # PHOLD-rivin tulostusväli, ms (spec 1)
 PHOLD_MAX_S = 120           # ajon enimmäispituus, s (spec 2.6) — pyyntö rajataan jo classes.py:ssä
