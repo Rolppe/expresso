@@ -23,7 +23,7 @@ import functions as F
 RAW_A, RAW_B = F.PCAP_RAW_A, F.PCAP_RAW_B
 GAIN, LEAK, LEAK_OPEN = 6.7, 1.24, 8.0
 DELAY_S = 0.009
-F_MAINS = 50.1
+F_MAINS = float(os.environ.get('DRY_MAINS', '50.1'))
 TAU_PULSE = 0.005
 NOISE = float(os.environ.get("DRY_NOISE", "0.36"))
 DEAD_S = 0.070
@@ -76,10 +76,13 @@ class Plant:
         return self.p + r + self.rnd.gauss(0, NOISE)
 
 class Pin:
-    def __init__(self, plant, which=None):
-        self.v = 0; self.plant = plant; self.which = which
+    """Loki on virtuaaliaikaa (us), jotta ajoituksia voi mitata kuivana."""
+    def __init__(self, plant, which=None, clock=None):
+        self.v = 0; self.plant = plant; self.which = which; self.c = clock; self.log = []
     def value(self, x=None):
         if x is None: return self.v
+        if x != self.v and self.c is not None:
+            self.log.append((self.c.us, x))
         self.v = x
         if self.which == 'pump': self.plant.pump = x
         if self.which == 'sol': self.plant.sol = x
@@ -98,9 +101,10 @@ class BD:
     def __init__(self, clock, target, n, p0=0.0, seed=1):
         self.c = clock; self.offset_ = 0.0
         self.plant = Plant(clock, p0, seed)
-        self.pump = Pin(self.plant, 'pump'); self.solenoid = Pin(self.plant, 'sol')
-        self.heater = Pin(self.plant)
-        self.brew = Pin(self.plant); self.water = Pin(self.plant); self.steam = Pin(self.plant)
+        self.pump = Pin(self.plant, 'pump', clock); self.solenoid = Pin(self.plant, 'sol', clock)
+        self.heater = Pin(self.plant, None, clock)
+        self.brew = Pin(self.plant, None, clock); self.water = Pin(self.plant, None, clock)
+        self.steam = Pin(self.plant, None, clock)
         self.pressure_sensor = Sensor(Adc(self.plant, clock, self))
         self.dev_safe = False; self.pcap_abort = False; self.psweep_abort = False
         self.pcap_target_bar = None; self.pcap_gate_phase_us = None
@@ -131,13 +135,26 @@ class Aio:
             self.bd.w_ms = self.c.us//1000
         await asyncio.sleep(0)
 
-def run(target, n, ms, p0=0.0, seed=1):
-    c = Clock(); bd = BD(c, target, n, p0, seed)
-    bd.w_ms = 0
+def make(target=4.0, n=5, p0=0.0, seed=1):
+    """Valelaite laitosmallilla: (brew_data, utime, asyncio, clock). Muutkin korutiinit kuin
+    pyyhkaisy voidaan ajaa talla — mittari on laitos, ei kiintea komento."""
+    c = Clock(); bd = BD(c, target, n, p0, seed); bd.w_ms = 0
+    return bd, Utime(c), Aio(c, bd), c
+
+
+def drive(coro_factory, target=4.0, n=5, p0=0.0, seed=1):
+    """Ajaa annetun korutiinin valelaitteella ja palauttaa (tuloste, kesto_s, brew_data)."""
+    bd, ut, aio, c = make(target, n, p0, seed)
     buf = io.StringIO()
     with redirect_stdout(buf):
-        asyncio.run(F.pressure_sweep_run(bd, Utime(c), Aio(c, bd), ms))
-    return buf.getvalue(), c.us/1e6
+        asyncio.run(coro_factory(bd, ut, aio))
+    return buf.getvalue(), c.us/1e6, bd
+
+
+def run(target, n, ms, p0=0.0, seed=1):
+    out, dur, _ = drive(lambda bd, ut, aio: F.pressure_sweep_run(bd, ut, aio, ms),
+                        target, n, p0, seed)
+    return out, dur
 
 def _gate_mult():
     m = int(os.environ.get('GATE_MULT', '2'))
