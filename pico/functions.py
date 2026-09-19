@@ -531,6 +531,10 @@ async def pressure_zero_run(brew_data, utime, asyncio):
 # ============================================================================
 
 PCAP_RATE_US = 1000         # sample period (rule 3): 50/60 Hz separation, 16x oversampled at 60 Hz
+PCAP_MAINS_US = 19960        # mitattu verkkojakso: 50,1 Hz kolmesta laiteajosta 19.9.2026.
+                             # Oma vakionsa tarkoituksella — viiden 60 Hz -vakion yhdistäminen
+                             # yhdeksi lähteeksi on vaihe 1a3, joka ajetaan vaiheen 1c kanssa.
+PCAP_GATE_PERIOD_US = 2 * PCAP_MAINS_US   # joka toisen verkkojakson ohitus (paketin sääntö 6)
 PCAP_ROW = 20                # raw values per PCAP line (full rows only, see protocol in PUMPPU-PWM.md)
 # Factory formula (classes.py:930): raw ADC -> raw_bar. Overpressure and pmax then apply the
 # sensor's live gain/offset (classes.py:948, korjaus 1) — calibration is not identity.
@@ -551,6 +555,11 @@ PCAP_HOLD_MS = 3000          # korjaus 5: dwell after the target/plateau conditi
                               # rounded up (real_plant_sim.py: GAIN, LEAK = 6.7, 1.24)
 
 
+def pcap_gate(i, phase_us):
+    """1 = pumppu päällä, 0 = ohitettu jakso, näytteen järjestysnumerolle i (paketin sääntö 6)."""
+    return 1 if ((i * PCAP_RATE_US + phase_us) % PCAP_GATE_PERIOD_US) < PCAP_MAINS_US else 0
+
+
 async def pressure_capture_run(brew_data, utime, asyncio, ms):
     from array import array
     RELAY_PUMP, RELAY_SOLENOID, RELAY_HEATER = brew_data.get_relays()
@@ -559,16 +568,24 @@ async def pressure_capture_run(brew_data, utime, asyncio, ms):
     # Target bar is optional (pcap:<ms>[:<bar>]); classes.py/main.py are out of scope this round, so
     # it travels as a plain attribute on brew_data set by commands.py, not a declared field.
     target = getattr(brew_data, 'pcap_target_bar', None)
-    print('PCAP_START rate=%d n=%d settle=%s' % (
-        1000000 // PCAP_RATE_US, n, 'target' if target is not None else 'plateau'))
+    # Gate phase is optional too (pcap:<ms>:<bar>:<phase_us>), same plain-attribute path as target
+    # (PWM-1B2-PORTITUS, spec 3-4).
+    phase_us = getattr(brew_data, 'pcap_gate_phase_us', None)
+    sensor = brew_data.pressure_sensor.pressure_sensor
+    gain = brew_data.pressure_sensor.gain
+    offset = brew_data.pressure_sensor.offset
+    if phase_us is not None:
+        print('PCAP_START rate=%d n=%d settle=%s gain=%.4f offset=%.3f gate=on period_us=%d on_us=%d phase_us=%d' % (
+            1000000 // PCAP_RATE_US, n, 'target' if target is not None else 'plateau', gain, offset,
+            PCAP_GATE_PERIOD_US, PCAP_MAINS_US, phase_us))
+    else:
+        print('PCAP_START rate=%d n=%d settle=%s gain=%.4f offset=%.3f gate=off' % (
+            1000000 // PCAP_RATE_US, n, 'target' if target is not None else 'plateau', gain, offset))
     if SWITCH_BREW.value() or SWITCH_WATER.value() or SWITCH_STEAM.value():
         print('PCAP_END n=0 dur_us=0 pmax=0.00 reason=switch'); return
     if brew_data.dev_safe:
         print('PCAP_END n=0 dur_us=0 pmax=0.00 reason=devsafe'); return
 
-    sensor = brew_data.pressure_sensor.pressure_sensor
-    gain = brew_data.pressure_sensor.gain
-    offset = brew_data.pressure_sensor.offset
     buf = array('H', bytes(2 * n))
     row_t = []
     count = 0
@@ -683,6 +700,7 @@ async def pressure_capture_run(brew_data, utime, asyncio, ms):
             t0 = utime.ticks_us()
             next_t = t0
             elapsed = 0
+            pump_state = 1     # RELAY_PUMP is already on from settling/hold (spec 3)
             for i in range(n):
                 if SWITCH_BREW.value() or SWITCH_WATER.value() or SWITCH_STEAM.value():
                     reason = 'switch'
@@ -693,6 +711,11 @@ async def pressure_capture_run(brew_data, utime, asyncio, ms):
                 if brew_data.pcap_abort:
                     reason = 'stop'
                     break
+                if phase_us is not None:
+                    g = pcap_gate(i, phase_us)
+                    if g != pump_state:
+                        RELAY_PUMP.value(g)
+                        pump_state = g
                 while utime.ticks_diff(next_t, utime.ticks_us()) > 0: pass
                 v = sensor.read_u16()
                 elapsed = utime.ticks_diff(utime.ticks_us(), t0)
