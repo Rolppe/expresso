@@ -555,9 +555,11 @@ PCAP_HOLD_MS = 3000          # korjaus 5: dwell after the target/plateau conditi
                               # rounded up (real_plant_sim.py: GAIN, LEAK = 6.7, 1.24)
 
 
-def pcap_gate(i, phase_us):
-    """1 = pumppu päällä, 0 = ohitettu jakso, näytteen järjestysnumerolle i (paketin sääntö 6)."""
-    return 1 if ((i * PCAP_RATE_US + phase_us) % PCAP_GATE_PERIOD_US) < PCAP_MAINS_US else 0
+def pcap_gate(i, phase_us, period_us=None):
+    """1 = pumppu päällä. Päälläolo on aina yksi verkkojakso; `period_us` päättää, kuinka
+    pitkään portti on sen jälkeen kiinni (sääntö 14)."""
+    p = PCAP_GATE_PERIOD_US if period_us is None else period_us
+    return 1 if ((i * PCAP_RATE_US + phase_us) % p) < PCAP_MAINS_US else 0
 
 
 # ============================================================================
@@ -704,9 +706,11 @@ async def pcap_settle(brew_data, utime, asyncio, sensor, gain, offset, target, t
 
 
 async def _pcap_capture(brew_data, utime, asyncio, sensor, gain, offset, n, phase_us, abort_attr,
-                         restore_pump=False):
+                         restore_pump=False, period_us=None):
     """Kaappaussilmukka + PCAP-rivit, yhteinen pressure_capture_run:lle ja pyyhkäisyn segmenteille.
-    PCAP_END jää kutsujalle (syy voi vielä muuttua). Palauttaa (reason, count, elapsed, pmax_bar, last_bar)."""
+    PCAP_END jää kutsujalle (syy voi vielä muuttua). Palauttaa (reason, count, elapsed, pmax_bar, last_bar).
+    `period_us` on portin jakso (sääntö 14); `None` pitää `pressure_capture_run`:n käytöksen
+    sanatarkasti entisenä, koska `pcap_gate`:n oma oletus on sama."""
     from array import array
     RELAY_PUMP, RELAY_SOLENOID, RELAY_HEATER = brew_data.get_relays()
     buf = array('H', bytes(2 * n))
@@ -723,7 +727,7 @@ async def _pcap_capture(brew_data, utime, asyncio, sensor, gain, offset, n, phas
         reason = _sweep_break(brew_data, abort_attr)
         if reason: break
         if phase_us is not None:
-            g = pcap_gate(i, phase_us)
+            g = pcap_gate(i, phase_us, period_us)
             if g != pump_state: RELAY_PUMP.value(g); pump_state = g
         while utime.ticks_diff(next_t, utime.ticks_us()) > 0: pass
         v = sensor.read_u16()
@@ -813,22 +817,26 @@ PSWEEP_N_MAX = 8
 PSWEEP_TRIM_BAR = 0.3        # kuollut alue tavoitteen ympärillä (sääntö 13)
 PSWEEP_TRIM_MS = 8000        # trimmausaskeleen enimmäiskesto
 PSWEEP_TRIM_PRINT_MS = 500   # ei omaa tulostetta askeleen aikana; yksi rivi lopuksi
+PSWEEP_MULT_DEFAULT = 2      # portin jakso verkkojaksoina; 2 = entinen 1-paalla-1-pois
+PSWEEP_MULT_MAX = 16
 
 
-def psweep_phases(n):
+def psweep_phases(n, period_us=None):
     """Tasavälein portin jakson yli, ensimmäinen 0 (sääntö 10)."""
-    return [k * PCAP_GATE_PERIOD_US // n for k in range(n)]
+    p = PCAP_GATE_PERIOD_US if period_us is None else period_us
+    return [k * p // n for k in range(n)]
 
 
 async def _psweep_segment(brew_data, utime, asyncio, sensor, gain, offset, tray_state, seg, ms,
-                           phase_us):
+                           phase_us, period_us, mult):
     """Yksi pyyhkäisyn segmentti: kelvollinen pcap-loki (spec 3) plus seg=<k>, kaappaus jaettua
     _pcap_capture:a käyttäen. Tray guard suorana ennen, tray_guard_recheck:llä jälkeen (spec 0.2).
-    Palauttaa (reason, viimeinen bar tai None)."""
+    `period_us`/`mult` ovat portin jakso kertoimineen (sääntö 14); referenssisegmentin otsikko
+    (`gate=off`) ei muutu. Palauttaa (reason, viimeinen bar tai None)."""
     n = int(ms)
     if phase_us is not None:
-        print('PCAP_START rate=%d n=%d settle=target gain=%.4f offset=%.3f seg=%d gate=on period_us=%d on_us=%d phase_us=%d' % (
-            1000000 // PCAP_RATE_US, n, gain, offset, seg, PCAP_GATE_PERIOD_US, PCAP_MAINS_US, phase_us))
+        print('PCAP_START rate=%d n=%d settle=target gain=%.4f offset=%.3f seg=%d gate=on period_us=%d on_us=%d phase_us=%d mult=%d' % (
+            1000000 // PCAP_RATE_US, n, gain, offset, seg, period_us, PCAP_MAINS_US, phase_us, mult))
     else:
         print('PCAP_START rate=%d n=%d settle=target gain=%.4f offset=%.3f seg=%d gate=off' % (
             1000000 // PCAP_RATE_US, n, gain, offset, seg))
@@ -837,7 +845,8 @@ async def _psweep_segment(brew_data, utime, asyncio, sensor, gain, offset, tray_
         reason, count, elapsed, pmax_bar, last_bar = tray_reason, 0, 0, 0.00, None
     else:
         reason, count, elapsed, pmax_bar, last_bar = await _pcap_capture(
-            brew_data, utime, asyncio, sensor, gain, offset, n, phase_us, 'psweep_abort', restore_pump=True)
+            brew_data, utime, asyncio, sensor, gain, offset, n, phase_us, 'psweep_abort',
+            restore_pump=True, period_us=period_us)
         if reason == 'ok':
             tray_reason = await tray_guard_recheck(brew_data, utime, asyncio, tray_state)
             if tray_reason: reason = tray_reason
@@ -887,11 +896,13 @@ async def pressure_sweep_run(brew_data, utime, asyncio, ms):
     seg_ms = int(ms)
     target = getattr(brew_data, 'psweep_target_bar', None)
     n = getattr(brew_data, 'psweep_n', None) or PSWEEP_N_DEFAULT
+    mult = getattr(brew_data, 'psweep_mult', None) or PSWEEP_MULT_DEFAULT
+    period_us = mult * PCAP_MAINS_US
     sensor = brew_data.pressure_sensor.pressure_sensor
     gain = brew_data.pressure_sensor.gain
     offset = brew_data.pressure_sensor.offset
-    print('PSWEEP_START segs=%d n=%d ms=%d target=%.2f period_us=%d on_us=%d' % (
-        n + 2, n, seg_ms, target if target is not None else 0.0, PCAP_GATE_PERIOD_US, PCAP_MAINS_US))
+    print('PSWEEP_START segs=%d n=%d ms=%d target=%.2f period_us=%d on_us=%d mult=%d' % (
+        n + 2, n, seg_ms, target if target is not None else 0.0, period_us, PCAP_MAINS_US, mult))
     if SWITCH_BREW.value() or SWITCH_WATER.value() or SWITCH_STEAM.value():
         print('PSWEEP_END segs=0 dur_ms=0 reason=switch'); return
     if brew_data.dev_safe:
@@ -909,11 +920,12 @@ async def pressure_sweep_run(brew_data, utime, asyncio, ms):
             brew_data, utime, asyncio, sensor, gain, offset, target, tray_state)
         if settled:
             dur_t0 = utime.ticks_ms()      # dur_ms on asettumisen jälkeinen kesto (spec 2.7)
-            phase_list = [None] + list(psweep_phases(n)) + [None]     # ref, p_0..p_{n-1}, ref
+            phase_list = [None] + list(psweep_phases(n, period_us)) + [None]  # ref, p_0..p_{n-1}, ref
             last_bar = p_filt
             for k, phase_us in enumerate(phase_list):
                 seg_reason, seg_last_bar = await _psweep_segment(
-                    brew_data, utime, asyncio, sensor, gain, offset, tray_state, k, seg_ms, phase_us)
+                    brew_data, utime, asyncio, sensor, gain, offset, tray_state, k, seg_ms,
+                    phase_us, period_us, mult)
                 segs_done += 1
                 if seg_last_bar is not None:
                     last_bar = seg_last_bar

@@ -137,6 +137,7 @@ class BrewData:
         self.psweep_abort       = False
         self.psweep_target_bar  = None      # bar, pakollinen kenttä (spec kohta 5)
         self.psweep_n           = None      # vaihesiirtojen määrä 2-8, oletus 5
+        self.psweep_mult        = None      # portin jakso verkkojaksoina 2-16, oletus 2 (PWM-1B6)
         # Learned pump feed-forward per phase (RAM, from the previous shot's average duty)
         self.learned_ff_pre     = 0.3
         self.learned_ff_brew    = 0.5

@@ -14,8 +14,8 @@ Usage:
   pico_dev.py shot <seconds> [out.log]  CMD tshot:<seconds>, capture PI/TS lines until TS_END
   pico_dev.py pcap <ms>[:<bar>[:<phase_us>]] [out.log]  CMD pcap:<ms>[:<bar>[:<phase_us>]], capture
                                         PCAP lines until PCAP_END
-  pico_dev.py psweep <ms>:<bar>[:<n>] [out.log]  CMD psweep:<ms>:<bar>[:<n>], capture PSWEEP/PCAP
-                                        lines until PSWEEP_END
+  pico_dev.py psweep <ms>:<bar>[:<n>[:<mult>]] [out.log]  CMD psweep:<ms>:<bar>[:<n>[:<mult>]],
+                                        capture PSWEEP/PCAP lines until PSWEEP_END
   pico_dev.py phold <s> [out.log]       CMD phold:<s>, capture PHOLD lines until PHOLD_END
   pico_dev.py capture <seconds> [out]   print/save serial output (no interrupt)
   pico_dev.py verify <MANIFEST.json>    SHA-256 of every file on the Pico vs. the manifest
