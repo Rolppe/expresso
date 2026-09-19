@@ -1,90 +1,110 @@
-import sys, types, asyncio as aio, time
-sys.path.insert(0, '/tmp/fw')
-# MicroPython-only modules used at import time
-for m in ('utime',):
-    sys.modules[m] = types.ModuleType(m)
-import classes, functions
-from classes import BrewData, PressureSensor
+"""Host tests for the pressure calibration run and the vented zero (PCAL-KORJAUS), no hardware.
 
-class Pin:
-    def __init__(self, v=0): self.v = v
-    def value(self, x=None):
-        if x is None: return self.v
-        self.v = x
+Loads shot_test.py's fixture prelude the same way flow_ctrl_sim.py does. The hold and timeout
+constants are shortened here: what is under test is the phase logic, not the wall-clock length of a
+hold a human reads a gauge during.
+"""
+import os, sys, io, contextlib, asyncio as aio
+HERE = os.path.dirname(os.path.abspath(__file__))
+src = open(os.path.join(HERE, 'shot_test.py')).read().split('fails = []')[0]
+exec(compile(src, 'shot_test_prelude', 'exec'), globals())
 
-class FakeSensor(PressureSensor):
-    """True pressure = physics; sensor raw_bar reads true*0.9 - 0.4 (miscalibrated)."""
-    def __init__(self, machine):
-        self.gain, self.offset, self.last_raw_bar, self.m = 1.0, 0.0, 0.0, machine
-        self.CAL_FILE = '/tmp/pcal_test_cal.json'
-    def get_pressure(self):
-        # the real read takes a 20 ms averaging window
-        m.step(pump.v == 1, 0.020); clock[0] += 0.020
-        raw = self.m.true * 0.9 - 0.4
-        self.last_raw_bar = raw
-        return round(self.gain * raw + self.offset, 1)
+functions.PCAL_HOLD_MS = 3000
+functions.PCAL_TIMEOUT_MS = 20000
 
-class Machine:
-    def __init__(self): self.true = 0.0; self.acc = 0.0; self.n = 0; self.t = 0.0
-    def step(self, pump_on, dt):
-        self.true = max(0.0, self.true + (8.0 if pump_on else -3.0) * dt)
-        self.t += dt
-        if self.t >= 5.0: self.acc += self.true * dt; self.n += dt
+fails = []
+def check(name, cond, extra=''):
+    print(('PASS ' if cond else 'FAIL ') + name + (' — ' + extra if extra else ''))
+    if not cond: fails.append(name)
 
-class U:
+def closed_plant(rise_per_s, leak_per_s=0.02, jump=0.0):
+    """Closed circuit: the pump only adds. `rise_per_s` while the relay is on, a slow leak down
+    otherwise, and `jump` adds a fixed step per stroke to model an overshooting dose."""
+    def plant_fn(dt_s):
+        for _ in range(int(round(dt_s * 1000))):
+            on = pins.get(11, 0)
+            p = state['p'] + ((rise_per_s if on else -leak_per_s) / 1000.0)
+            if on and jump:
+                p += jump / 1000.0
+            state['p'] = p if p > 0.0 else 0.0
+            clock[0] += 0.001
+    return plant_fn
+
+def run_stage(plant_fn, target, stage='brew', window_ms=500):
+    bd = make_brew_data()
+    bd.set_brew_pressure(target) if stage == 'brew' else bd.set_pre_infusion_pressure(target)
+    bd.set_pcal_window_ms(window_ms)
+    state['p'] = 0.0; state['queue'] = [0] * 70; state['force_over'] = False; clock[0] = 0.0
+    orig = globals()['plant']; globals()['plant'] = plant_fn
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        aio.run(functions.pressure_calibration_run(bd, utime, FakeAsyncio, stage))
+    globals()['plant'] = orig
+    return bd, buf.getvalue()
+
+def line(out, prefix):
+    for ln in out.splitlines():
+        if ln.startswith(prefix):
+            return ln
+    return ''
+
+# 1. a slow rise must not store a point: the old run averaged seconds 5-10 regardless
+bd, out = run_stage(closed_plant(0.05), 8.0)
+check('a pressure that never reaches the target stores no point',
+      bd.pcal_raw.get('brew') is None and 'not settled' in out, line(out, 'PCAL_ABORT') or 'ei ABORT-riviä')
+
+# 2. the timeout ends the run with a named reason
+check('the timeout reason is named on the abort line', 'reason=not settled' in out, line(out, 'PCAL_ABORT'))
+
+# 3. a normal rise settles and stores a point measured at the target
+bd, out = run_stage(closed_plant(3.0), 8.0)
+raw = bd.pcal_raw.get('brew')
+check('a settled hold stores a point', raw is not None, 'raw=%s' % raw)
+check('the stored point is measured at the target, not on the way up',
+      raw is not None and abs(raw - 8.0) <= 0.5, 'raw=%.2f vs target 8.0' % raw if raw else 'ei pistettä')
+
+# 4. the hold starts only after the settle, and says so
+check('the settled line is printed before the end line',
+      'PCAL_SETTLED' in out and out.index('PCAL_SETTLED') < out.index('PCAL_END'), line(out, 'PCAL_SETTLED'))
+
+# 5. the end line carries the named fields, including the ripple measurement
+end = line(out, 'PCAL_END')
+check('the end line names raw, n, the ripple and the window',
+      all(k in end for k in ('raw=', 'n=', 'p_min=', 'p_max=', 'window=')), end)
+
+# 6. an overshoot does not start the counter and stores nothing
+bd, out = run_stage(closed_plant(3.0, jump=400.0), 8.0)
+check('an overshoot ends the run and stores no point',
+      bd.pcal_raw.get('brew') is None and 'overshoot' in out, line(out, 'PCAL_ABORT') or 'ei ABORT-riviä')
+
+# 7. the vented zero cycles until the raw value stops moving, then writes the offset
+class _Sensor:
+    gain = 0.9; offset = 0.0; saved = [0]
+    def __init__(self): self.reads = 0
     @staticmethod
-    def ticks_ms(): return int(clock[0] * 1000)
-    @staticmethod
-    def ticks_diff(a, b): return a - b
-    @staticmethod
-    def ticks_add(a, b): return a + b
+    def calibration_valid(gain, offset): return 0.5 <= gain <= 1.5 and -3.0 <= offset <= 3.0
+    def set_calibration(self, gain, offset): self.gain, self.offset = gain, offset
+    def save_calibration(self): self.saved[0] += 1
 
-clock = [0.0]
-m = Machine()
-pump, sol, heat = Pin(), Pin(), Pin(1)
-sw = (Pin(), Pin(), Pin())
+bd = make_brew_data()
+sensor = _Sensor()
+bd.pressure_sensor = sensor
+decay = [3.0]
+def fake_avg(utime_module):
+    decay[0] *= 0.5
+    return decay[0]
+bd.get_pressure_average = fake_avg
+bd.get_pressure_raw = lambda: round(decay[0], 3)
+state['p'] = 0.0; clock[0] = 0.0
+orig = globals()['plant']; globals()['plant'] = closed_plant(0.0)
+buf = io.StringIO()
+with contextlib.redirect_stdout(buf):
+    aio.run(functions.pressure_zero_run(bd, utime, FakeAsyncio))
+globals()['plant'] = orig
+out = buf.getvalue()
+check('the vented zero writes the offset only after the raw value is stable',
+      'PZERO_OK' in out and sensor.saved[0] == 1, line(out, 'PZERO_OK') or line(out, 'PZERO_ABORT'))
+check('the offset zeroes the vented reading', abs(sensor.offset + sensor.gain * round(decay[0], 3)) < 1e-6,
+      'offset=%.4f gain=%.3f raw=%.4f' % (sensor.offset, sensor.gain, decay[0]))
 
-class A:
-    @staticmethod
-    async def sleep_ms(ms):
-        dt = ms / 1000.0
-        m.step(pump.v == 1, dt); clock[0] += dt
-
-bd = BrewData.__new__(BrewData)
-bd.pressure_sensor = FakeSensor(m)
-bd.pcal_request = None; bd.pcal_cancel = False; bd.pcal_state = 'idle'; bd.pcal_stage = ''
-bd.pcal_msg = ''; bd.pcal_target = 0.0; bd.pcal_raw = {}; bd.pcal_points = {}
-bd.pre_infusion_pressure = 2.0; bd.brew_pressure = 9.0; bd.mode = 'IDLE'
-bd.get_relays = lambda: (pump, sol, heat)
-bd.get_switches = lambda: sw
-
-def run(stage):
-    assert bd.request_pressure_calibration(stage)
-    st = bd.take_pressure_calibration_request()
-    m.acc = 0.0; m.n = 0.0; m.t = 0.0
-    aio.run(functions.pressure_calibration_run(bd, U, A, st))
-    return m.acc / m.n if m.n else m.true
-
-for it in range(4):
-    true = run('pre')
-    gauge = round(true, 1)
-    print('pre  it%d state=%s sensor_target=2.0 gauge=%.1f gain=%.3f off=%.3f relays P%d S%d H%d mode=%s' % (
-        it, bd.pcal_state, gauge, bd.pressure_sensor.gain, bd.pressure_sensor.offset, pump.v, sol.v, heat.v, bd.mode))
-    if abs(gauge - 2.0) <= 0.2: break
-    bd.pressure_calibration_measured('pre', gauge)
-for it in range(4):
-    true = run('brew')
-    gauge = round(true, 1)
-    print('brew it%d state=%s sensor_target=9.0 gauge=%.1f gain=%.3f off=%.3f' % (
-        it, bd.pcal_state, gauge, bd.pressure_sensor.gain, bd.pressure_sensor.offset))
-    if abs(gauge - 9.0) <= 0.2: break
-    bd.pressure_calibration_measured('brew', gauge)
-print('final: true gain should be 1/0.9=%.3f offset 0.4/0.9=%.3f' % (1/0.9, 0.4/0.9))
-run('pre'); print('pre recheck gauge %.1f' % m.true)
-# switch abort
-sw[0].v = 1; run('pre'); print('switch abort ->', bd.pcal_state, bd.pcal_msg, 'relays P%d S%d' % (pump.v, sol.v)); sw[0].v = 0
-# invalid measurement rejected
-bd.pcal_raw['pre'] = 2.0; bd.pcal_points.pop('brew', None); g0 = bd.pressure_sensor.gain
-bd.pressure_calibration_measured('pre', 9.5); print('reject ->', bd.pcal_state, bd.pcal_msg, 'gain unchanged', bd.pressure_sensor.gain == g0)
-bd.pressure_calibration_save(); import json; print('saved', json.load(open('/tmp/pcal_test_cal.json')))
-bd.pressure_sensor.gain = 7; bd.pressure_calibration_end_session(); print('reload after end ->', bd.pressure_sensor.gain, bd.pcal_state)
+print('\nRESULT: %d failed' % len(fails)); sys.exit(1 if fails else 0)

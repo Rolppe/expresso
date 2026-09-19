@@ -159,6 +159,9 @@ class BrewData:
         self.pcal_stage         = ''
         self.pcal_msg           = ''
         self.pcal_target        = 0.0
+        self.pcal_window_ms     = 500       # PCAL-KORJAUS: one pump stroke per this window in
+                                            # the fine phase; swept to find the steadiest hold
+        self.pzero_request      = False     # pzero: vented zero, taken by the main loop
         self.pcal_raw           = {}        # stage -> raw_bar average of the last run
         self.pcal_points        = {}        # stage -> (raw_bar, measured_bar)
     
@@ -436,6 +439,32 @@ class BrewData:
         self.pcal_stage = stage
         self.pcal_state = 'corrected'
         self.pcal_msg = 'gauge %.1f / target %.1f bar' % (measured, self.pcal_target)
+
+    def get_pcal_window_ms(self):
+        return getattr(self, 'pcal_window_ms', 500)
+
+    def set_pcal_window_ms(self, ms):
+        # Fine-phase window: how often a single stroke may fire. A measurement knob like fwin:, not
+        # persisted, so a swept value cannot survive a reboot into normal use.
+        try:
+            ms = int(ms)
+        except (TypeError, ValueError):
+            return self.get_pcal_window_ms()
+        if ms < 100:
+            ms = 100
+        elif ms > 2000:
+            ms = 2000
+        self.pcal_window_ms = ms
+        return self.pcal_window_ms
+
+    def request_pressure_zero(self):
+        self.pzero_request = True
+
+    def take_pressure_zero_request(self):
+        if not self.pzero_request:
+            return False
+        self.pzero_request = False
+        return True
 
     def pressure_calibration_save(self):
         self.pressure_sensor.save_calibration()

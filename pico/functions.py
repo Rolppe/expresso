@@ -300,9 +300,21 @@ async def run_shot(brew_data, utime, asyncio, pump_ratio_calculator, keep_runnin
 # PRESSURE CALIBRATION RUN
 # ============================================================================
 
+# PCAL-KORJAUS 19.9.2026. The old run opened a fixed 10 s window at once and averaged seconds
+# 5-10 whether or not the target had been reached, so a slow rise - air in the system, a cold
+# machine, a tight restrictor - stored a point measured off a *rising* pressure, and the error
+# always pointed the same way. The run is now in phases and the measurement window starts only
+# after the pressure has settled (user, 19.9.2026).
+PCAL_COARSE_GAP = 0.5       # bar below the target where the full pump cycle stops
+PCAL_BAND = 0.4             # bar; settled means inside this band. Must exceed one stroke's rise
+PCAL_OVERSHOOT = 1.0        # bar above the target that ends the run: a closed circuit cannot undo it
+PCAL_SETTLE_MS = 1000       # time inside the band before the hold starts
+PCAL_HOLD_MS = 30000        # measurement hold: the gauge is read by eye, so it is long
+PCAL_STROKE_MS = 17         # one 60 Hz mains cycle: the smallest dose the pump can give
+PCAL_TIMEOUT_MS = 60000     # approach timeout -> reason 'not settled', no point stored
+
+
 async def pressure_calibration_run(brew_data, utime, asyncio, stage):
-    # 10 s of water at the stage's target pressure so the user can read a reference gauge.
-    # Samples the uncalibrated sensor value over the last 5 s for the correction.
     RELAY_PUMP, RELAY_SOLENOID, RELAY_HEATER = brew_data.get_relays()
     SWITCH_BREW, SWITCH_WATER, SWITCH_STEAM = brew_data.get_switches()
 
@@ -311,19 +323,25 @@ async def pressure_calibration_run(brew_data, utime, asyncio, stage):
     else:
         target = brew_data.get_brew_pressure()
 
+    window_ms = brew_data.get_pcal_window_ms()
     brew_data.pressure_calibration_begin(stage, target)
     brew_data.set_mode('pressure calibration')
     RELAY_HEATER.value(0)
+    print('PCAL_START %s target=%.2f window=%d band=%.2f' % (stage, target, window_ms, PCAL_BAND))
 
-    from classes import PumpPressureController, PumpRatioCalculator
-    controller = PumpPressureController(RELAY_PUMP, PumpRatioCalculator(utime, asyncio), utime)
     raw_sum = 0.0
     raw_n = 0
+    p_min = 99.0
+    p_max = -99.0
     reason = ''
     start = utime.ticks_ms()
+    settled_since = None
+    hold_start = None
+    last_stroke = utime.ticks_add(start, -window_ms)
     try:
         RELAY_SOLENOID.value(1)
-        while utime.ticks_diff(utime.ticks_ms(), start) < 10000:
+        while True:
+            now = utime.ticks_ms()
             if SWITCH_BREW.value() or SWITCH_WATER.value() or SWITCH_STEAM.value():
                 reason = 'machine switch'
                 break
@@ -336,11 +354,48 @@ async def pressure_calibration_run(brew_data, utime, asyncio, stage):
                 reason = 'overpressure %.1f bar' % pressure
                 break
 
-            controller.update(pressure, target)
-
-            if utime.ticks_diff(utime.ticks_ms(), start) >= 5000:
+            if hold_start is None:
+                if utime.ticks_diff(now, start) > PCAL_TIMEOUT_MS:
+                    reason = 'not settled'
+                    break
+                # The pump only adds: in a closed circuit an overshoot is permanent, so it must not
+                # start the measurement window - it ends the run instead (user, 19.9.2026).
+                if pressure > target + PCAL_OVERSHOOT:
+                    reason = 'overshoot %.2f bar' % pressure
+                    break
+                if pressure < target - PCAL_COARSE_GAP:
+                    RELAY_PUMP.value(1)                 # coarse phase: full cycle
+                    settled_since = None
+                else:
+                    RELAY_PUMP.value(0)                 # fine phase: one stroke per window
+                    if pressure < target - PCAL_BAND:
+                        settled_since = None
+                        if utime.ticks_diff(now, last_stroke) >= window_ms:
+                            last_stroke = now
+                            RELAY_PUMP.value(1)
+                            await asyncio.sleep_ms(PCAL_STROKE_MS)
+                            RELAY_PUMP.value(0)
+                    elif settled_since is None:
+                        settled_since = now
+                    elif utime.ticks_diff(now, settled_since) >= PCAL_SETTLE_MS:
+                        hold_start = now
+                        print('PCAL_SETTLED %s t=%.1f p=%.2f' % (
+                            stage, utime.ticks_diff(now, start) / 1000.0, pressure))
+            else:
+                RELAY_PUMP.value(0)
+                if pressure < target - PCAL_BAND and utime.ticks_diff(now, last_stroke) >= window_ms:
+                    last_stroke = now
+                    RELAY_PUMP.value(1)
+                    await asyncio.sleep_ms(PCAL_STROKE_MS)
+                    RELAY_PUMP.value(0)
                 raw_sum += brew_data.get_pressure_raw()
                 raw_n += 1
+                if pressure < p_min:
+                    p_min = pressure
+                if pressure > p_max:
+                    p_max = pressure
+                if utime.ticks_diff(now, hold_start) >= PCAL_HOLD_MS:
+                    break
 
             await asyncio.sleep_ms(0)
     finally:
@@ -349,9 +404,63 @@ async def pressure_calibration_run(brew_data, utime, asyncio, stage):
         brew_data.set_mode('IDLE')
 
     if reason or raw_n == 0:
+        print('PCAL_ABORT %s reason=%s' % (stage, reason or 'no samples'))
         brew_data.pressure_calibration_end(stage, None, reason)
     else:
+        # p_min/p_max over the hold are the ripple measurement: one pump stroke is the smallest dose
+        # there is, so this is what a longer window has to beat before it is worth anything.
+        print('PCAL_END %s raw=%.3f n=%d p_min=%.2f p_max=%.2f window=%d reason=ok' % (
+            stage, raw_sum / raw_n, raw_n, p_min, p_max, window_ms))
         brew_data.pressure_calibration_end(stage, raw_sum / raw_n, '')
+
+
+async def pressure_zero_run(brew_data, utime, asyncio):
+    # A resting reading is not a zero: with the solenoid closed the boiler's own thermal expansion
+    # reaches ~14 bar at idle (functions.py running(), 17.9.2026), and the after-brew drain stops at
+    # 1.5 bar *indicated* - a threshold read from the very calibration under test. The zero is taken
+    # vented: heater off, solenoid cycled until the raw value stops moving (user, 19.9.2026).
+    RELAY_PUMP, RELAY_SOLENOID, RELAY_HEATER = brew_data.get_relays()
+    RELAY_HEATER.value(0)
+    RELAY_PUMP.value(0)
+    brew_data.set_mode('pressure zero')
+    print('PZERO_START')
+    prev = None
+    stable = 0
+    raw = 0.0
+    cycles = 0
+    try:
+        for cycles in range(1, 31):
+            RELAY_SOLENOID.value(1)
+            await asyncio.sleep_ms(500)
+            RELAY_SOLENOID.value(0)
+            await asyncio.sleep_ms(500)
+            for _ in range(8):
+                brew_data.get_pressure_average(utime)
+                await asyncio.sleep_ms(20)
+            raw = brew_data.get_pressure_raw()
+            if prev is not None and abs(raw - prev) < 0.02:
+                stable += 1
+            else:
+                stable = 0
+            prev = raw
+            if stable >= 3:
+                break
+    finally:
+        RELAY_SOLENOID.value(0)
+        RELAY_PUMP.value(0)
+        brew_data.set_mode('IDLE')
+
+    sensor = brew_data.pressure_sensor
+    offset = -sensor.gain * raw
+    if stable < 3:
+        print('PZERO_ABORT reason=not stable raw=%.3f cycles=%d' % (raw, cycles))
+        return
+    if not sensor.calibration_valid(sensor.gain, offset):
+        print('PZERO_ABORT reason=rejected gain=%.4f offset=%.3f' % (sensor.gain, offset))
+        return
+    sensor.set_calibration(sensor.gain, offset)
+    sensor.save_calibration()
+    print('PZERO_OK raw=%.3f gain=%.4f offset=%.3f cycles=%d' % (raw, sensor.gain, offset, cycles))
 
 
 # ============================================================================
