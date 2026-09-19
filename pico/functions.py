@@ -532,38 +532,39 @@ async def pressure_zero_run(brew_data, utime, asyncio):
 
 PCAP_RATE_US = 1000         # sample period (rule 3): 50/60 Hz separation, 16x oversampled at 60 Hz
 PCAP_ROW = 20                # raw values per PCAP line (full rows only, see protocol in PUMPPU-PWM.md)
-# Same factory formula as PressureSensor.sample_average() (classes.py:930), inverted to a raw ADC
-# cutoff: the capture reads raw counts with no calibration (sääntö 2), so the abort limit must be raw.
-PCAP_OVER_RAW = (11.0 + 3.522929) / 0.000314936
+# Factory formula (classes.py:930): raw ADC -> raw_bar. Overpressure and pmax then apply the
+# sensor's live gain/offset (classes.py:948, korjaus 1) — calibration is not identity.
+PCAP_RAW_A = 0.000314936
+PCAP_RAW_B = -3.522929
+PCAP_OVER_BAR = 11.0
 
 
 async def pressure_capture_run(brew_data, utime, asyncio, ms):
     from array import array
-
     RELAY_PUMP, RELAY_SOLENOID, RELAY_HEATER = brew_data.get_relays()
     SWITCH_BREW, SWITCH_WATER, SWITCH_STEAM = brew_data.get_switches()
     n = int(ms)
-
-    print('PCAP_START rate=1000 n=%d settle_ms=1000' % n)
-
+    print('PCAP_START rate=%d n=%d settle_ms=1000' % (1000000 // PCAP_RATE_US, n))
     if SWITCH_BREW.value() or SWITCH_WATER.value() or SWITCH_STEAM.value():
-        print('PCAP_END n=0 dur_us=0 pmax=0.00 reason=switch')
-        return
+        print('PCAP_END n=0 dur_us=0 pmax=0.00 reason=switch'); return
     if brew_data.dev_safe:
-        print('PCAP_END n=0 dur_us=0 pmax=0.00 reason=devsafe')
-        return
+        print('PCAP_END n=0 dur_us=0 pmax=0.00 reason=devsafe'); return
 
     sensor = brew_data.pressure_sensor.pressure_sensor
+    gain = brew_data.pressure_sensor.gain
+    offset = brew_data.pressure_sensor.offset
     buf = array('H', bytes(2 * n))
     row_t = []
     count = 0
-    pmax_raw = -1
+    pmax_bar = -99.0
     reason = 'ok'
     brew_data.set_mode('pressure capture')
     try:
+        # Solenoid open before the pump, like every other pumping path (korjaus 1): a closed circuit
+        # cannot be held at the kettle's chosen bar by the restrictor.
+        RELAY_SOLENOID.value(1)
         RELAY_PUMP.value(1)
         await asyncio.sleep_ms(1000)
-
         t0 = utime.ticks_us()
         next_t = t0
         elapsed = 0
@@ -577,32 +578,34 @@ async def pressure_capture_run(brew_data, utime, asyncio, ms):
             if brew_data.pcap_abort:
                 reason = 'stop'
                 break
-            while utime.ticks_diff(next_t, utime.ticks_us()) > 0:
-                pass
+            while utime.ticks_diff(next_t, utime.ticks_us()) > 0: pass
             v = sensor.read_u16()
             elapsed = utime.ticks_diff(utime.ticks_us(), t0)
             buf[i] = v
             if i % PCAP_ROW == 0:
                 row_t.append(elapsed)
             count += 1
-            if v > pmax_raw:
-                pmax_raw = v
+            bar = gain * (v * PCAP_RAW_A + PCAP_RAW_B) + offset
+            if bar > pmax_bar: pmax_bar = bar
             next_t = utime.ticks_add(next_t, PCAP_RATE_US)
-            if v > PCAP_OVER_RAW:
+            if bar > PCAP_OVER_BAR:
                 reason = 'overpressure'
                 break
     finally:
         RELAY_PUMP.value(0)
+        RELAY_SOLENOID.value(0)
         brew_data.set_mode('IDLE')
         brew_data.pcap_abort = False
 
-    pmax_bar = round(pmax_raw * 0.000314936 - 3.522929, 2) if count else 0.00
     full_rows = count // PCAP_ROW
     for r in range(full_rows):
         row_start = r * PCAP_ROW
         vals = ' '.join(str(buf[row_start + j]) for j in range(PCAP_ROW))
         print('PCAP %d %d %s' % (row_start, row_t[r], vals))
-    print('PCAP_END n=%d dur_us=%d pmax=%.2f reason=%s' % (count, elapsed if count else 0, pmax_bar, reason))
+        if (r + 1) % 10 == 0:   # yield to the watchdog task every ten lines (korjaus 3)
+            await asyncio.sleep_ms(0)
+    print('PCAP_END n=%d dur_us=%d pmax=%.2f reason=%s' % (
+        count, elapsed if count else 0, pmax_bar if count else 0.00, reason))
 
 
 # ============================================================================
