@@ -94,6 +94,15 @@ def handle_command(brew_data, command):
         except Exception:
             pass
 
+    elif command.startswith('mcal:'):
+        # mcal:<ms 500-5000> | mcal:stop (PWM-1G, TILAUS-F/G/H)
+        arg = command.split(':', 1)[1]
+        if arg == 'stop':
+            brew_data.abort_mains_calibration()
+        else:
+            try: brew_data.request_mains_calibration(float(arg))
+            except Exception: pass
+
     elif command.startswith('pcap:'):
         # Raw pressure capture for mains-frequency analysis: pcap:<ms 200-2500>[:<bar>[:<phase_us>]]
         # | pcap:stop. The optional third field is the settling target bar (korjaus 2); classes.py

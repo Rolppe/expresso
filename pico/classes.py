@@ -138,6 +138,9 @@ class BrewData:
         self.psweep_target_bar  = None      # bar, pakollinen kenttä (spec kohta 5)
         self.psweep_n           = None      # vaihesiirtojen määrä 2-8, oletus 5
         self.psweep_mult        = None      # portin jakso verkkojaksoina 2-16, oletus 2 (PWM-1B6)
+        # Mains-frequency calibration (mcal:<ms>): PWM-1G, TILAUS-F/G/H
+        self.mcal_request       = None      # ms, queued by a command (500-5000)
+        self.mcal_abort         = False
         # Learned pump feed-forward per phase (RAM, from the previous shot's average duty)
         self.learned_ff_pre     = 0.3
         self.learned_ff_brew    = 0.5
@@ -509,6 +512,19 @@ class BrewData:
     def abort_pressure_sweep(self):
         self.psweep_request = None
         self.psweep_abort = True
+
+    def request_mains_calibration(self, ms=2000):
+        if self.dev_safe: return False
+        self.mcal_request = min(5000, max(500, int(ms)))
+        self.mcal_abort = False
+        return True
+
+    def take_mains_calibration_request(self):
+        ms, self.mcal_request = self.mcal_request, None
+        return ms
+
+    def abort_mains_calibration(self):
+        self.mcal_request, self.mcal_abort = None, True
 
     def request_pressure_hold(self, seconds=30):
         if self.dev_safe:
