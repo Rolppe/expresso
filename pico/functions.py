@@ -354,6 +354,8 @@ async def pressure_calibration_run(brew_data, utime, asyncio, stage):
     print('PCAL_START %s target=%.2f window=%d drift=%.2f reach=%.2f' % (
         stage, target, window_ms, PCAL_DRIFT, PCAL_REACH))
 
+    from classes import PumpPressureController, PumpRatioCalculator
+    hold_controller = None
     raw_sum = 0.0
     raw_n = 0
     p_min = 99.0
@@ -435,15 +437,18 @@ async def pressure_calibration_run(brew_data, utime, asyncio, stage):
                         settled_since = now
                     elif utime.ticks_diff(now, settled_since) >= PCAL_SETTLE_MS:
                         hold_start = now
+                        # The hold is handed to the ordinary pressure controller. Measured
+                        # 19.9.2026: one stroke per 500 ms window swings 4.6 bar at an 8 bar target,
+                        # while the controller's own time-proportional chopping swings 1.8 bar at
+                        # 10 bar and 0.6 bar at 5 bar. The fine phase earns its place in the
+                        # approach, where it prevents an overshoot that cannot be undone - not in
+                        # the hold, where more frequent, smaller doses win.
+                        hold_controller = PumpPressureController(
+                            RELAY_PUMP, PumpRatioCalculator(utime, asyncio), utime, ff=0.05)
                         print('PCAL_SETTLED %s t=%.1f p=%.2f drift=%.2f' % (
                             stage, utime.ticks_diff(now, start) / 1000.0, p_avg, drift))
             else:
-                RELAY_PUMP.value(0)
-                if p_fast < target - PCAL_TOPUP and utime.ticks_diff(now, last_stroke) >= window_ms:
-                    last_stroke = now
-                    RELAY_PUMP.value(1)
-                    await asyncio.sleep_ms(PCAL_STROKE_MS)
-                    RELAY_PUMP.value(0)
+                hold_controller.update(pressure, target)
                 raw_sum += brew_data.get_pressure_raw()
                 raw_n += 1
                 if pressure < p_min:
@@ -455,6 +460,8 @@ async def pressure_calibration_run(brew_data, utime, asyncio, stage):
 
             await asyncio.sleep_ms(0)
     finally:
+        if hold_controller is not None:
+            hold_controller.stop()
         RELAY_PUMP.value(0)
         RELAY_SOLENOID.value(0)
         brew_data.set_mode('IDLE')
