@@ -141,6 +141,28 @@ class BrewData:
         # Mains-frequency calibration (mcal:<ms>): PWM-1G, TILAUS-F/G/H
         self.mcal_request       = None      # ms, queued by a command (500-5000)
         self.mcal_abort         = False
+        # Yhden syklin ohitus tasapainossa (pstep:<bar>): kayttajan tilaus 20.9.2026. Viive
+        # luetaan ohituskaskyn ja paineessa nakyvan pudotuksen valista, ei portituksesta.
+        self.pstep_request      = None      # bar, queued by a command
+        self.pstep_abort        = False
+        self.pstep_hold_ms      = None      # pito tavoitteessa ennen ohitusta, oletus PSTEP_HOLD_MS
+        self.pstep_tail_ms      = None      # tallennus sammutuksen jalkeen, oletus PSTEP_TAIL_MS
+        # Monta 20 ms:n taukoa ja kohdistushaku ajon aikana (pgap:<bar>): tilaus 20.9.2026
+        self.pgap_request       = None      # bar, queued by a command
+        self.pgap_abort         = False
+        self.pgap_n             = None      # taukojen maara, oletus PGAP_N_DEFAULT
+        self.pgap_spacing_ms    = None      # taukojen vali, oletus PGAP_SPACING_MS
+        self.pgap_len_ms        = None      # tauon pituus, oletus koko verkkojakso
+        self.pgap_phases        = None      # eri vaiheita kierrossa, oletus PGAP_CYCLE_K
+        self.pgap_lo_us         = None      # rajatun vaihealueen alaraja
+        self.pgap_hi_us         = None      # ...ja ylaraja; molemmat paatepisteet mukana
+        # Tauon pituuden pyyhkaisy (plen:<bar>): kvantisoituuko katkaisu puolijaksoihin
+        self.plen_request       = None      # bar, queued by a command
+        self.plen_abort         = False
+        self.plen_reps          = None      # toistoja per pituus, oletus PLEN_REPS
+        # Pelkka purkusykli (pvent:): TILAUS-H kohta 3
+        self.pvent_request      = False
+        self.pvent_abort        = False
         # Learned pump feed-forward per phase (RAM, from the previous shot's average duty)
         self.learned_ff_pre     = 0.3
         self.learned_ff_brew    = 0.5
@@ -522,6 +544,58 @@ class BrewData:
     def take_mains_calibration_request(self):
         ms, self.mcal_request = self.mcal_request, None
         return ms
+
+    def request_pressure_step(self, target):
+        if self.dev_safe: return False
+        self.pstep_request = float(target)
+        self.pstep_abort = False
+        return True
+
+    def take_pressure_step_request(self):
+        target, self.pstep_request = self.pstep_request, None
+        return target
+
+    def abort_pressure_step(self):
+        self.pstep_request = None
+        self.pstep_abort = True
+
+    def request_pressure_gap(self, target):
+        if self.dev_safe: return False
+        self.pgap_request = float(target)
+        self.pgap_abort = False
+        return True
+
+    def take_pressure_gap_request(self):
+        target, self.pgap_request = self.pgap_request, None
+        return target
+
+    def abort_pressure_gap(self):
+        self.pgap_request = None
+        self.pgap_abort = True
+
+    def request_pressure_len(self, target):
+        if self.dev_safe: return False
+        self.plen_request = float(target)
+        self.plen_abort = False
+        return True
+
+    def take_pressure_len_request(self):
+        target, self.plen_request = self.plen_request, None
+        return target
+
+    def abort_pressure_len(self):
+        self.plen_request = None
+        self.plen_abort = True
+
+    def request_pressure_vent(self):
+        if self.dev_safe: return False
+        self.pvent_request = True
+        self.pvent_abort = False
+        return True
+
+    def take_pressure_vent_request(self):
+        r, self.pvent_request = self.pvent_request, False
+        return r
 
     def abort_mains_calibration(self):
         self.mcal_request, self.mcal_abort = None, True

@@ -888,7 +888,11 @@ async def _psweep_trim(brew_data, utime, asyncio, sensor, gain, offset, target, 
         p_filt += (bar - p_filt) * min(1.0, dt / PCAP_FILT_TAU)
         if utime.ticks_diff(now, t0) >= PSWEEP_TRIM_MS: reason = 'timeout'; break
     ms_elapsed = utime.ticks_diff(utime.ticks_ms(), t0)
-    RELAY_SOLENOID.value(0)
+    # Takaisin NORMAALIAJON tilaan: pressure_sweep_run avaa venttiilin value(1):lla ennen pumppua,
+    # joten trimmauksen on jatettava se samaan tilaan. Tassa oli value(0), jolloin ensimmaisen
+    # trimmauksen jalkeiset segmentit ajettiin eri venttiilitilassa kuin segmentti 0 — loydetty
+    # 20.9.2026, ja se voi selittaa saman paivan pyyhkaisyajojen ylipainekatkot.
+    RELAY_SOLENOID.value(1)
     RELAY_PUMP.value(1)
     print('PSWEEP_TRIM seg=%d bar=%.2f ms=%d reason=%s' % (prev_seg, p_filt, ms_elapsed, reason))
     return reason
@@ -952,6 +956,433 @@ async def pressure_sweep_run(brew_data, utime, asyncio, ms):
     print('PSWEEP_END segs=%d dur_ms=%d reason=%s' % (segs_done, dur_ms, reason))
 
 
+# ============================================================================
+# PRESSURE STEP — yksi ohitettu sykli tasapainossa (kayttajan tilaus 20.9.2026)
+# ============================================================================
+# Tilaus sanatarkasti: "Sinä ajat tallennus päällä kunnes 7 bar on saavutettu. pidät 7 bar
+# paineen. Tiputat 1 sykli ja pois jatka 7 bar 1 sekunnin ajan. tämän sammutat pumpun ja mittaat
+# viiveen" ja "sinä tunnistat datasta yhden tippuneen syklin ja mittaat viiveen mikä tämän syklin
+# tiputtamisen ja paineessa näkyvä 1 syklin pudotuksen välinen viive on".
+#
+# Ero pyyhkaisyyn (saannot 10-14): tassa ei portiteta lainkaan. Pumppu kay taydella teholla koko
+# ajon, yhta verkkojaksoa lukuun ottamatta, joten paine ei valu eika trimmausta tarvita — juuri ne
+# kaatoivat vaiheen 1b laiteajon 20.9.2026 (ks. PUMPPU-PWM.md). Mitattava suure on viive
+# ohituskaskysta paineessa nakyvaan pudotukseen, ja toinen riippumaton luku saadaan pumpun
+# sammutuksesta ajon lopussa.
+PSTEP_MAX_N = 14000          # koko ajon naytekatto 1 kHz:lla (28 KB puskuri)
+PSTEP_REACH_MAX_MS = 20000   # tavoitteeseen on paastava tassa ajassa, muuten reason=noreach
+PSTEP_MIN_MS = 2000          # tavoitetta ei testata ennen tata (sama perustelu kuin
+                              # PCAP_SETTLE_MIN_MS): suodin siemennetaan yhdesta raakanaytteesta,
+                              # jonka hajonta on 1,595 bar, ja mitattu vika 20.9.2026 oli juuri
+                              # tama — yksi korkea siemen antoi reach=0 kun paine oli 0,4 bar.
+                              # 2 s:ssa yksinapasuodin (tau 0,3 s) on asettunut siemenestaan.
+PSTEP_HOLD_MS = 1000         # pito tavoitteessa ennen ohitettua syklia
+PSTEP_RUN_MS = 1000          # tilaus: ohituksen jalkeen jatketaan sekunti ennen sammutusta
+PSTEP_TAIL_MS = 1500         # tallennus jatkuu sammutuksen jalkeen
+PSTEP_FEED_MASK = 0x3FF      # devsafe.feed() joka 1024. nayte: silmukka ei anna vuoroa 8 s:n
+                              # laitteistovahdille, joten se ruokitaan kasin (pcap busy-waittaa
+                              # vain 2,5 s eika tarvitse tata; tama ajo kestaa yli 8 s)
+
+
+async def pressure_step_run(brew_data, utime, asyncio, target):
+    """Yksi ohitettu verkkojakso tasapainossa, tallennus paalla koko ajon (tilaus 20.9.2026).
+
+    Vaiheet yhdessa 1 kHz:n silmukassa, koska ohituskaskyn hetki on mitattava suure eika se saa
+    joutua eri silmukkaan kuin naytteet: nousu tavoitteeseen -> pito -> yksi jakso pois ->
+    PSTEP_RUN_MS -> pumppu pois -> hanta. Naytevali on PCAP_RATE_US = 1000 us, joten naytteen
+    indeksi on millisekunti; PSTEP_MARK-rivi kertoo kolmen tapahtuman indeksit."""
+    from array import array
+    import devsafe
+    RELAY_PUMP, RELAY_SOLENOID, RELAY_HEATER = brew_data.get_relays()
+    sensor = brew_data.pressure_sensor.pressure_sensor
+    gain = brew_data.pressure_sensor.gain
+    offset = brew_data.pressure_sensor.offset
+    hold_ms = getattr(brew_data, 'pstep_hold_ms', None) or PSTEP_HOLD_MS
+    tail_ms = getattr(brew_data, 'pstep_tail_ms', None) or PSTEP_TAIL_MS
+    print('PSTEP_START rate=%d target=%.2f hold_ms=%d run_ms=%d tail_ms=%d notch_us=%d gain=%.4f offset=%.3f' % (
+        1000000 // PCAP_RATE_US, target, hold_ms, PSTEP_RUN_MS, tail_ms, PCAP_MAINS_US, gain, offset))
+    r = _sweep_break(brew_data, 'pstep_abort')
+    if r:
+        print('PSTEP_END n=0 dur_us=0 pmax=0.00 reason=%s' % r); return
+    tray_state, tray_reason = tray_guard_start(brew_data, utime)
+    if tray_reason:
+        print('PSTEP_END n=0 dur_us=0 pmax=0.00 reason=%s' % tray_reason); return
+
+    buf = array('H', bytes(2 * PSTEP_MAX_N))
+    i_reach = i_notch = i_stop = -1
+    notch_pending = False
+    pmax_bar = -99.0
+    count = 0
+    elapsed = 0
+    reason = 'ok'
+    brew_data.set_mode('pressure step')
+    try:
+        RELAY_SOLENOID.value(1)     # solenoid before pump, like every other pumping path
+        RELAY_PUMP.value(1)
+        t0 = next_t = utime.ticks_us()
+        p_filt = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset
+        alpha = (PCAP_RATE_US / 1000000.0) / PCAP_FILT_TAU    # kiintea naytevali, ei ticks-mittausta
+        notch_t0 = 0
+        for i in range(PSTEP_MAX_N):
+            while utime.ticks_diff(next_t, utime.ticks_us()) > 0: pass
+            v = sensor.read_u16()
+            buf[i] = v
+            count = i + 1
+            elapsed = utime.ticks_diff(utime.ticks_us(), t0)
+            next_t = utime.ticks_add(next_t, PCAP_RATE_US)
+            bar = gain * (v * PCAP_RAW_A + PCAP_RAW_B) + offset
+            if bar > pmax_bar: pmax_bar = bar
+            if bar > PCAP_OVER_BAR: reason = 'overpressure'; break
+            p_filt += (bar - p_filt) * alpha
+            if (i & PSTEP_FEED_MASK) == 0:
+                devsafe.feed()                       # 8 s laitteistovahti, ks. PSTEP_FEED_MASK
+                r = _sweep_break(brew_data, 'pstep_abort')
+                if r: reason = r; break
+            if notch_pending:
+                # Takaisin paalle tasan yhden verkkojakson jalkeen. Tarkistus kerran naytteessa,
+                # joten katkon pituus on 19,96 ms +- 1 ms; se riittaa tasan yhden iskun ohitukseen.
+                if utime.ticks_diff(utime.ticks_us(), notch_t0) >= PCAP_MAINS_US:
+                    RELAY_PUMP.value(1); notch_pending = False
+            if i_reach < 0:
+                if i >= PSTEP_MIN_MS and p_filt >= target:
+                    i_reach = i
+                elif i >= PSTEP_REACH_MAX_MS:
+                    reason = 'noreach'; break
+            elif i_notch < 0:
+                if i - i_reach >= hold_ms:
+                    i_notch = i
+                    RELAY_PUMP.value(0)              # <- mitattava kaskyhetki
+                    notch_t0 = utime.ticks_us()
+                    notch_pending = True
+            elif i_stop < 0:
+                if i - i_notch >= PSTEP_RUN_MS:
+                    i_stop = i
+                    RELAY_PUMP.value(0)              # <- toinen, riippumaton askel
+            elif i - i_stop >= tail_ms:
+                break
+    except Exception:
+        reason = 'error'
+    finally:
+        RELAY_PUMP.value(0)
+        RELAY_SOLENOID.value(0)
+        brew_data.set_mode('IDLE')
+        brew_data.pstep_abort = False
+    tray_reason = await tray_guard_recheck(brew_data, utime, asyncio, tray_state)
+    if tray_reason and reason == 'ok': reason = tray_reason
+    print('PSTEP_MARK reach=%d notch=%d stop=%d n=%d' % (i_reach, i_notch, i_stop, count))
+    full_rows = count // PCAP_ROW
+    for r_i in range(full_rows):
+        row_start = r_i * PCAP_ROW
+        vals = ' '.join(str(buf[row_start + j]) for j in range(PCAP_ROW))
+        print('PSTEP %d %s' % (row_start, vals))
+        if (r_i + 1) % 10 == 0: await asyncio.sleep_ms(0)   # yield to watchdog while printing
+    print('PSTEP_END n=%d dur_us=%d pmax=%.2f reason=%s' % (count, elapsed, pmax_bar, reason))
+
+
+# ============================================================================
+# PRESSURE GAP — monta 20 ms:n taukoa, kohdistus haetaan ajon aikana (tilaus 20.9.2026)
+# ============================================================================
+# Tilaus: "ajat pumppua täydellä teholla kunnes paine on noin 7 bar. jatkat pumpun ajoa ja teet
+# noin 5 kappaletta 20ms taukoja jotka kohdistetaan pumpun täyden syklin kattavaksi. tauot
+# tapahtuvat noin puolen sekunnin välein siten että seuraava yrittää korjata edellisen virheen
+# perusteella kohtaa".
+#
+# Mittari on pudotuksen syvyys: tauko, joka peittaa yhden iskun kokonaan, poistaa sen kokonaan ja
+# antaa syvimman pudotuksen; kahden iskun valiin osuva tauko vaimentaa molempia osittain ja jaa
+# matalaksi. Syvyydessa ei ole etumerkkia, joten kolme ensimmaista taukoa kartoittavat jakson
+# kolmanneksin ja kaksi viimeista tarkentavat parhaan ymparilta — nekin edellisten tuloksen
+# perusteella, kuten tilaus sanoo.
+#
+# Vaihereferenssi on ajon alku ja jakso PCAP_MAINS_US. Jos verkon todellinen jakso poikkeaa
+# tasta, kohdistus ajautuu ajon aikana: 20.9.2026 mitattu 50,027-50,161 Hz on 19936-19989 us, eli
+# enintaan 29 us/jakso, ja viiden tauon ajossa (100 jaksoa) enintaan 2,9 ms. Siksi jokainen
+# PGAP-rivi tulostaa seka kasketyn vaiheen etta mitatun pohjan kohdan: ajautuma nakyy niista.
+PGAP_N_DEFAULT = 5
+PGAP_N_MAX = 12
+PGAP_SPACING_MS = 500        # tilaus: noin puolen sekunnin valein
+PGAP_RESP_MS = 200           # vasteikkuna tauon jalkeen, josta pohja etsitaan
+PGAP_BASE_MS = 20            # tauon edelta luettu perustaso, yksi verkkojakso
+PGAP_SMOOTH_N = 5            # lyhyt keskiarvo pohjan etsintaan: vaimentaa kohinaa, ei kuoppaa
+PGAP_BASE_N = 80             # perustason ikkuna: NELJA verkkojaksoa (4 x 19,96 ms ~ 80 ms).
+                              # Yksi jakso ei kelpaa: kun ikkuna jaetaan kahtia kulmakertoimen
+                              # laskemiseksi, puolikkaat ovat vareilyn kaksi puoliskoa ja
+                              # kulmakerroin mittaa vareilya eika trendia — mitattu 20.9.2026,
+                              # slope=-0,036 bar/nayte eli 36 bar/s, ja syvyys jai nollaksi.
+                              # Kaksi jaksoa per puolikas (40 ms vs 39,92 ms) kumoaa vareilyn.
+PGAP_SMOOTH_N = 5            # lyhyt keskiarvo pohjan etsintaan
+PGAP_TRIM_BAR = 0.3          # purku, jos perustaso karkaa tavoitteesta yli taman
+PGAP_SETTLE_MS = 150         # purun jalkeen odotetaan tama ennen seuraavaa taukoa: pumppu on
+                              # taalla taysilla purun valissa, joten palautuminen on nopeaa —
+                              # toisin kuin pyyhkaisyssa, jossa portitettu pumppu ei palauttanut
+                              # purettua painetta lainkaan (mitattu vika 20.9.2026)
+PGAP_CYCLE_MIN_N = 8         # tasta ylospain vaiheet kierratetaan: nelja vaihetta perakkain
+                              # toistuvasti, jolloin perustason ajautuma jakautuu tasan kaikille
+                              # vaiheille eika voi teeskennella optimia (mitattu vika 20.9.2026:
+                              # perustaso nousi 7,58 -> 8,24 bar yhden viiden tauon ajon aikana)
+PGAP_CYCLE_K = 4             # montako eri vaihetta kierratetaan
+
+
+async def pressure_gap_run(brew_data, utime, asyncio, target):
+    """Taukoja kierratetyilla vaiheilla tasapainossa (tilaus 20.9.2026).
+
+    Aaltomuotoa ei tallenneta: syvyys lasketaan laitteella, joten muistia ei kulu ja taukojen
+    maara ei ole puskurin rajoittama. Tauon pituus on parametri, koska koko jakson mittainen tauko
+    poistaa molemmat puolijaksot eika siten reagoi vaiheeseen lainkaan — vaiheen mittaamiseen
+    tarvitaan puolijaksoa lyhyempi tauko (kayttajan huomio 20.9.2026)."""
+    import devsafe
+    RELAY_PUMP, RELAY_SOLENOID, RELAY_HEATER = brew_data.get_relays()
+    sensor = brew_data.pressure_sensor.pressure_sensor
+    gain = brew_data.pressure_sensor.gain
+    offset = brew_data.pressure_sensor.offset
+    n_gaps = getattr(brew_data, 'pgap_n', None) or PGAP_N_DEFAULT
+    spacing = getattr(brew_data, 'pgap_spacing_ms', None) or PGAP_SPACING_MS
+    period = PCAP_MAINS_US
+    gap_ms = getattr(brew_data, 'pgap_len_ms', None)
+    gap_us = int(gap_ms * 1000) if gap_ms else period
+    n_phases = getattr(brew_data, 'pgap_phases', None) or PGAP_CYCLE_K
+    lo = getattr(brew_data, 'pgap_lo_us', None)
+    hi = getattr(brew_data, 'pgap_hi_us', None)
+    if lo is not None and hi is not None and n_phases > 1:
+        # Rajattu vaihealue, molemmat paatepisteet mukana: tiheampi haku sielta, missa edellinen
+        # ajo antoi viitteita (kayttajan tilaus 20.9.2026).
+        phases = [lo + (k * (hi - lo)) // (n_phases - 1) for k in range(n_phases)]
+    else:
+        phases = [(k * period) // n_phases for k in range(n_phases)]
+    print('PGAP_START rate=%d target=%.2f n=%d spacing_ms=%d gap_us=%d period_us=%d phases=%d gain=%.4f offset=%.3f' % (
+        1000000 // PCAP_RATE_US, target, n_gaps, spacing, gap_us, period, n_phases, gain, offset))
+    r = _sweep_break(brew_data, 'pgap_abort')
+    if r:
+        print('PGAP_END n=0 gaps=0 pmax=0.00 reason=%s' % r); return
+    tray_state, tray_reason = tray_guard_start(brew_data, utime)
+    if tray_reason:
+        print('PGAP_END n=0 gaps=0 pmax=0.00 reason=%s' % tray_reason); return
+
+    base_ring = [0.0] * PGAP_BASE_N
+    sm = [0.0] * PGAP_SMOOTH_N
+    pmax_bar = -99.0
+    gaps_done = 0
+    reason = 'ok'
+    reached = False
+    brew_data.set_mode('pressure gap')
+    try:
+        RELAY_SOLENOID.value(1)
+        RELAY_PUMP.value(1)
+        t0 = next_t = utime.ticks_us()
+        p_filt = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset
+        alpha = (PCAP_RATE_US / 1000000.0) / PCAP_FILT_TAU
+        gap_off_t = 0
+        gap_pending = False
+        gap_at = -1
+        cur_phase = phases[0]
+        base_bar = 0.0
+        trough_v = 99.0
+        trough_at = 0
+        next_gap_j = 0
+        j = 0
+        while True:
+            while utime.ticks_diff(next_t, utime.ticks_us()) > 0: pass
+            now = utime.ticks_us()
+            v = sensor.read_u16()
+            next_t = utime.ticks_add(next_t, PCAP_RATE_US)
+            bar = gain * (v * PCAP_RAW_A + PCAP_RAW_B) + offset
+            if bar > pmax_bar: pmax_bar = bar
+            if bar > PCAP_OVER_BAR: reason = 'overpressure'; break
+            p_filt += (bar - p_filt) * alpha
+            if (j & PSTEP_FEED_MASK) == 0:
+                devsafe.feed()
+                r = _sweep_break(brew_data, 'pgap_abort')
+                if r: reason = r; break
+            if not reached:
+                if j >= PSTEP_MIN_MS and p_filt >= target:
+                    reached = True; j = 0; next_gap_j = PGAP_BASE_N + 30
+                elif j >= PSTEP_REACH_MAX_MS:
+                    reason = 'noreach'; break
+                j += 1
+                continue
+            base_ring[j % PGAP_BASE_N] = bar
+            sm[j % PGAP_SMOOTH_N] = bar
+            if gap_pending and utime.ticks_diff(now, gap_off_t) >= gap_us:
+                RELAY_PUMP.value(1); gap_pending = False
+            if gap_at >= 0:
+                if j - gap_at >= PGAP_SMOOTH_N:
+                    sv = sum(sm) / PGAP_SMOOTH_N
+                    # Vajaus suhteessa perustason suoraan, ei vakioon: paine nousee vasteikkunan
+                    # aikana noin 0,3 bar, ja ilman tata se meni suoraan hajontaan (mitattu
+                    # 20.9.2026 — mittari antoi jopa negatiivisia syvyyksia).
+                    dv = (base_bar + slope * (j - gap_at)) - sv
+                    if dv > trough_v: trough_v, trough_at = dv, j
+                if j - gap_at >= PGAP_RESP_MS:
+                    print('PGAP k=%d phase_us=%d len_ms=%d start=%d base_bar=%.3f slope=%.4f depth_bar=%.3f trough_ms=%d' % (
+                        gaps_done, cur_phase, gap_us // 1000, gap_at, base_bar, slope,
+                        trough_v, trough_at - gap_at))
+                    gaps_done += 1
+                    gap_at = -1
+                    if gaps_done >= n_gaps: break
+                    cur_phase = phases[gaps_done % n_phases]
+            elif j >= next_gap_j:
+                # Aloitus TARKALLEEN kasketyssa vaiheessa. Pelkka naytekohtainen tarkistus antaisi
+                # 1 ms:n epatarkkuuden, mika on enemman kuin vaiheaskel (832 us) — vierekkaiset
+                # vaiheet osuisivat samaan kohtaan. Siksi silmukka havaitsee ikkunan ETUKATEEN ja
+                # odottaa jaljella olevat mikrosekunnit (enintaan 1 ms kerran tauon alussa).
+                off = utime.ticks_diff(now, t0) % period
+                delta = cur_phase - off
+                if 0 <= delta < PCAP_RATE_US:
+                    # Perustason suora: ikkunan kaksi puoliskoa antavat kulmakertoimen, jolla
+                    # vasteen nousu vahennetaan pois (sama periaate kuin pstep_read.py:ssa).
+                    h = PGAP_BASE_N // 2
+                    m1 = sum(base_ring[(j - PGAP_BASE_N + 1 + q) % PGAP_BASE_N] for q in range(h)) / h
+                    m2 = sum(base_ring[(j - h + 1 + q) % PGAP_BASE_N] for q in range(h)) / h
+                    slope = (m2 - m1) / h
+                    base_bar = m2 + slope * ((h - 1) / 2.0)
+                    trough_v = -99.0        # suurin vajaus suoraan nahden; alkuarvo salli myos
+                                            # negatiivisen tuloksen, jotta nolla ei peita vikaa
+                    trough_at = j
+                    while utime.ticks_diff(utime.ticks_us(), now) < delta: pass
+                    gap_at = j
+                    RELAY_PUMP.value(0)
+                    gap_off_t = utime.ticks_us()
+                    gap_pending = True
+                    next_gap_j = j + spacing
+            j += 1
+    except Exception:
+        reason = 'error'
+    finally:
+        RELAY_PUMP.value(0)
+        RELAY_SOLENOID.value(0)
+        brew_data.set_mode('IDLE')
+        brew_data.pgap_abort = False
+    tray_reason = await tray_guard_recheck(brew_data, utime, asyncio, tray_state)
+    if tray_reason and reason == 'ok': reason = tray_reason
+    print('PGAP_END gaps=%d pmax=%.2f reason=%s' % (gaps_done, pmax_bar, reason))
+
+
+# ============================================================================
+# PRESSURE GAP LENGTH — kvantisoituuko tauko puolijaksoihin? (tilaus 20.9.2026)
+# ============================================================================
+# Kysymys ei ole hydraulinen vaan sahkoinen: "kohdistuksen tarkoitus ei ole vaikuttaa paineeseen
+# vaan saada jakso hallintaan etta sita voidaan muokata oikeasta kohtaa ettei se riko pumppua".
+# Pumppu on pelkka GPIO (GP11) eika koodissa ole nollaylityksen tunnistusta; ajuri on SSR-40DA,
+# jonka tyyppi on kirjattu tarkistamattomaksi (KAYTTAJAN-TIEDOT.md:186).
+#
+# Nollaylitys-SSR napsauttaa kytkennat verkon nollakohtiin, jolloin tauon TODELLINEN pituus
+# kvantisoituu puolijaksoihin (9,98 ms) riippumatta kasketysta pituudesta, ja poistettujen iskujen
+# maara — siis pudotuksen syvyys — nousee portaittain. Vapaavaiheinen ajuri antaisi tasaisen
+# ramppin. Tama ajo erottaa ne toisistaan avaamatta konetta.
+#
+# Aaltomuotoa ei tallenneta: syvyys lasketaan laitteella, joten muistia ei kulu ja taukoja mahtuu
+# kymmenia samaan ajoon.
+PLEN_MIN_MS = 6
+PLEN_MAX_MS = 36
+PLEN_STEP_MS = 2
+PLEN_REPS = 2
+PLEN_SPACING_MS = 400
+PLEN_RESP_MS = 200           # vasteikkuna tauon alusta
+PLEN_BASE_N = 20             # perustaso: yksi verkkojakso ennen taukoa
+PLEN_SMOOTH_N = 5            # lyhyt keskiarvo pohjan etsintaan
+
+
+async def pressure_len_run(brew_data, utime, asyncio, target):
+    """Tauon pituuden pyyhkaisy: kvantisoituuko katkaisu puolijaksoihin (tilaus 20.9.2026)."""
+    import devsafe
+    RELAY_PUMP, RELAY_SOLENOID, RELAY_HEATER = brew_data.get_relays()
+    sensor = brew_data.pressure_sensor.pressure_sensor
+    gain = brew_data.pressure_sensor.gain
+    offset = brew_data.pressure_sensor.offset
+    reps = getattr(brew_data, 'plen_reps', None) or PLEN_REPS
+    lengths = list(range(PLEN_MIN_MS, PLEN_MAX_MS + 1, PLEN_STEP_MS))
+    plan = []
+    for _ in range(reps):       # kierratetty: ajautuma jakautuu tasan kaikille pituuksille
+        plan.extend(lengths)
+    print('PLEN_START rate=%d target=%.2f lengths=%d reps=%d spacing_ms=%d half_cycle_us=%d gain=%.4f offset=%.3f' % (
+        1000000 // PCAP_RATE_US, target, len(lengths), reps, PLEN_SPACING_MS,
+        PCAP_MAINS_US // 2, gain, offset))
+    r = _sweep_break(brew_data, 'plen_abort')
+    if r:
+        print('PLEN_END gaps=0 pmax=0.00 reason=%s' % r); return
+    tray_state, tray_reason = tray_guard_start(brew_data, utime)
+    if tray_reason:
+        print('PLEN_END gaps=0 pmax=0.00 reason=%s' % tray_reason); return
+
+    base_ring = [0.0] * PLEN_BASE_N
+    sm = [0.0] * PLEN_SMOOTH_N
+    pmax_bar = -99.0
+    gaps_done = 0
+    reason = 'ok'
+    reached = False
+    brew_data.set_mode('pressure gap length')
+    try:
+        RELAY_SOLENOID.value(1)
+        RELAY_PUMP.value(1)
+        next_t = utime.ticks_us()
+        p_filt = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset
+        alpha = (PCAP_RATE_US / 1000000.0) / PCAP_FILT_TAU
+        gap_off_t = 0
+        gap_pending = False
+        gap_at = -1
+        cur_len_ms = plan[0]
+        base_bar = 0.0
+        trough_v = 99.0
+        trough_at = 0
+        next_gap_j = 0
+        venting = False
+        vents = 0
+        j = 0
+        while True:
+            while utime.ticks_diff(next_t, utime.ticks_us()) > 0: pass
+            now = utime.ticks_us()
+            v = sensor.read_u16()
+            next_t = utime.ticks_add(next_t, PCAP_RATE_US)
+            bar = gain * (v * PCAP_RAW_A + PCAP_RAW_B) + offset
+            if bar > pmax_bar: pmax_bar = bar
+            if bar > PCAP_OVER_BAR: reason = 'overpressure'; break
+            p_filt += (bar - p_filt) * alpha
+            if (j & PSTEP_FEED_MASK) == 0:
+                devsafe.feed()
+                r = _sweep_break(brew_data, 'plen_abort')
+                if r: reason = r; break
+            if not reached:
+                if j >= PSTEP_MIN_MS and p_filt >= target:
+                    reached = True; j = 0; next_gap_j = PLEN_BASE_N + 30
+                elif j >= PSTEP_REACH_MAX_MS:
+                    reason = 'noreach'; break
+                j += 1
+                continue
+            base_ring[j % PLEN_BASE_N] = bar
+            sm[j % PLEN_SMOOTH_N] = bar
+            if gap_pending and utime.ticks_diff(now, gap_off_t) >= cur_len_ms * 1000:
+                RELAY_PUMP.value(1); gap_pending = False
+            if gap_at >= 0:
+                if j - gap_at >= PLEN_SMOOTH_N:
+                    s = sum(sm) / PLEN_SMOOTH_N
+                    if s < trough_v: trough_v, trough_at = s, j
+                if j - gap_at >= PLEN_RESP_MS:
+                    print('PLEN k=%d len_ms=%d base_bar=%.3f depth_bar=%.3f trough_ms=%d' % (
+                        gaps_done, cur_len_ms, base_bar, base_bar - trough_v, trough_at - gap_at))
+                    gaps_done += 1
+                    gap_at = -1
+                    if gaps_done >= len(plan): break
+                    cur_len_ms = plan[gaps_done]
+            elif j >= next_gap_j:
+                base_bar = sum(base_ring) / PLEN_BASE_N
+                trough_v = 99.0
+                gap_at = j
+                RELAY_PUMP.value(0)
+                gap_off_t = now
+                gap_pending = True
+                next_gap_j = j + PLEN_SPACING_MS
+            j += 1
+    except Exception:
+        reason = 'error'
+    finally:
+        RELAY_PUMP.value(0)
+        RELAY_SOLENOID.value(0)
+        brew_data.set_mode('IDLE')
+        brew_data.plen_abort = False
+    tray_reason = await tray_guard_recheck(brew_data, utime, asyncio, tray_state)
+    if tray_reason and reason == 'ok': reason = tray_reason
+    print('PLEN_END gaps=%d pmax=%.2f reason=%s' % (gaps_done, pmax_bar, reason))
+
+
 async def _mcal_vent(brew_data, utime, asyncio, sensor, gain, offset):
     """Purkusykli (TILAUS-H, spec 2): palauttaa (cycles, bar); cycles==MCAL_VENT_MAX_CYCLES on vika."""
     RELAY_PUMP, RELAY_SOLENOID, RELAY_HEATER = brew_data.get_relays()
@@ -966,6 +1397,36 @@ async def _mcal_vent(brew_data, utime, asyncio, sensor, gain, offset):
         prev_end = bar
     print('MAINSCAL_VENT cycles=%d bar=%.2f' % (cycles, bar))
     return cycles, bar
+
+async def pressure_vent_run(brew_data, utime, asyncio):
+    """Pelkka purkusykli, oma komentonsa (TILAUS-H kohta 3, tekematta 19.9.2026 asti).
+
+    `mcal` purkaa paineen mutta kaynnistaa heti sen jalkeen pumpun, koska se mittaa taajuuden
+    paineen noususta. Purkukomentona se siis kumoaa itsensa — kayttajan havainto 20.9.2026, ja
+    se toistui kolmesti taman istunnon aikana. Tama komento purkaa eika pumppaa."""
+    RELAY_PUMP, RELAY_SOLENOID, RELAY_HEATER = brew_data.get_relays()
+    sensor = brew_data.pressure_sensor.pressure_sensor
+    gain = brew_data.pressure_sensor.gain
+    offset = brew_data.pressure_sensor.offset
+    r = _sweep_break(brew_data, 'pvent_abort')
+    if r:
+        print('PVENT_END cycles=0 bar=0.00 reason=%s' % r); return
+    brew_data.set_mode('pressure vent')
+    reason = 'ok'
+    cycles, bar = 0, 0.0
+    try:
+        RELAY_PUMP.value(0)          # pumppu pois ENNEN purkua ja se jaa pois
+        cycles, bar = await _mcal_vent(brew_data, utime, asyncio, sensor, gain, offset)
+        if cycles >= MCAL_VENT_MAX_CYCLES: reason = 'vent_runaway'
+    except Exception:
+        reason = 'error'
+    finally:
+        RELAY_PUMP.value(0)
+        RELAY_SOLENOID.value(0)
+        brew_data.set_mode('IDLE')
+        brew_data.pvent_abort = False
+    print('PVENT_END cycles=%d bar=%.2f reason=%s' % (cycles, bar, reason))
+
 
 async def mains_calibrate(brew_data, utime, asyncio, ms=2000):
     """Ajonaikainen verkkotaajuuden ja vaiheen mittaus paineväreilystä (TILAUS-F/G/H, spec 3)."""
