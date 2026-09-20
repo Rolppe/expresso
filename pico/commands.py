@@ -103,6 +103,73 @@ def handle_command(brew_data, command):
             try: brew_data.request_mains_calibration(float(arg))
             except Exception: pass
 
+    elif command.startswith('pvent'):
+        # pvent — pelkka purkusykli, ei pumppausta perassa (TILAUS-H kohta 3)
+        brew_data.request_pressure_vent()
+
+    elif command.startswith('plen:'):
+        # plen:<bar>[:<reps>] | plen:stop — tauon pituuden pyyhkaisy (tilaus 20.9.2026)
+        arg = command.split(':', 1)[1]
+        brew_data.plen_reps = None
+        if arg == 'stop':
+            brew_data.abort_pressure_len()
+        else:
+            try:
+                parts = arg.split(':')
+                if len(parts) > 1: brew_data.plen_reps = min(6, max(1, int(float(parts[1]))))
+                brew_data.request_pressure_len(float(parts[0]))
+            except Exception:
+                brew_data.plen_reps = None
+
+    elif command.startswith('pgap:'):
+        # pgap:<bar>[:<n>[:<spacing_ms>]] | pgap:stop — monta 20 ms:n taukoa ja kohdistushaku
+        # ajon aikana (tilaus 20.9.2026).
+        arg = command.split(':', 1)[1]
+        brew_data.pgap_n = None
+        brew_data.pgap_spacing_ms = None
+        brew_data.pgap_len_ms = None
+        brew_data.pgap_phases = None
+        brew_data.pgap_lo_us = None
+        brew_data.pgap_hi_us = None
+        if arg == 'stop':
+            brew_data.abort_pressure_gap()
+        else:
+            try:
+                parts = arg.split(':')
+                if len(parts) > 1: brew_data.pgap_n = min(60, max(2, int(float(parts[1]))))
+                if len(parts) > 2: brew_data.pgap_spacing_ms = max(250, int(float(parts[2])))
+                if len(parts) > 3: brew_data.pgap_len_ms = max(2, min(60, int(float(parts[3]))))
+                if len(parts) > 4: brew_data.pgap_phases = max(2, min(20, int(float(parts[4]))))
+                if len(parts) > 6:
+                    brew_data.pgap_lo_us = max(0, int(float(parts[5])))
+                    brew_data.pgap_hi_us = max(1, int(float(parts[6])))
+                brew_data.request_pressure_gap(float(parts[0]))
+            except Exception:
+                brew_data.pgap_n = None
+                brew_data.pgap_spacing_ms = None
+                brew_data.pgap_len_ms = None
+                brew_data.pgap_phases = None
+                brew_data.pgap_lo_us = None
+                brew_data.pgap_hi_us = None
+
+    elif command.startswith('pstep:'):
+        # pstep:<bar>[:<hold_ms>[:<tail_ms>]] | pstep:stop — yksi ohitettu verkkojakso
+        # tasapainossa (tilaus 20.9.2026). Kentat nollataan joka pyynnolla, kuten psweep:ssa.
+        arg = command.split(':', 1)[1]
+        brew_data.pstep_hold_ms = None
+        brew_data.pstep_tail_ms = None
+        if arg == 'stop':
+            brew_data.abort_pressure_step()
+        else:
+            try:
+                parts = arg.split(':')
+                if len(parts) > 1: brew_data.pstep_hold_ms = max(200, int(float(parts[1])))
+                if len(parts) > 2: brew_data.pstep_tail_ms = max(200, int(float(parts[2])))
+                brew_data.request_pressure_step(float(parts[0]))
+            except Exception:
+                brew_data.pstep_hold_ms = None
+                brew_data.pstep_tail_ms = None
+
     elif command.startswith('pcap:'):
         # Raw pressure capture for mains-frequency analysis: pcap:<ms 200-2500>[:<bar>[:<phase_us>]]
         # | pcap:stop. The optional third field is the settling target bar (korjaus 2); classes.py

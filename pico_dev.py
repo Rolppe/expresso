@@ -16,6 +16,12 @@ Usage:
                                         PCAP lines until PCAP_END
   pico_dev.py psweep <ms>:<bar>[:<n>[:<mult>]] [out.log]  CMD psweep:<ms>:<bar>[:<n>[:<mult>]],
                                         capture PSWEEP/PCAP lines until PSWEEP_END
+  pico_dev.py plen <bar>[:<reps>] [out.log]  CMD plen:..., capture PLEN lines until PLEN_END:
+                                        gap-length sweep, tests for half-cycle quantisation
+  pico_dev.py pgap <bar>[:<n>[:<spacing_ms>]] [out.log]  CMD pgap:..., capture PGAP lines until
+                                        PGAP_END: several 20 ms gaps, alignment searched in-run
+  pico_dev.py pstep <bar>[:<hold_ms>[:<tail_ms>]] [out.log]  CMD pstep:..., capture PSTEP lines
+                                        until PSTEP_END: one skipped mains cycle at target pressure
   pico_dev.py phold <s> [out.log]       CMD phold:<s>, capture PHOLD lines until PHOLD_END
   pico_dev.py capture <seconds> [out]   print/save serial output (no interrupt)
   pico_dev.py verify <MANIFEST.json>    SHA-256 of every file on the Pico vs. the manifest
@@ -213,6 +219,49 @@ def psweep(arg, out_path=None):
     return 0
 
 
+def plen(arg, out_path=None):
+    # Gap-length sweep: does the cut quantise to mains half cycles? Stop marker PLEN_END.
+    link = Link()
+    link.send(('CMD plen:%s\r\n' % arg).encode())
+    tail = capture(300, out_path, stop_marker=b'PLEN_END', link=link)
+    text = tail.decode('utf-8', 'replace')
+    line = next((l for l in text.splitlines() if l.startswith('PLEN_END')), None)
+    reason = line.split('reason=')[-1].strip() if line and 'reason=' in line else None
+    if not line or reason != 'ok':
+        print('PLEN_FAIL reason=%s' % (reason or 'no_end'))
+        return 1
+    return 0
+
+
+def pgap(arg, out_path=None):
+    # Same pattern as pstep(): several 20 ms gaps with the alignment searched during the run.
+    link = Link()
+    link.send(('CMD pgap:%s\r\n' % arg).encode())
+    tail = capture(300, out_path, stop_marker=b'PGAP_END', link=link)
+    text = tail.decode('utf-8', 'replace')
+    line = next((l for l in text.splitlines() if l.startswith('PGAP_END')), None)
+    reason = line.split('reason=')[-1].strip() if line and 'reason=' in line else None
+    if not line or reason != 'ok':
+        print('PGAP_FAIL reason=%s' % (reason or 'no_end'))
+        return 1
+    return 0
+
+
+def pstep(arg, out_path=None):
+    # Same pattern as psweep(), stop marker PSTEP_END. The timeout is 300 s because the run itself
+    # is up to 25 s and the device then prints up to 14000 raw samples, 20 to a line.
+    link = Link()
+    link.send(('CMD pstep:%s\r\n' % arg).encode())
+    tail = capture(300, out_path, stop_marker=b'PSTEP_END', link=link)
+    text = tail.decode('utf-8', 'replace')
+    line = next((l for l in text.splitlines() if l.startswith('PSTEP_END')), None)
+    reason = line.split('reason=')[-1].strip() if line and 'reason=' in line else None
+    if not line or reason != 'ok':
+        print('PSTEP_FAIL reason=%s' % (reason or 'no_end'))
+        return 1
+    return 0
+
+
 def phold(seconds, out_path=None):
     # One connection for the command and the capture, same pattern as pcap()/shot(): the bridge
     # serves a single client (PICO-HALLINTA.md luku 3).
@@ -288,6 +337,12 @@ if __name__ == '__main__':
         sys.exit(pcap(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else None))
     elif op == 'psweep':
         sys.exit(psweep(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else None))
+    elif op == 'plen':
+        sys.exit(plen(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else None))
+    elif op == 'pgap':
+        sys.exit(pgap(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else None))
+    elif op == 'pstep':
+        sys.exit(pstep(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else None))
     elif op == 'phold':
         sys.exit(phold(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else None))
     elif op == 'capture':

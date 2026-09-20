@@ -196,6 +196,29 @@ async def local_program(brew_data):
             await pressure_sweep_run(brew_data, utime, asyncio, psweep_ms)
             continue
 
+        if brew_data.take_pressure_vent_request():
+            from functions import pressure_vent_run
+            await pressure_vent_run(brew_data, utime, asyncio)
+            continue
+
+        plen_target = brew_data.take_pressure_len_request()
+        if plen_target is not None:
+            from functions import pressure_len_run
+            await pressure_len_run(brew_data, utime, asyncio, plen_target)
+            continue
+
+        pgap_target = brew_data.take_pressure_gap_request()
+        if pgap_target is not None:
+            from functions import pressure_gap_run
+            await pressure_gap_run(brew_data, utime, asyncio, pgap_target)
+            continue
+
+        pstep_target = brew_data.take_pressure_step_request()
+        if pstep_target is not None:
+            from functions import pressure_step_run
+            await pressure_step_run(brew_data, utime, asyncio, pstep_target)
+            continue
+
         mcal_ms = brew_data.take_mains_calibration_request()
         if mcal_ms:
             from functions import mains_calibrate
