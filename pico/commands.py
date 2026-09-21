@@ -2,7 +2,7 @@
 # COMMANDS — one dispatcher for BLE writes and serial "CMD <command>" lines (17.9.2026)
 # ============================================================================
 
-from functions import PCAP_GATE_PERIOD_US, PSWEEP_N_MAX, PSWEEP_MULT_MAX
+from functions import PCAP_GATE_PERIOD_US, PSWEEP_N_MAX, PSWEEP_MULT_MAX, PGAP_SPACING_MAX_MS
 
 
 def _float_arg(command):
@@ -137,7 +137,7 @@ def handle_command(brew_data, command):
             try:
                 parts = arg.split(':')
                 if len(parts) > 1: brew_data.pgap_n = min(60, max(2, int(float(parts[1]))))
-                if len(parts) > 2: brew_data.pgap_spacing_ms = max(250, int(float(parts[2])))
+                if len(parts) > 2: brew_data.pgap_spacing_ms = max(250, min(PGAP_SPACING_MAX_MS, int(float(parts[2]))))
                 if len(parts) > 3: brew_data.pgap_len_ms = max(2, min(60, int(float(parts[3]))))
                 if len(parts) > 4: brew_data.pgap_phases = max(2, min(20, int(float(parts[4]))))
                 if len(parts) > 6:

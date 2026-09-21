@@ -145,9 +145,17 @@ async def local_program(brew_data):
     # If fast heatup mode is on, start fast heatup program
     if brew_data.get_fast_heatup_mode() and brew_data.get_boiler_temperature() < 50:
         brew_data.set_mode('fast_heatup')
-        await fast_heatup(utime, brew_data)
+        await fast_heatup(utime, asyncio, brew_data)
         
         
+    # Development and test commands own the loop while they run, so thermostat.run() does not
+    # run and the heater would stay in whatever state it was left (up to 120 s in phold, longer
+    # in pgap before its cap). Heater off first; the thermostat takes over again on the next
+    # pass (EXPRESSO-TURVA-PIKAKORJAUKSET, 21.9.2026).
+    async def dev_run(coro):
+        RELAY_HEATER.value(0)
+        await coro
+
     # ============================================================================
     # MAIN LOOP - LOCAL PROGRAM
     # ============================================================================
@@ -180,54 +188,54 @@ async def local_program(brew_data):
         # PRESSURE CALIBRATION (requested from the app over BLE)
         pcal_stage = brew_data.take_pressure_calibration_request()
         if pcal_stage:
-            await pressure_calibration_run(brew_data, utime, asyncio, pcal_stage)
+            await dev_run(pressure_calibration_run(brew_data, utime, asyncio, pcal_stage))
 
         if brew_data.take_pressure_zero_request():
-            await pressure_zero_run(brew_data, utime, asyncio)
+            await dev_run(pressure_zero_run(brew_data, utime, asyncio))
             continue
 
         pcap_ms = brew_data.take_pressure_capture_request()
         if pcap_ms:
-            await pressure_capture_run(brew_data, utime, asyncio, pcap_ms)
+            await dev_run(pressure_capture_run(brew_data, utime, asyncio, pcap_ms))
             continue
 
         psweep_ms = brew_data.take_pressure_sweep_request()
         if psweep_ms:
-            await pressure_sweep_run(brew_data, utime, asyncio, psweep_ms)
+            await dev_run(pressure_sweep_run(brew_data, utime, asyncio, psweep_ms))
             continue
 
         if brew_data.take_pressure_vent_request():
             from functions import pressure_vent_run
-            await pressure_vent_run(brew_data, utime, asyncio)
+            await dev_run(pressure_vent_run(brew_data, utime, asyncio))
             continue
 
         plen_target = brew_data.take_pressure_len_request()
         if plen_target is not None:
             from functions import pressure_len_run
-            await pressure_len_run(brew_data, utime, asyncio, plen_target)
+            await dev_run(pressure_len_run(brew_data, utime, asyncio, plen_target))
             continue
 
         pgap_target = brew_data.take_pressure_gap_request()
         if pgap_target is not None:
             from functions import pressure_gap_run
-            await pressure_gap_run(brew_data, utime, asyncio, pgap_target)
+            await dev_run(pressure_gap_run(brew_data, utime, asyncio, pgap_target))
             continue
 
         pstep_target = brew_data.take_pressure_step_request()
         if pstep_target is not None:
             from functions import pressure_step_run
-            await pressure_step_run(brew_data, utime, asyncio, pstep_target)
+            await dev_run(pressure_step_run(brew_data, utime, asyncio, pstep_target))
             continue
 
         mcal_ms = brew_data.take_mains_calibration_request()
         if mcal_ms:
             from functions import mains_calibrate
-            await mains_calibrate(brew_data, utime, asyncio, mcal_ms)
+            await dev_run(mains_calibrate(brew_data, utime, asyncio, mcal_ms))
             continue
 
         phold_s = brew_data.take_pressure_hold_request()
         if phold_s:
-            await pressure_hold_run(brew_data, utime, asyncio, phold_s)
+            await dev_run(pressure_hold_run(brew_data, utime, asyncio, phold_s))
             continue
 
         # PRINT VALUES

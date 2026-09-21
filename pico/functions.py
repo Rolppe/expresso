@@ -890,6 +890,9 @@ async def _psweep_trim(brew_data, utime, asyncio, sensor, gain, offset, target, 
         dt = utime.ticks_diff(now, last_t) / 1000.0
         last_t = now
         bar = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset
+        # Ylipaineraja, jota trimmauksessa ei ollut (EXPRESSO-TURVA-PIKAKORJAUKSET 21.9.2026):
+        # pumppu kay tassa taydella teholla, kunnes suodin nousee kuolleeseen alueeseen.
+        if bar > PCAP_OVER_BAR: reason = 'overpressure'; break
         p_filt += (bar - p_filt) * min(1.0, dt / PCAP_FILT_TAU)
         if utime.ticks_diff(now, t0) >= PSWEEP_TRIM_MS: reason = 'timeout'; break
     ms_elapsed = utime.ticks_diff(utime.ticks_ms(), t0)
@@ -897,8 +900,13 @@ async def _psweep_trim(brew_data, utime, asyncio, sensor, gain, offset, target, 
     # joten trimmauksen on jatettava se samaan tilaan. Tassa oli value(0), jolloin ensimmaisen
     # trimmauksen jalkeiset segmentit ajettiin eri venttiilitilassa kuin segmentti 0 — loydetty
     # 20.9.2026, ja se voi selittaa saman paivan pyyhkaisyajojen ylipainekatkot.
-    RELAY_SOLENOID.value(1)
-    RELAY_PUMP.value(1)
+    # Vain kun ajo jatkuu (ok/timeout, ks. pressure_sweep_run): keskeytyksen, ylipaineen tai
+    # kaukalovahdin jalkeen pumppu jaa pois eika sita kytketa takaisin (21.9.2026).
+    if reason in ('ok', 'timeout'):
+        RELAY_SOLENOID.value(1)
+        RELAY_PUMP.value(1)
+    else:
+        RELAY_PUMP.value(0)
     print('PSWEEP_TRIM seg=%d bar=%.2f ms=%d reason=%s' % (prev_seg, p_filt, ms_elapsed, reason))
     return reason
 
@@ -1105,6 +1113,10 @@ async def pressure_step_run(brew_data, utime, asyncio, target):
 PGAP_N_DEFAULT = 5
 PGAP_N_MAX = 12
 PGAP_SPACING_MS = 500        # tilaus: noin puolen sekunnin valein
+PGAP_SPACING_MAX_MS = 2000   # valin ylaraja (EXPRESSO-TURVA-PIKAKORJAUKSET 21.9.2026): ennen tata
+                             # vali oli vain alarajattu, joten pgap saattoi pumpata rajatta
+PGAP_RUN_MAX_MS = 120000     # koko ajon katto kaynnistyksesta, sama kuin PHOLD_MAX_S: pisin
+                             # hyvaksytty testiajo. Tarkistetaan ajossa, ei vain komennossa.
 PGAP_RESP_MS = 200           # vasteikkuna tauon jalkeen, josta pohja etsitaan
 PGAP_BASE_MS = 20            # tauon edelta luettu perustaso, yksi verkkojakso
 PGAP_SMOOTH_N = 5            # lyhyt keskiarvo pohjan etsintaan: vaimentaa kohinaa, ei kuoppaa
@@ -1197,6 +1209,7 @@ async def pressure_gap_run(brew_data, utime, asyncio, target):
                 devsafe.feed()
                 r = _sweep_break(brew_data, 'pgap_abort')
                 if r: reason = r; break
+                if utime.ticks_diff(now, t0) > PGAP_RUN_MAX_MS * 1000: reason = 'timeout'; break
             if not reached:
                 if j >= PSTEP_MIN_MS and p_filt >= target:
                     reached = True; j = 0; next_gap_j = PGAP_BASE_N + 30
@@ -1470,6 +1483,10 @@ async def mains_calibrate(brew_data, utime, asyncio, ms=2000):
             if reason: break
             while utime.ticks_diff(next_t, utime.ticks_us()) > 0: pass
             x = float(sensor.read_u16())
+            # Ylipaineraja, jota mcal:ssa ei ollut (EXPRESSO-TURVA-PIKAKORJAUKSET 21.9.2026):
+            # sama raja ja sama raakanaytteen tarkistus kuin pcap:ssa.
+            if gain * (x * PCAP_RAW_A + PCAP_RAW_B) + offset > PCAP_OVER_BAR:
+                reason = 'overpressure'; break
             elapsed = utime.ticks_diff(utime.ticks_us(), t0); count += 1
             for k in range(len(MCAL_GRID)):
                 s0 = x + coeffs[k] * s1[k] - s2[k]
@@ -1602,56 +1619,64 @@ async def pressure_hold_run(brew_data, utime, asyncio, seconds):
 # FAST HEATUP
 # ============================================================================
 
-async def fast_heatup(utime, brew_data): 
-        
-    RELAY_PUMP, RELAY_SOLENOID, RELAY_HEATER = brew_data.get_relays()
-    
-    # Fill the boiler
-    RELAY_SOLENOID.value(1)
-    RELAY_PUMP.value(1)
-    await asyncio.sleep(2)
-    RELAY_PUMP.value(0)
-    RELAY_SOLENOID.value(0)
+async def fast_heatup(utime, asyncio, brew_data):
+    # asyncio comes in as a parameter like in every other run function: this file does not import
+    # it, so the old signature crashed with NameError right after switching the pump on
+    # (EXPRESSO-TURVA-PIKAKORJAUKSET, 21.9.2026). The finally below turns every relay off on any exit.
 
-    # Heat the boiler
-    RELAY_HEATER.value(1)
-    while brew_data.get_boiler_temperature() < 85:
-        await asyncio.sleep(1)
-    while brew_data.get_boiler_temperature() < 110:
-        RELAY_HEATER.value(1)
-        await asyncio.sleep(1)
-        RELAY_HEATER.value(0)
-        await asyncio.sleep(1.5)
-    while brew_data.get_boiler_temperature() < 115:
-        RELAY_HEATER.value(1)
-        await asyncio.sleep(1)
-        RELAY_HEATER.value(0)
+    RELAY_PUMP, RELAY_SOLENOID, RELAY_HEATER = brew_data.get_relays()
+
+    try:
+        # Fill the boiler
+        RELAY_SOLENOID.value(1)
+        RELAY_PUMP.value(1)
         await asyncio.sleep(2)
-    
-    # keep the temperature
-    for i in range(200):
-        if brew_data.get_boiler_temperature() < 115:
+        RELAY_PUMP.value(0)
+        RELAY_SOLENOID.value(0)
+
+        # Heat the boiler
+        RELAY_HEATER.value(1)
+        while brew_data.get_boiler_temperature() < 85:
+            await asyncio.sleep(1)
+        while brew_data.get_boiler_temperature() < 110:
+            RELAY_HEATER.value(1)
+            await asyncio.sleep(1)
+            RELAY_HEATER.value(0)
+            await asyncio.sleep(1.5)
+        while brew_data.get_boiler_temperature() < 115:
             RELAY_HEATER.value(1)
             await asyncio.sleep(1)
             RELAY_HEATER.value(0)
             await asyncio.sleep(2)
-        else:
+
+        # keep the temperature
+        for i in range(200):
+            if brew_data.get_boiler_temperature() < 115:
+                RELAY_HEATER.value(1)
+                await asyncio.sleep(1)
+                RELAY_HEATER.value(0)
+                await asyncio.sleep(2)
+            else:
+                await asyncio.sleep(1)
             await asyncio.sleep(1)
-        await asyncio.sleep(1)
-    
-    # Cool the boiler to under 105 celsius
-    while brew_data.get_boiler_temperature() > 99:
-        await asyncio.sleep(1)
-        
-    # Fill the boiler
-    RELAY_SOLENOID.value(1)
-    RELAY_PUMP.value(1)
-    await asyncio.sleep(0.5)
-    RELAY_PUMP.value(0)
-    RELAY_SOLENOID.value(0)
-    
-    # Sleep while boiler stabilizes
-    await asyncio.sleep(15)
+
+        # Cool the boiler to under 105 celsius
+        while brew_data.get_boiler_temperature() > 99:
+            await asyncio.sleep(1)
+
+        # Fill the boiler
+        RELAY_SOLENOID.value(1)
+        RELAY_PUMP.value(1)
+        await asyncio.sleep(0.5)
+        RELAY_PUMP.value(0)
+        RELAY_SOLENOID.value(0)
+
+        # Sleep while boiler stabilizes
+        await asyncio.sleep(15)
+    finally:
+        RELAY_PUMP.value(0)
+        RELAY_SOLENOID.value(0)
+        RELAY_HEATER.value(0)
 
 
 # ============================================================================
