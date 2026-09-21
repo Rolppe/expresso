@@ -84,6 +84,17 @@ class BrewStatsLogger:
 # BREW DATA 
 # ============================================================================
 
+# Thermostat setpoint ceiling (EXPRESSO-TURVA-PIKAKORJAUKSET, 21.9.2026). A failed temperature
+# sensor reads 200 C (get_boiler_temperature), so a setpoint at or above that would leave the heater
+# on through a sensor fault. Checked in the setters so bt:, BLE and settings.txt all pass through it.
+SETPOINT_MAX_C = 150
+
+def _check_setpoint(value):
+    # None comes from an old settings.txt without the key and keeps the old behaviour
+    if value is not None and not (0 < value <= SETPOINT_MAX_C):
+        raise ValueError('setpoint out of range: %s' % value)
+
+
 ###### Class to share data between the cores ####
 class BrewData:
     def __init__(self, Pin, ADC, PINS, TARGET_TEMPERATURES, FEATURES, heating_speed_calculator, temperature_sensor, pressure_sensor):
@@ -247,11 +258,13 @@ class BrewData:
 
     def set_brew_temperature(self, brew_temperature):
         print("set_brew_temperature")
+        _check_setpoint(brew_temperature)
         self.brew_temperature = brew_temperature
         self.setting_changed = True
 
 
     def set_steam_temperature(self, steam_temperature):
+        _check_setpoint(steam_temperature)
         self.steam_temperature = steam_temperature
         self.setting_changed = True
 
