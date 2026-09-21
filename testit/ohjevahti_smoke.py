@@ -87,6 +87,13 @@ write_kirja([dict(O3, kuitattu_klo=time.time())])
 expect('12 kuittauksen jälkeen', D + 'pgap 7.0:20', 'ask', ('O-3',), ('VÄLIVAIHE',))
 expect('13 heti perään uudestaan', D + 'pgap 7.0:20', 'deny', ('VÄLIVAIHE',))
 
+time.sleep(1.1)
+write_kirja([dict(O3, kuitattu_klo=time.time())])
+time.sleep(1.1)
+expect('13b grep lukee pico_dev.py:tä', 'grep -n pgap Infra/iot/expresso/pico_dev.py', None)
+expect('13c sed lukee pico_dev.py:tä', 'sed -n 1,5p pico_dev.py | head', None)
+expect('13d luku ei kirjannut ajoa', D + 'pgap 7.0:20', 'ask', ('O-3',), ('VÄLIVAIHE',))
+
 reset_tila()
 expect('14 ohjekirja puuttuu', D + 'pgap 7.0:20', 'ask', ('ohjekirja tyhjä',), env_kirja=False)
 write_kirja(None, raw='{rikki')
