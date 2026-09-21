@@ -568,8 +568,13 @@ def pcap_gate(i, phase_us, period_us=None):
 
 
 # ============================================================================
-# TRAY GUARD (phold/pcap only — EXPRESSO-KAUKALOVAHTI, spec kohta 0)
+# TRAY GUARD (testikomennot — EXPRESSO-KAUKALOVAHTI, spec kohta 0; kokonaispaino
+# EXPRESSO-KAUKALOVAHTI-KOKONAISPAINO 21.9.2026)
 # ============================================================================
+# wmax on pakollinen ja absoluuttinen: se ei nollaudu ajojen välissä, kun taas wrise mitataan
+# kunkin ajon alusta. Neljä peräkkäistä ajoa sai 20.9.2026 kukin oman 250 g:n nousuvaransa ja
+# kaukalo tulvi yli, koska wmax oli asettamatta. Siksi pelkkä wrise ei enää riitä ajon aloitukseen,
+# eikä ajo ala, jos kaukalo on jo rajalla.
 
 TRAY_STALE_MS = 2000     # lukema vanhentuneeksi; sama arvo kuin tshot-polulla (functions.py:159-161)
 TRAY_RESYNC_MS = 300     # kaappauksen jälkeisen tarkistuksen enimmäisodotus tuoreelle lukemalle
@@ -578,14 +583,14 @@ TRAY_RESYNC_MS = 300     # kaappauksen jälkeisen tarkistuksen enimmäisodotus t
 
 def tray_guard_start(brew_data, utime):
     """Ennen releiden kytkentää. Palauttaa (state, None) tai (None, '<syy>')."""
-    limit = brew_data.get_weight_limit()
-    rise_limit = brew_data.get_weight_rise_limit()
-    if limit <= 0 and rise_limit <= 0:
+    if brew_data.get_weight_limit() <= 0:
         return None, 'nolimit'
     weight = brew_data.get_weight()
     age = utime.ticks_diff(utime.ticks_ms(), brew_data.get_weight_ms())
     if weight is None or age > TRAY_STALE_MS:
         return None, 'noscale'
+    if weight >= brew_data.get_weight_limit():
+        return None, 'tray'
     return {'start': weight, 'last_ms': None, 'over': 0}, None
 
 
@@ -1442,6 +1447,10 @@ async def mains_calibrate(brew_data, utime, asyncio, ms=2000):
 
     reason = mcal_break()
     if reason: print('MAINSCAL_END reason=%s' % reason); return
+    # Kaukalovahti (EXPRESSO-KAUKALOVAHTI-KOKONAISPAINO): mcal pumppaa, joten se on testikomento
+    # siinä missä pcap. Spec PWM-1G jätti vahdin pois (paketit/TURVAKATO.md kohta 3).
+    tray_state, reason = tray_guard_start(brew_data, utime)
+    if reason: print('MAINSCAL_END reason=%s' % reason); return
     sensor, gain, offset = brew_data.pressure_sensor.pressure_sensor, brew_data.pressure_sensor.gain, brew_data.pressure_sensor.offset
     n = int(ms)
     brew_data.set_mode('mains calibration')
@@ -1466,6 +1475,10 @@ async def mains_calibrate(brew_data, utime, asyncio, ms=2000):
                 s0 = x + coeffs[k] * s1[k] - s2[k]
                 s2[k], s1[k] = s1[k], s0
             next_t = utime.ticks_add(next_t, PCAP_RATE_US)
+        if not reason:
+            # Kaappaussilmukka ei anna vuoroa, joten vaaka tarkistetaan heti sen jälkeen (kuten pcap).
+            RELAY_PUMP.value(0)
+            reason = await tray_guard_recheck(brew_data, utime, asyncio, tray_state)
         reason = reason or 'ok'
         if reason != 'ok' or count == 0:
             print('MAINSCAL_END reason=%s' % reason); return

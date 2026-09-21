@@ -263,6 +263,13 @@ async def local_program(brew_data):
                     return False
                 return utime.ticks_diff(test_shot_end, utime.ticks_ms()) > 0
             
+            # Test shots need the absolute tray limit too (EXPRESSO-KAUKALOVAHTI-KOKONAISPAINO,
+            # 21.9.2026): without wmax, or with the tray already at it, the shot does not start.
+            from functions import tray_guard_start
+            _tray_state, _tray_reason = tray_guard_start(brew_data, utime)
+            if _tray_reason:
+                print('TS_END loops=0 max_loop_ms=0 reason=%s' % _tray_reason)
+                continue
             # The weight limits are deliberately not persisted, so they are off after every restart
             # and flash. Print their state with every test shot: without this the log cannot tell a
             # protected run from an unprotected one (18.9.2026).
