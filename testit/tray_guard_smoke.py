@@ -176,7 +176,9 @@ def main():
     check('phold: wmax ylittyy -> pumppu pois', bd.pump.value() == 0)
     check('phold: wmax ylittyy -> venttiili pois', bd.solenoid.value() == 0)
 
-    bd = BrewData(weight_mode='rise', wmax=0.0, wrise=250.0)
+    # wmax on pakollinen 21.9.2026 alkaen (EXPRESSO-KAUKALOVAHTI-KOKONAISPAINO), joten wrise
+    # testataan korkean wmax:n kanssa; pelkkä wrise testataan tray_total_smoke.py:ssä.
+    bd = BrewData(weight_mode='rise', wmax=5000.0, wrise=250.0)
     out = run_hold(bd, 30)
     check('phold: wrise ylittyy -> reason=trayrise', 'reason=trayrise' in out, last(out))
     check('phold: wrise ylittyy -> pumppu pois', bd.pump.value() == 0)
