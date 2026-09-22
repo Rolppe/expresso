@@ -117,6 +117,9 @@ class BD:
     def get_weight_ms(self): return self.w_ms
     def get_weight_limit(self): return 470.0
     def get_weight_rise_limit(self): return 250.0
+    # main.scale_poll_once: the capture loops that never yield read the scale themselves
+    # (functions.tray_guard_poll, EXPRESSO-TURVA-TOIMILAITE 22.9.2026)
+    def scale_poll(self): self.w_ms = self.c.us // 1000
 
 class Utime:
     def __init__(self, c): self.c = c

@@ -310,9 +310,15 @@ async def local_program(brew_data):
             # set on water
             RELAY_PUMP.value(1)
             
-            # Run cycle for hot water as long as hot water switch is on
+            # Run cycle for hot water as long as hot water switch is on. The temperature is read
+            # once a second so the relay guard's heater limits see a fresh value
+            # (EXPRESSO-TURVA-TOIMILAITE, 22.9.2026); a stale reading would switch the heater off.
+            last_temperature_read = utime.ticks_ms()
             while (SWITCH_WATER.value()):
                 await asyncio.sleep_ms(50)
+                if utime.ticks_diff(utime.ticks_ms(), last_temperature_read) >= 1000:
+                    brew_data.get_boiler_temperature()
+                    last_temperature_read = utime.ticks_ms()
                 
             # Set heater and pump relays off after hot water kloop
             RELAY_PUMP.value(0)
@@ -365,22 +371,36 @@ async def scale_reader(brew_data):
     if tray_scale is None:
         return
     while True:
-        try:
-            grams = tray_scale.update()
-            if grams is not None:
-                brew_data.weight = grams
-                brew_data.weight_ms = utime.ticks_ms()
-                brew_data.weight_a = tray_scale.last_a
-                brew_data.weight_b = tray_scale.last_b
-            # Every iteration, not only when a new sample arrived: flow() reads no sensor, and it is
-            # the call that turns a frozen reading into None once the samples go stale.
-            brew_data.flow = tray_scale.flow(brew_data.flow_window_ms)
-        except Exception:
-            pass
+        scale_poll_once()
         await asyncio.sleep_ms(SCALE_POLL_MS)
 
 
+def scale_poll_once():
+    try:
+        grams = tray_scale.update()
+        if grams is not None:
+            brew_data.weight = grams
+            brew_data.weight_ms = utime.ticks_ms()
+            brew_data.weight_a = tray_scale.last_a
+            brew_data.weight_b = tray_scale.last_b
+        # Every iteration, not only when a new sample arrived: flow() reads no sensor, and it is
+        # the call that turns a frozen reading into None once the samples go stale.
+        brew_data.flow = tray_scale.flow(brew_data.flow_window_ms)
+    except Exception:
+        pass
+
+
+# The capture loops (pstep/pgap/plen) never yield, so scale_reader does not run during them. They
+# call this through functions.tray_guard_poll() once a second to keep the tray check alive during
+# the run (EXPRESSO-TURVA-TOIMILAITE, 22.9.2026). Not a task: nothing else reads the HX711 then.
+if tray_scale is not None:
+    brew_data.scale_poll = scale_poll_once
+
+
 async def watchdog_feeder():
+    # Relay guard poll runs on a machine.Timer, not in this task: it must also run inside the
+    # busy capture loops that never yield (relayguard.py). Started here, next to the watchdog.
+    brew_data.relay_guard.start()
     devsafe.start_watchdog()
     while True:
         devsafe.feed()
