@@ -5,6 +5,7 @@ A. Koneellinen tarkistus lahteesta (grep): mikaan polku ei paase pumpun tai lamm
    vartion ohi, joten jokainen RELAY_PUMP.value(1) / RELAY_HEATER.value(1) kulkee vartion kautta.
 B. Vartio valelaitteilla: dev_safe, ylipaine, aikaraja, lammittimen lampo ja tuoreus, vartion oma virhe.
 C. Testikomentojen kaukalovahti ajon aikana (tray_guard_poll).
+D. Anturien uskottavuus (TURVAKATO kohta 5): painenturi rikki, lammitys ei nosta lampoa.
 
     python3 testit/turva_toimilaite_smoke.py       RESULT: <n> failed
 """
@@ -62,8 +63,10 @@ def make_bd(clock):
     bd = classes.BrewData(Pin, None, preset.PINS, preset.TARGET_TEMPERATURES, preset.FEATURES,
                           None, types.SimpleNamespace(read_temperature=lambda: 95.0), ps,
                           utime=Utime(clock))
-    bd.relay_guard.read_pressure = lambda: bd._p       # test sets the pressure directly
+    # test sets the pressure directly; raw (uncalibrated) follows it unless set
+    bd.relay_guard.read_pressure = lambda: (bd._p, bd._p if bd._raw is None else bd._raw)
     bd._p = 0.0
+    bd._raw = None
     return bd
 
 
@@ -272,6 +275,60 @@ def main():
     n = len(re.findall(r"_sweep_break\(brew_data, '(pstep|pgap|plen)_abort'\) or tray_guard_poll", fsrc))
     check('C3 pstep/pgap/plen tarkistavat kaukalon ajon aikana', n == 3, n)
     check('C4 main.py antaa vaa\'an lukijan kaappaussilmukoille', 'brew_data.scale_poll = scale_poll_once' in main_src)
+
+    # ---- D. sensor plausibility ------------------------------------------------------------
+    c = Clock()
+    bd = make_bd(c)
+    pump, sol, heater = bd.get_relays()
+    g = bd.relay_guard
+
+    def run(ms, temp=None, dtemp_per_s=0.0):
+        end = c.ms + ms
+        while c.ms < end:
+            c.ms += G.POLL_MS
+            if temp is not None:
+                bd.boiler_temperature = temp[0]
+                bd.boiler_temperature_ms = c.ms
+                temp[0] += dtemp_per_s * G.POLL_MS / 1000.0
+            g.poll()
+
+    pump.value(1)
+    bd._raw = -3.5
+    run(G.POLL_MS * (G.PRESSURE_TRIP_N - 1))
+    check('D1 kaksi rikkinaista painelukemaa ei viela katkaise', pump.value() == 1)
+    run(G.POLL_MS)
+    check('D2 painenturi rikki (raw -3,5 bar) sammuttaa pumpun', pump.value() == 0)
+    bd._raw = None
+    run(G.POLL_MS)
+    pump.value(1)
+    check('D3 anturin palattua pumppu saa kaynnistya', pump.value() == 1)
+    pump.value(0)
+
+    bd.mode = 'IDLE'                     # target = brew_temperature 97 C
+    t = [95.0]
+    bd.get_boiler_temperature(); heater.value(1)
+    run(30 * 60000, t)
+    check('D4 30 min lahella tavoitetta (95/97 C) ei laukaise', heater.value() == 1)
+
+    t = [30.0]
+    run(300000, t, dtemp_per_s=0.2)      # warm-up 12 C/min
+    check('D5 normaali lammitys kylmasta (0,2 C/s, 5 min) ei laukaise', heater.value() == 1)
+
+    t = [90.0]
+    pump.value(1)
+    run(170000, t, dtemp_per_s=-0.05)    # hot water: pump on, cold water in, reading drops
+    check('D6 kuumavesi (pumppu paalla, lampo laskee) ei laukaise', heater.value() == 1 and pump.value() == 1)
+    pump.value(0)
+
+    t = [25.0]                           # sensor off the boiler: room temperature, no rise
+    run(G.HEATER_NORISE_ON_MS - 2000, t)
+    check('D7 alle %d s ilman nousua ei viela katkaise' % (G.HEATER_NORISE_ON_MS // 1000), heater.value() == 1)
+    run(3000, t)
+    check('D8 %d s lammitysta ilman nousua sammuttaa' % (G.HEATER_NORISE_ON_MS // 1000), heater.value() == 0)
+    t = [96.0]
+    run(G.POLL_MS, t)
+    heater.value(1)
+    check('D9 ei-nouse-laukaisu pysyy uudelleenkaynnistykseen asti', heater.value() == 0)
 
     print('RESULT: %d failed' % len(fails))
     return 1 if fails else 0

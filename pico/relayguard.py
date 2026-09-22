@@ -16,6 +16,14 @@
 #   - pressure > 13.0 bar         -> pump off (3 polls in a row, ADC read by the guard itself)
 #   - pump run > 180 s            -> pump off until the path stops asking for 5 s
 #   - boiler >= 160 C (sensor fault reads 200) or reading older than 10 s -> heater off
+# Sensor plausibility (TURVAKATO kohta 5, 22.9.2026), same guard:
+#   - pressure sensor reads far below 0 bar (raw < -1.5 bar: an open or shorted sensor reads about
+#     -3.5) 3 polls in a row -> pump off; every pressure limit is blind without the sensor
+#   - heater on for 120 s of on-time while the boiler is > 5 C under its target and the pump is
+#     off, and the reading rose less than 2 C -> heater off until restart (a sensor off the boiler
+#     reads a plausible room temperature and would heat without end)
+# Not detectable here: a pressure sensor stuck at a plausible 0 bar. Hot water and a flush with no
+# puck also stay near 0 bar with the pump on, so "no pressure while pumping" is not a fault.
 # The drip-tray weight is NOT here on purpose (user, 19.9.2026): the tray limit applies to test
 # commands only, and a real shot has a cup on the scale. The tray check during test runs lives in
 # functions.tray_guard_poll().
@@ -32,6 +40,11 @@ PUMP_RUN_MAX_MS    = 180000   # longest legit run: phold 120 s, pgap cap 120 s, 
 PUMP_RUN_GAP_MS    = 5000     # pump off (and not asked for) this long ends a run; backflush pauses 10 s
 HEATER_TEMP_MAX_C  = 160.0    # setpoint cap is 150 C (classes.SETPOINT_MAX_C); sensor fault reads 200
 HEATER_TEMP_STALE_MS = 10000  # run_shot reads every 2 s, the main loop every pass
+PRESSURE_RAW_MIN_BAR = -1.5   # uncalibrated; 0 bar reads ~0, an open sensor ~-3.5
+HEATER_NORISE_ON_MS  = 120000 # heater on-time allowed without a rise, far under target
+HEATER_NORISE_RISE_C = 2.0
+HEATER_NORISE_BELOW_C = 5.0   # counted only this far under target: the thermostat then heats
+                              # >= 55 % of the time (heat_cycler), so the boiler must warm up
 POLL_MS            = 100      # guard poll period; 20 ms would jitter the 1 kHz capture loops
 
 
@@ -44,7 +57,13 @@ class RelayGuard:
         self.relays = {}
         self.block = {}           # name -> reason of the trip in force (log once per trip)
         self.over_n = 0
+        self.sensor_bad_n = 0
         self.pressure = 0.0
+        self.raw_bar = 0.0
+        self.heat_on_ms = 0           # heater on-time in the current no-rise window
+        self.heat_min_c = None        # lowest reading in that window
+        self.heat_dead = False        # latched until restart
+        self.last_poll = None
         self.pump_run_start = None
         self.pump_last_want = None    # last time the pump was on or asked to be
         self.trips = []           # (ms, name, reason) for the log; the latest few only
@@ -57,6 +76,8 @@ class RelayGuard:
             return 'devsafe'
         if self.over_n >= PRESSURE_TRIP_N:
             return 'overpressure'
+        if self.sensor_bad_n >= PRESSURE_TRIP_N:
+            return 'pressuresensor'
         if self.pump_run_start is not None and \
                 self.utime.ticks_diff(now, self.pump_run_start) > PUMP_RUN_MAX_MS:
             return 'runtime'
@@ -65,6 +86,8 @@ class RelayGuard:
     def _heater_reason(self, now):
         if self.bd.dev_safe:
             return 'devsafe'
+        if self.heat_dead:
+            return 'norise'
         t = self.bd.boiler_temperature
         if t is None or t >= HEATER_TEMP_MAX_C:
             return 'overtemp'
@@ -121,13 +144,18 @@ class RelayGuard:
         try:
             now = self.utime.ticks_ms()
             if self.read_pressure is not None:
-                self.pressure = self.read_pressure()
+                self.pressure, self.raw_bar = self.read_pressure()
             else:
-                self.pressure = getattr(self.bd, 'pressure', 0.0) or 0.0
+                self.pressure = self.raw_bar = getattr(self.bd, 'pressure', 0.0) or 0.0
             self.over_n = self.over_n + 1 if self.pressure > PRESSURE_MAX_BAR else 0
+            self.sensor_bad_n = self.sensor_bad_n + 1 if self.raw_bar < PRESSURE_RAW_MIN_BAR else 0
             pump = self.relays.get('pump')
-            if pump is not None and pump.pin.value():
+            pump_on = pump is not None and pump.pin.value()
+            if pump_on:
                 self.pump_last_want = now
+            dt = 0 if self.last_poll is None else self.utime.ticks_diff(now, self.last_poll)
+            self.last_poll = now
+            self._norise(now, dt, pump_on)
             for name, relay in self.relays.items():
                 r = self._reason(name, now)
                 if r is None:
@@ -144,6 +172,31 @@ class RelayGuard:
                 print('GUARD_TRIP all reason=guarderror %s' % e)
             except Exception:
                 pass
+
+    def _norise(self, now, dt, pump_on):
+        heater = self.relays.get('heater')
+        t = self.bd.boiler_temperature
+        try:
+            target = self.bd.get_target_temperature()
+        except Exception:
+            target = None
+        if heater is None or t is None or target is None or pump_on or \
+                t > target - HEATER_NORISE_BELOW_C:
+            # Water flowing in cools the boiler, and near the target the thermostat heats little:
+            # neither is a no-rise fault. Start a new window.
+            self.heat_on_ms = 0
+            self.heat_min_c = None
+            return
+        if self.heat_min_c is None or t < self.heat_min_c:
+            self.heat_min_c = t
+        if t - self.heat_min_c >= HEATER_NORISE_RISE_C:
+            self.heat_on_ms = 0
+            self.heat_min_c = t
+            return
+        if heater.pin.value():
+            self.heat_on_ms += dt
+        if self.heat_on_ms >= HEATER_NORISE_ON_MS:
+            self.heat_dead = True
 
     def start(self):
         from machine import Timer
