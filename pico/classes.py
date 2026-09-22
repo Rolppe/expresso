@@ -665,11 +665,13 @@ class BrewData:
     def _guard_pressure(self):
         # Relay guard's own reading (timer callback): a short ADC burst, independent of whatever
         # the running path reads or does not read. Same factory formula and calibration as above.
+        # Returns (bar, raw_bar): raw_bar is uncalibrated, for the sensor plausibility check.
         ps = self.pressure_sensor
         s = 0
         for _ in range(4):
             s += ps.pressure_sensor.read_u16()
-        return ps.gain * ((s / 4) * 0.000314936 - 3.522929) + ps.offset
+        raw_bar = (s / 4) * 0.000314936 - 3.522929
+        return ps.gain * raw_bar + ps.offset, raw_bar
 
     def get_pressure_raw(self):
         return self.pressure_sensor.last_raw_bar
