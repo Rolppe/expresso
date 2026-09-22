@@ -618,6 +618,18 @@ def tray_guard_check(brew_data, utime, state):
     return None
 
 
+def tray_guard_poll(brew_data, utime, state):
+    """Tray check inside a capture loop that never yields (pstep/pgap/plen, called ~once a second
+    with devsafe.feed()). Reads the scale itself, because scale_reader cannot run meanwhile; before
+    this the tray was checked only at the start and the end of a 14-58 s pump run, and the tray
+    overflowed on these commands on 20.9.2026 (EXPRESSO-TURVA-TOIMILAITE, 22.9.2026). Two fresh
+    samples over the limit are ~2 s at this rate. Returns None or '<reason>'."""
+    poll = getattr(brew_data, 'scale_poll', None)
+    if poll is not None:
+        poll()
+    return tray_guard_check(brew_data, utime, state)
+
+
 def _sweep_break(brew_data, abort_attr):
     """Switch/dev_safe/abort-tarkistus, yhteinen kolmelle kutsujalle. Palauttaa syyn tai None."""
     SWITCH_BREW, SWITCH_WATER, SWITCH_STEAM = brew_data.get_switches()
@@ -1049,7 +1061,7 @@ async def pressure_step_run(brew_data, utime, asyncio, target):
             p_filt += (bar - p_filt) * alpha
             if (i & PSTEP_FEED_MASK) == 0:
                 devsafe.feed()                       # 8 s laitteistovahti, ks. PSTEP_FEED_MASK
-                r = _sweep_break(brew_data, 'pstep_abort')
+                r = _sweep_break(brew_data, 'pstep_abort') or tray_guard_poll(brew_data, utime, tray_state)
                 if r: reason = r; break
             if notch_pending:
                 # Takaisin paalle tasan yhden verkkojakson jalkeen. Tarkistus kerran naytteessa,
@@ -1207,7 +1219,7 @@ async def pressure_gap_run(brew_data, utime, asyncio, target):
             p_filt += (bar - p_filt) * alpha
             if (j & PSTEP_FEED_MASK) == 0:
                 devsafe.feed()
-                r = _sweep_break(brew_data, 'pgap_abort')
+                r = _sweep_break(brew_data, 'pgap_abort') or tray_guard_poll(brew_data, utime, tray_state)
                 if r: reason = r; break
                 if utime.ticks_diff(now, t0) > PGAP_RUN_MAX_MS * 1000: reason = 'timeout'; break
             if not reached:
@@ -1356,7 +1368,7 @@ async def pressure_len_run(brew_data, utime, asyncio, target):
             p_filt += (bar - p_filt) * alpha
             if (j & PSTEP_FEED_MASK) == 0:
                 devsafe.feed()
-                r = _sweep_break(brew_data, 'plen_abort')
+                r = _sweep_break(brew_data, 'plen_abort') or tray_guard_poll(brew_data, utime, tray_state)
                 if r: reason = r; break
             if not reached:
                 if j >= PSTEP_MIN_MS and p_filt >= target:

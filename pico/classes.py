@@ -75,6 +75,7 @@ class BrewStatsLogger:
         self.pressure = 0
         self.start_time = 0
         self.boiler_temperature = 0
+        self.boiler_temperature_ms = None   # ticks_ms of the last read; the heater guard needs it fresh
         self.pump_ratio = 0
         self.resolution = 1 # times in second
         self.file_name = "brew_log.txt"
@@ -97,7 +98,7 @@ def _check_setpoint(value):
 
 ###### Class to share data between the cores ####
 class BrewData:
-    def __init__(self, Pin, ADC, PINS, TARGET_TEMPERATURES, FEATURES, heating_speed_calculator, temperature_sensor, pressure_sensor):
+    def __init__(self, Pin, ADC, PINS, TARGET_TEMPERATURES, FEATURES, heating_speed_calculator, temperature_sensor, pressure_sensor, utime=None):
         self.heating_speed_calculator = heating_speed_calculator
         self.temperature_sensor       = temperature_sensor
         self.pressure_sensor          = pressure_sensor
@@ -107,9 +108,16 @@ class BrewData:
         self.LED_SWITCH_BREW  = Pin(PINS['LED_SWITCH_BREW'], Pin.OUT, value=0)
         self.LED_SWITCH_WATER = Pin(PINS['LED_SWITCH_WATER'], Pin.OUT, value=0)
         self.LED_SWITCH_STEAM = Pin(PINS['LED_SWITCH_STEAM'], Pin.OUT, value=0)
-        self.RELAY_PUMP       = Pin(PINS['RELAY_PUMP'], Pin.OUT, value=0)
+        # Pump and heater only through the relay guard (EXPRESSO-TURVA-TOIMILAITE, 22.9.2026): the
+        # raw pins are not kept on the object, so no path can switch them on around the limits.
+        # The solenoid is not guarded: opening it only releases pressure.
+        from relayguard import RelayGuard, GuardedRelay
+        if utime is None:
+            import utime
+        self.relay_guard      = RelayGuard(self, utime, self._guard_pressure)
+        self.RELAY_PUMP       = GuardedRelay(Pin(PINS['RELAY_PUMP'], Pin.OUT, value=0), self.relay_guard, 'pump')
         self.RELAY_SOLENOID   = Pin(PINS['RELAY_SOLENOID'], Pin.OUT, value=0)
-        self.RELAY_HEATER     = Pin(PINS['RELAY_HEATER'], Pin.OUT, value=0)
+        self.RELAY_HEATER     = GuardedRelay(Pin(PINS['RELAY_HEATER'], Pin.OUT, value=0), self.relay_guard, 'heater')
         self.BACKFLUSH_PHASE_1_temperature = TARGET_TEMPERATURES['BACKFLUSH_PHASE_1']
         self.BACKFLUSH_PHASE_2_temperature = TARGET_TEMPERATURES['BACKFLUSH_PHASE_2']
         self.BACKFLUSH_PHASE_3_temperature = TARGET_TEMPERATURES['BACKFLUSH_PHASE_3']
@@ -654,6 +662,15 @@ class BrewData:
             'pcal_offset': round(self.pressure_sensor.offset, 3),
         }
 
+    def _guard_pressure(self):
+        # Relay guard's own reading (timer callback): a short ADC burst, independent of whatever
+        # the running path reads or does not read. Same factory formula and calibration as above.
+        ps = self.pressure_sensor
+        s = 0
+        for _ in range(4):
+            s += ps.pressure_sensor.read_u16()
+        return ps.gain * ((s / 4) * 0.000314936 - 3.522929) + ps.offset
+
     def get_pressure_raw(self):
         return self.pressure_sensor.last_raw_bar
 
@@ -671,6 +688,7 @@ class BrewData:
 
     def get_boiler_temperature(self):
         self.boiler_temperature = self.temperature_sensor.read_temperature()
+        self.boiler_temperature_ms = self.relay_guard.utime.ticks_ms()
         boiler_temperature = self.boiler_temperature
         
         return boiler_temperature
