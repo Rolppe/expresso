@@ -1307,17 +1307,33 @@ async def pressure_clock_run(brew_data, utime, asyncio, target):
     try:
         RELAY_SOLENOID.value(1); RELAY_PUMP.value(1)
         t0 = next_t = utime.ticks_us(); clock = Verkkokello(t0)
-        reached, j = False, 0
+        # Nousu paattyy, kun paine lakkaa nousemasta (kayttaja 23.9.2026: paine on kuristimen
+        # seuraus, ei asetettava taso — sama tasannesaanto kuin pcap_settle). target > 0 lopettaa
+        # nousun myos saavutettuna; vkello:0 = pelkka tasanne.
+        reached, j, rise_reason = False, 0, None
+        p_filt = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset
+        alpha = (PCAP_RATE_US / 1000000.0) / PCAP_FILT_TAU
+        plateau_j, plateau_bar = 0, p_filt
         while not reached:
             while utime.ticks_diff(next_t, utime.ticks_us()) > 0: pass
             next_t = utime.ticks_add(next_t, PCAP_RATE_US)
             bar = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset
             if bar > PCAP_OVER_BAR: reason = 'overpressure'; break
+            p_filt += (bar - p_filt) * alpha
             if (j & PSTEP_FEED_MASK) == 0:
                 devsafe.feed(); r = _sweep_break(brew_data, 'vkello_abort') or tray_guard_poll(brew_data, utime, tray_state)
                 if r: reason = r; break
                 if utime.ticks_diff(utime.ticks_us(), t0) > PGAP_RUN_MAX_MS * 1000: reason = 'timeout'; break
-            if j >= PSTEP_MIN_MS and bar >= target: reached = True
+            if p_filt < PCAP_PLATEAU_MIN_BAR:
+                plateau_j, plateau_bar = j, p_filt   # tayttovaihe ei ole tasanne (pcap korjaus 4)
+            if j >= PSTEP_MIN_MS:
+                if target > 0 and p_filt >= target: rise_reason = 'target'
+                elif j - plateau_j >= PCAP_PLATEAU_MS:
+                    if p_filt - plateau_bar < PCAP_PLATEAU_BAR: rise_reason = 'plateau'
+                    else: plateau_j, plateau_bar = j, p_filt
+            if rise_reason is not None:
+                reached = True
+                print('VKELLO_RISE bar=%.2f reach_ms=%d reason=%s' % (p_filt, j, rise_reason))
             elif j >= PSTEP_REACH_MAX_MS: reason = 'noreach'; break
             j += 1
         schedule = [(None, 4000)] + [(p, 4000) for p in (500, 1000, 2000, 5000)]

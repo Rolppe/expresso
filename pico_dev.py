@@ -23,7 +23,7 @@ Usage:
   pico_dev.py pstep <bar>[:<hold_ms>[:<tail_ms>]] [out.log]  CMD pstep:..., capture PSTEP lines
                                         until PSTEP_END: one skipped mains cycle at target pressure
   pico_dev.py phold <s> [out.log]       CMD phold:<s>, capture PHOLD lines until PHOLD_END
-  pico_dev.py vkello <bar> [out.log]    CMD vkello:<bar>, capture VKELLO lines until VKELLO_END
+  pico_dev.py vkello <bar> [out.log]    CMD vkello:<bar> (0 = rise ends at plateau only), capture VKELLO lines until VKELLO_END
   pico_dev.py capture <seconds> [out]   print/save serial output (no interrupt)
   pico_dev.py verify <MANIFEST.json>    SHA-256 of every file on the Pico vs. the manifest
   pico_dev.py watchdog-test             Ctrl-C and stop feeding: the Pico must reset itself (≤ 8 s)
