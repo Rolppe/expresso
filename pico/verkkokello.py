@@ -32,6 +32,13 @@ AMP_MIN = 0.1     # bar: heikompi vareily ei paivita kelloa (amplitudiportti)
 GATE_RATIO = 2.0
 GATE_ALPHA = 0.2
 GATE_MAX = 20
+# Paineportti (EXPRESSO-VERKKOKELLO-LAITETESTI2 23.9.2026): tauon jalkeen paineen palautumisen hanta
+# lapaisee amplitudiportin, ja sen vareilyn viive on 0,5-1,5 ms tasannetta lyhyempi (viive riippuu
+# paineesta, TILAUS-G) -> kello lukittuna 1,4-1,7 ms vaarassa (vkello-20260923-e/g). Ikkuna, jonka
+# keskipaine on yli P_GATE_BAR hyvaksyttyjen liukuvan keskiarvon alapuolella, ei paivita kelloa;
+# replay e/g/h: lukittuja virheita > LOCK_US 0 (ilman 16/10/0). GATE_MAX:n jalkeen viite siirtyy
+# (pysyva painetason muutos, esim. kuristimen kaanto).
+P_GATE_BAR = 1.0
 
 _TAB_N = 256
 _COS = [math.cos(2 * math.pi * i / _TAB_N) for i in range(_TAB_N)]
@@ -49,6 +56,7 @@ class Verkkokello:
         self.q = Q_D * Q_D
         self.iq_n = 0
         self.amp_ref, self.gate_run, self.gated, self.rebased = None, 0, 0, 0
+        self.p_ref, self.p_run, self.pgated = None, 0, 0
 
     def _m(self, t):
         return (utime.ticks_diff(t, self.ref) - self.frac) / self.T
@@ -132,7 +140,25 @@ class Verkkokello:
         self.amp_ref += GATE_ALPHA * (amp - self.amp_ref); self.gate_run = 0
         return True
 
-    def iq_close(self, t):
+    def pgate(self, p):
+        """True = ikkunan paine kelpaa (paineportti, ks. P_GATE_BAR). Kutsutaan vain, kun
+        amplitudiportti on paastanyt ikkunan."""
+        if self.p_ref is None:
+            self.p_ref = p; return True
+        if p < self.p_ref - P_GATE_BAR:
+            self.p_run += 1; self.pgated += 1
+            if self.p_run < GATE_MAX: return False
+            self.p_ref, self.p_run = p, 0; self.rebased += 1
+            return True
+        self.p_ref += GATE_ALPHA * (p - self.p_ref); self.p_run = 0
+        return True
+
+    def accept(self, amp, p):
+        """0 = ikkuna paivittaa kellon, 1 = amplitudiportti hylkasi, 2 = paineportti hylkasi."""
+        if not self.gate(amp): return 1
+        return 0 if self.pgate(p) else 2
+
+    def iq_close(self, t, learn=True):
         n = self.iq_n
         if n == 0: return None
         mean = self.iq_sum / n
@@ -146,6 +172,8 @@ class Verkkokello:
         z -= self.iq_T * round(z / self.iq_T)
         half = utime.ticks_diff(t, self.iq_t0) // 2
         t_mid = utime.ticks_add(self.iq_t0, half)
-        used = self.gate(amp)
-        if used: self.update(t_mid, z)
-        return (z, amp, mean, used)
+        if not learn:
+            return (z, amp, mean, -1)   # vain lokiin (nousu, TILAUS-G): ei portteja, ei paivitysta
+        g = self.accept(amp, mean)
+        if g == 0: self.update(t_mid, z)
+        return (z, amp, mean, g)
