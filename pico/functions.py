@@ -1292,10 +1292,22 @@ async def pressure_gap_run(brew_data, utime, asyncio, target):
 
 VKELLO_REACH_MAX_MS = 40000  # nousun katto: tasanne tuli 19,2 s:ssa (vkello-20260923-a), 2x marginaali;
                              # PSTEP_REACH_MAX_MS 20000 katkaisi lahes (EXPRESSO-VERKKOKELLO-KORJAUS)
+# Taukosarja (EXPRESSO-VERKKOKELLO-LAITETESTI2 23.9.2026, kayttaja: vetta kului liikaa, kaukalo ja
+# sailio tyhjennettiin/taytettiin joka ajon valissa). Kolme erillista ajoa = kolme nousua (35 %
+# pumppuajasta, ei ikkunoita) -> yksi ajo, sarja kolmesti. Paineportin kanssa lukko palaa
+# (replay e/g/h) 0,5-2 s tauon jalkeen k6-13 (<= 2,1 s), 5 s tauon jalkeen k12-16 (<= 2,6 s):
+# 3 s / 4 s kaynti jattaa lukittuja ikkunoita virheen havaitsemiseen. Pumppua ~54 s / ~110 g
+# (ennen 3 ajoa x ~30 s / ~190 g).
+VKELLO_SERIES = 3
+VKELLO_PAUSES_MS = (500, 1000, 2000, 5000)
+VKELLO_ON_MS = 3000
+VKELLO_ON_LONG_MS = 4000     # kun tauko >= VKELLO_LONG_PAUSE_MS
+VKELLO_LONG_PAUSE_MS = 5000
 
 async def pressure_clock_run(brew_data, utime, asyncio, target):
-    """Kello lukkiutuu I/Q-mittauksella taydella paineella, sitten taukosarja 0,5/1/2/5 s + 4 s
-    kaynti (VERKKOKELLO.brief.md, Do 3). Sama rakenne kuin pressure_gap_run."""
+    """Kello lukkiutuu I/Q-mittauksella taydella paineella, sitten taukosarja 0,5/1/2/5 s
+    VKELLO_SERIES kertaa (VERKKOKELLO.brief.md, Do 3). Nousun ikkunat tulostetaan VKELLO_R-riveina
+    paivittamatta kelloa (TILAUS-G-aineisto). Sama rakenne kuin pressure_gap_run."""
     import devsafe
     from verkkokello import Verkkokello
     RELAY_PUMP, RELAY_SOLENOID, RELAY_HEATER = brew_data.get_relays()
@@ -1322,12 +1334,22 @@ async def pressure_clock_run(brew_data, utime, asyncio, target):
         p_filt = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset
         alpha = (PCAP_RATE_US / 1000000.0) / PCAP_FILT_TAU
         plateau_j, plateau_bar = 0, p_filt
+        clock.iq_start(t0); rise_w = 0
         while not reached and reason == 'ok':
             while utime.ticks_diff(next_t, utime.ticks_us()) > 0: pass
+            now = utime.ticks_us()
             next_t = utime.ticks_add(next_t, PCAP_RATE_US)
             bar = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset
             if bar > PCAP_OVER_BAR: reason = 'overpressure'; break
             p_filt += (bar - p_filt) * alpha
+            clock.iq_add(now, bar)
+            if clock.iq_ready(now):
+                res = clock.iq_close(now, learn=False)
+                clock.iq_start(now)
+                if res is not None:
+                    rise_w += 1
+                    print('VKELLO_R w=%d t_ms=%d z_us=%.1f amp=%.3f p_bar=%.2f' % (
+                        rise_w, utime.ticks_diff(now, t0) // 1000, res[0], res[1], res[2]))
             if (j & PSTEP_FEED_MASK) == 0:
                 devsafe.feed(); r = _sweep_break(brew_data, 'vkello_abort') or tray_guard_poll(brew_data, utime, tray_state)
                 if r: reason = r; break
@@ -1344,7 +1366,8 @@ async def pressure_clock_run(brew_data, utime, asyncio, target):
                 print('VKELLO_RISE bar=%.2f reach_ms=%d reason=%s' % (p_filt, j, rise_reason))
             elif j >= VKELLO_REACH_MAX_MS: reason = 'noreach'; break
             j += 1
-        schedule = [(None, 4000)] + [(p, 4000) for p in (500, 1000, 2000, 5000)]
+        schedule = [(None, 4000)] + [(p, VKELLO_ON_LONG_MS if p >= VKELLO_LONG_PAUSE_MS else VKELLO_ON_MS)
+                                     for _ in range(VKELLO_SERIES) for p in VKELLO_PAUSES_MS]
         for pause_ms, on_ms in schedule:
             if reason != 'ok': break
             if pause_ms is not None:
@@ -1376,11 +1399,11 @@ async def pressure_clock_run(brew_data, utime, asyncio, target):
                     res = clock.iq_close(now)
                     clock.iq_start(now)
                     if res is not None:
-                        z, amp, p_bar, used = res; windows += 1
+                        z, amp, p_bar, g = res; windows += 1
                         if first_z is None: first_z = z
                         print('VKELLO w=%d t_ms=%d z_us=%.1f T_us=%.3f d=%.5f sd_us=%.1f amp=%.3f lock=%d p_bar=%.2f gate=%d' % (
                             windows, utime.ticks_diff(now, t0) // 1000, z, clock.T, clock.d,
-                            clock.sd_us(now), amp, 1 if clock.locked(now) else 0, p_bar, 0 if used else 1))
+                            clock.sd_us(now), amp, 1 if clock.locked(now) else 0, p_bar, g))
                         if clock.traja > traja0: print('VKELLO_TRAJA')
                 j2 += 1
             if reason != 'ok': break
@@ -1395,8 +1418,9 @@ async def pressure_clock_run(brew_data, utime, asyncio, target):
     if tray_reason and reason == 'ok': reason = tray_reason
     t_us = clock.T if clock is not None else 0.0
     hz = (1000000.0 / t_us) if t_us else 0.0
-    gated, rebased = (clock.gated, clock.rebased) if clock is not None else (0, 0)
-    print('VKELLO_END T_us=%.3f hz=%.4f windows=%d gated=%d rebased=%d reason=%s' % (t_us, hz, windows, gated, rebased, reason))
+    gated, pgated, rebased = (clock.gated, clock.pgated, clock.rebased) if clock is not None else (0, 0, 0)
+    print('VKELLO_END T_us=%.3f hz=%.4f windows=%d gated=%d pgated=%d rebased=%d reason=%s' % (
+        t_us, hz, windows, gated, pgated, rebased, reason))
 
 
 # ============================================================================

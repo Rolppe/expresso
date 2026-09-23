@@ -10,7 +10,10 @@ tasanteeseen, 50 Hz vareily) ja tarkistaa:
   4. paine ei nouse yli 1 barin (tayttovaihe) -> ei tasannetta, reason=noreach, releet pois,
   5. jaannospaine 6 bar -> VKELLO_VENT purkaa ennen pumppua (TILAUS-H), nousu alkaa purettuna,
   6. hidas nousu 0,2 bar/s (tasanne ~26 s) -> plateau, ei noreach (katto VKELLO_REACH_MAX_MS;
-     vkello-20260923-a nousi 19,2 s:ssa, vanha 20 s:n katto oli rajalla).
+     vkello-20260923-a nousi 19,2 s:ssa, vanha 20 s:n katto oli rajalla),
+  7. taukosarja kolmesti yhdessa ajossa, nousun ikkunat VKELLO_R-riveina ilman kellon paivitysta,
+     paineportti hylkaa tauon jalkeisen palautumisen (gate=2), ei ennen ensimmaista taukoa
+     (EXPRESSO-VERKKOKELLO-LAITETESTI2).
 
     python3 testit/vkello_rise_smoke.py       RESULT: <n> failed
 """
@@ -149,7 +152,8 @@ def main():
     check('1 vkello:0 tasanne 5 bar -> plateau', field(out, 'VKELLO_RISE', 'reason') == 'plateau',
           field(out, 'VKELLO_RISE', 'bar'))
     check('1 ajo jatkuu loppuun', field(out, 'VKELLO_END', 'reason') == 'ok', field(out, 'VKELLO_END', 'reason'))
-    check('1 nelja taukoa', out.count('VKELLO_RESTART') == 4, str(out.count('VKELLO_RESTART')))
+    n_pause = F.VKELLO_SERIES * len(F.VKELLO_PAUSES_MS)
+    check('1 taukoja %d' % n_pause, out.count('VKELLO_RESTART') == n_pause, str(out.count('VKELLO_RESTART')))
     check('1 releet pois lopussa', bd.pump.v == 0 and bd.solenoid.v == 0)
 
     bd, out = run(5.0, 7.0)
@@ -179,6 +183,27 @@ def main():
           int(field(out, 'VKELLO_RISE', 'reach_ms') or 0) > 20000,
           '%s %s ms' % (field(out, 'VKELLO_RISE', 'reason'), field(out, 'VKELLO_RISE', 'reach_ms')))
     check('6 ajo loppuun', field(out, 'VKELLO_END', 'reason') == 'ok', field(out, 'VKELLO_END', 'reason'))
+
+    bd, out = run(5.0, 0.0)
+    lines = out.splitlines()
+    rise_rows = [l for l in lines if l.startswith('VKELLO_R ')]
+    rise_end = next(i for i, l in enumerate(lines) if l.startswith('VKELLO_RISE'))
+    first_w = next((l for l in lines if l.startswith('VKELLO w=')), '')
+    check('7 nousun ikkunat lokissa ennen VKELLO_RISE', len(rise_rows) > 0 and
+          all(lines.index(l) < rise_end for l in rise_rows), '%d riviä' % len(rise_rows))
+    sd1 = re.search(r'sd_us=(\S+)', first_w)
+    check('7 nousun ikkunat eivät päivitä kelloa (w=1 sd alkuarvossa)', sd1 and float(sd1.group(1)) > 700,
+          first_w[:60])
+    wrows = [l for l in lines if l.startswith('VKELLO w=')]
+    t = [int(re.search(r't_ms=(\d+)', l).group(1)) for l in wrows]
+    n0 = next((i for i in range(1, len(t)) if t[i] - t[i - 1] > 300), len(t))
+    seg0_gate = [l for l in wrows[:n0] if not l.endswith('gate=0')]
+    g2 = [l for l in wrows if l.endswith('gate=2')]
+    rebased = int(field(out, 'VKELLO_END', 'rebased') or 0)
+    check('7 paineportti hylkää palautumisen, ei ennen ensimmäistä taukoa',
+          len(g2) > 0 and not seg0_gate and int(field(out, 'VKELLO_END', 'pgated') or 0) == len(g2) + rebased,
+          'gate=2 %d, pgated %s, rebased %d, ennen taukoa %d' % (
+              len(g2), field(out, 'VKELLO_END', 'pgated'), rebased, len(seg0_gate)))
 
     print('RESULT: %d failed' % len(failed))
     return 1 if failed else 0
