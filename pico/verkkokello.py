@@ -24,6 +24,14 @@ T_MAX = 20050
 LAG_US = 39000
 LOCK_US = 1000
 AMP_MIN = 0.1     # bar: heikompi vareily ei paivita kelloa (amplitudiportti)
+# Transienttiportti (EXPRESSO-VERKKOKELLO-KORJAUS 23.9.2026): paineen uudelleennousussa tauon
+# jalkeen vareilyn viive on 4-5 ms tavallista suurempi ~0,8 s ajan ja amplitudi 2-5-kertainen
+# (vkello-20260923-a/b/d, 5 s tauko). Ikkuna, jonka amplitudi ylittaa GATE_RATIO x hyvaksyttyjen
+# liukuvan keskiarvon, ei paivita kelloa. GATE_MAX perakkaisen hylkayksen jalkeen viite siirtyy
+# nykyiseen amplitudiin (pysyva painetason muutos ei ole transientti); havaittu pisin 10 ikkunaa.
+GATE_RATIO = 2.0
+GATE_ALPHA = 0.2
+GATE_MAX = 20
 
 _TAB_N = 256
 _COS = [math.cos(2 * math.pi * i / _TAB_N) for i in range(_TAB_N)]
@@ -40,6 +48,7 @@ class Verkkokello:
         self.r = SIGMA1 * SIGMA1 / N_WIN + SIGMAW * SIGMAW
         self.q = Q_D * Q_D
         self.iq_n = 0
+        self.amp_ref, self.gate_run, self.gated, self.rebased = None, 0, 0, 0
 
     def _m(self, t):
         return (utime.ticks_diff(t, self.ref) - self.frac) / self.T
@@ -111,6 +120,18 @@ class Verkkokello:
     def iq_abort(self):
         self.iq_n = 0
 
+    def gate(self, amp):
+        """True = ikkuna saa paivittaa kellon (transienttiportti, ks. GATE_RATIO)."""
+        if self.amp_ref is None:
+            self.amp_ref = amp; return True
+        if amp > GATE_RATIO * self.amp_ref:
+            self.gate_run += 1; self.gated += 1
+            if self.gate_run < GATE_MAX: return False
+            self.amp_ref, self.gate_run = amp, 0; self.rebased += 1
+            return True
+        self.amp_ref += GATE_ALPHA * (amp - self.amp_ref); self.gate_run = 0
+        return True
+
     def iq_close(self, t):
         n = self.iq_n
         if n == 0: return None
@@ -125,5 +146,6 @@ class Verkkokello:
         z -= self.iq_T * round(z / self.iq_T)
         half = utime.ticks_diff(t, self.iq_t0) // 2
         t_mid = utime.ticks_add(self.iq_t0, half)
-        self.update(t_mid, z)
-        return (z, amp)
+        used = self.gate(amp)
+        if used: self.update(t_mid, z)
+        return (z, amp, mean, used)

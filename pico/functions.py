@@ -1290,6 +1290,9 @@ async def pressure_gap_run(brew_data, utime, asyncio, target):
 # VERKKOKELLO — sisainen verkkojaksokello, taydella paineella (brief VERKKOKELLO)
 # ============================================================================
 
+VKELLO_REACH_MAX_MS = 40000  # nousun katto: tasanne tuli 19,2 s:ssa (vkello-20260923-a), 2x marginaali;
+                             # PSTEP_REACH_MAX_MS 20000 katkaisi lahes (EXPRESSO-VERKKOKELLO-KORJAUS)
+
 async def pressure_clock_run(brew_data, utime, asyncio, target):
     """Kello lukkiutuu I/Q-mittauksella taydella paineella, sitten taukosarja 0,5/1/2/5 s + 4 s
     kaynti (VERKKOKELLO.brief.md, Do 3). Sama rakenne kuin pressure_gap_run."""
@@ -1305,7 +1308,12 @@ async def pressure_clock_run(brew_data, utime, asyncio, target):
     windows, reason, clock = 0, 'ok', None
     brew_data.set_mode('vkello')
     try:
-        RELAY_SOLENOID.value(1); RELAY_PUMP.value(1)
+        # TILAUS-H: paineinen jarjestelma puretaan kayttajan syklilla ennen mittausta.
+        RELAY_PUMP.value(0)
+        cycles, bar = await _mcal_vent(brew_data, utime, asyncio, sensor, gain, offset)
+        print('VKELLO_VENT cycles=%d bar=%.2f' % (cycles, bar))
+        if cycles >= MCAL_VENT_MAX_CYCLES: reason = 'vent_runaway'
+        else: RELAY_SOLENOID.value(1); RELAY_PUMP.value(1)
         t0 = next_t = utime.ticks_us(); clock = Verkkokello(t0)
         # Nousu paattyy, kun paine lakkaa nousemasta (kayttaja 23.9.2026: paine on kuristimen
         # seuraus, ei asetettava taso — sama tasannesaanto kuin pcap_settle). target > 0 lopettaa
@@ -1314,7 +1322,7 @@ async def pressure_clock_run(brew_data, utime, asyncio, target):
         p_filt = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset
         alpha = (PCAP_RATE_US / 1000000.0) / PCAP_FILT_TAU
         plateau_j, plateau_bar = 0, p_filt
-        while not reached:
+        while not reached and reason == 'ok':
             while utime.ticks_diff(next_t, utime.ticks_us()) > 0: pass
             next_t = utime.ticks_add(next_t, PCAP_RATE_US)
             bar = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset
@@ -1334,7 +1342,7 @@ async def pressure_clock_run(brew_data, utime, asyncio, target):
             if rise_reason is not None:
                 reached = True
                 print('VKELLO_RISE bar=%.2f reach_ms=%d reason=%s' % (p_filt, j, rise_reason))
-            elif j >= PSTEP_REACH_MAX_MS: reason = 'noreach'; break
+            elif j >= VKELLO_REACH_MAX_MS: reason = 'noreach'; break
             j += 1
         schedule = [(None, 4000)] + [(p, 4000) for p in (500, 1000, 2000, 5000)]
         for pause_ms, on_ms in schedule:
@@ -1368,11 +1376,11 @@ async def pressure_clock_run(brew_data, utime, asyncio, target):
                     res = clock.iq_close(now)
                     clock.iq_start(now)
                     if res is not None:
-                        z, amp = res; windows += 1
+                        z, amp, p_bar, used = res; windows += 1
                         if first_z is None: first_z = z
-                        print('VKELLO w=%d t_ms=%d z_us=%.1f T_us=%.3f d=%.5f sd_us=%.1f amp=%.3f lock=%d' % (
+                        print('VKELLO w=%d t_ms=%d z_us=%.1f T_us=%.3f d=%.5f sd_us=%.1f amp=%.3f lock=%d p_bar=%.2f gate=%d' % (
                             windows, utime.ticks_diff(now, t0) // 1000, z, clock.T, clock.d,
-                            clock.sd_us(now), amp, 1 if clock.locked(now) else 0))
+                            clock.sd_us(now), amp, 1 if clock.locked(now) else 0, p_bar, 0 if used else 1))
                         if clock.traja > traja0: print('VKELLO_TRAJA')
                 j2 += 1
             if reason != 'ok': break
@@ -1386,7 +1394,9 @@ async def pressure_clock_run(brew_data, utime, asyncio, target):
     tray_reason = await tray_guard_recheck(brew_data, utime, asyncio, tray_state)
     if tray_reason and reason == 'ok': reason = tray_reason
     t_us = clock.T if clock is not None else 0.0
-    hz = (1000000.0 / t_us) if t_us else 0.0; print('VKELLO_END T_us=%.3f hz=%.4f windows=%d reason=%s' % (t_us, hz, windows, reason))
+    hz = (1000000.0 / t_us) if t_us else 0.0
+    gated, rebased = (clock.gated, clock.rebased) if clock is not None else (0, 0)
+    print('VKELLO_END T_us=%.3f hz=%.4f windows=%d gated=%d rebased=%d reason=%s' % (t_us, hz, windows, gated, rebased, reason))
 
 
 # ============================================================================
