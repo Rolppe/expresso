@@ -26,6 +26,11 @@ Usage:
   pico_dev.py capture <seconds> [out]   print/save serial output (no interrupt)
   pico_dev.py verify <MANIFEST.json>    SHA-256 of every file on the Pico vs. the manifest
   pico_dev.py watchdog-test             Ctrl-C and stop feeding: the Pico must reset itself (≤ 8 s)
+  pico_dev.py restore <set>             flash a set from the phone backup, wait for RESTORE_OK/FAIL
+  pico_dev.py charger on|off            switch the hub's charger (Shelly via Home Assistant)
+
+Every operation except `charger` runs with the charger off and powers it again when done
+(CHARGER_CYCLE, temporary until the Type-C fault is fixed; PICO_CHARGER_CYCLE=0 disables).
 
 Source of truth: /srv/work/Infra/iot/expresso/pico_dev.py (copied to the Mac legacy folder).
 """
@@ -43,9 +48,56 @@ PHONE = '192.0.2.11:5555'
 PORT = 2217
 APP = 'com.example.silvia_pico_ui'
 
+# TEMPORARY (user 23.9.2026): with the hub's PD charger powered the phone drops the USB2 hub and the
+# Pico, so every USB operation cuts the charger through the Shelly first and powers it again when
+# done. Turn off (False, or PICO_CHARGER_CYCLE=0) once the Type-C fault is found and fixed
+# (PICO-HALLINTA.md luku 8).
+CHARGER_CYCLE = os.environ.get('PICO_CHARGER_CYCLE', '1') != '0'
+CHARGER_ENTITY = 'switch.shellyplus1pm_example'
+HA_SH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'ha', 'ha.sh')
+PICO_VID = '2e8a'
+
 
 def adb(*args, check=True):
     return subprocess.run([ADB, '-s', PHONE] + list(args), capture_output=True, text=True, check=check)
+
+
+def charger(on):
+    r = subprocess.run([HA_SH, 'palvelu', 'switch.turn_on' if on else 'switch.turn_off',
+                        json.dumps({'entity_id': CHARGER_ENTITY})], capture_output=True, text=True)
+    ok = r.returncode == 0
+    print('CHARGER %s%s' % ('on' if on else 'off', '' if ok else ' FAILED: ' + (r.stderr or r.stdout).strip()[-200:]))
+    return ok
+
+
+def pico_on_usb():
+    r = adb('shell', 'cat /sys/bus/usb/devices/*/idVendor', check=False)
+    return PICO_VID in r.stdout.split()
+
+
+class ChargerOff:
+    """Charger off and the Pico enumerated for the block; charger back on afterwards, also on error."""
+
+    def __enter__(self):
+        if not CHARGER_CYCLE:
+            return self
+        subprocess.run([ADB, 'connect', PHONE], capture_output=True)
+        # otg_switch drops to 0 on boot and after idling; adbd runs as root on this build
+        adb('shell', 'grep -q 1 /sys/class/power_supply/usb/otg_switch || '
+                     'echo 1 > /sys/class/power_supply/usb/otg_switch', check=False)
+        charger(False)
+        end = time.time() + 30
+        while not pico_on_usb():
+            if time.time() > end:
+                print('PICO_NOT_ON_USB after charger off (30 s)')
+                break
+            time.sleep(1)
+        return self
+
+    def __exit__(self, *exc):
+        if CHARGER_CYCLE:
+            charger(True)
+        return False
 
 
 def ensure_bridge():
@@ -297,6 +349,23 @@ def verify(manifest_path):
     return bad == 0
 
 
+def restore(set_name, seconds=300):
+    # The app's flasher writes the set over USB; wait for its verdict in logcat so the charger stays
+    # off until the flash is over (PICO-HALLINTA.md luku 7: no serial link before RESTORE_OK).
+    since = adb('shell', 'date', '+%m-%d %H:%M:%S.000').stdout.strip()
+    adb('shell', 'am', 'start', '-n', APP + '/.MainActivity', '--es', 'espressopico_restore_backup', set_name)
+    end = time.time() + seconds
+    while time.time() < end:
+        time.sleep(3)
+        log = adb('logcat', '-d', '-T', since, check=False).stdout
+        for line in log.splitlines():
+            if 'RESTORE_OK' in line or 'RESTORE_FAIL' in line or 'FLASH_BLOCKED' in line:
+                print(line.strip())
+                return 'RESTORE_OK' in line
+    print('RESTORE_TIMEOUT after %d s' % seconds)
+    return False
+
+
 def safe():
     link = Link()
     link.enter_devsafe()
@@ -323,10 +392,7 @@ def watchdog_test():
     return alive
 
 
-if __name__ == '__main__':
-    if len(sys.argv) < 2:
-        sys.exit(__doc__)
-    op = sys.argv[1]
+def main(op):
     if op == 'safe':
         safe()
     elif op == 'cmd':
@@ -351,5 +417,22 @@ if __name__ == '__main__':
         sys.exit(0 if verify(sys.argv[2]) else 1)
     elif op == 'watchdog-test':
         watchdog_test()
+    elif op == 'restore':
+        sys.exit(0 if restore(sys.argv[2]) else 1)
     else:
         sys.exit(__doc__)
+
+
+OPS = ('safe', 'cmd', 'shot', 'pcap', 'psweep', 'plen', 'pgap', 'pstep', 'phold', 'capture', 'verify',
+       'watchdog-test', 'restore')
+
+if __name__ == '__main__':
+    if len(sys.argv) < 2:
+        sys.exit(__doc__)
+    op = sys.argv[1]
+    if op == 'charger' and len(sys.argv) > 2 and sys.argv[2] in ('on', 'off'):
+        sys.exit(0 if charger(sys.argv[2] == 'on') else 1)
+    if op not in OPS:
+        sys.exit(__doc__)
+    with ChargerOff():
+        main(op)
