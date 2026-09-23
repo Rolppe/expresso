@@ -151,7 +151,14 @@ def handle_command(brew_data, command):
                 brew_data.pgap_phases = None
                 brew_data.pgap_lo_us = None
                 brew_data.pgap_hi_us = None
-
+    elif command.startswith('vkello:'):
+        # vkello:<bar> | vkello:stop — brief VERKKOKELLO
+        arg = command.split(':', 1)[1]
+        if arg == 'stop':
+            brew_data.abort_pressure_clock()
+        else:
+            try: brew_data.request_pressure_clock(float(arg))
+            except Exception: pass
     elif command.startswith('pstep:'):
         # pstep:<bar>[:<hold_ms>[:<tail_ms>]] | pstep:stop — yksi ohitettu verkkojakso
         # tasapainossa (tilaus 20.9.2026). Kentat nollataan joka pyynnolla, kuten psweep:ssa.

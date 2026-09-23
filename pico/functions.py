@@ -1287,6 +1287,93 @@ async def pressure_gap_run(brew_data, utime, asyncio, target):
 
 
 # ============================================================================
+# VERKKOKELLO — sisainen verkkojaksokello, taydella paineella (brief VERKKOKELLO)
+# ============================================================================
+
+async def pressure_clock_run(brew_data, utime, asyncio, target):
+    """Kello lukkiutuu I/Q-mittauksella taydella paineella, sitten taukosarja 0,5/1/2/5 s + 4 s
+    kaynti (VERKKOKELLO.brief.md, Do 3). Sama rakenne kuin pressure_gap_run."""
+    import devsafe
+    from verkkokello import Verkkokello
+    RELAY_PUMP, RELAY_SOLENOID, RELAY_HEATER = brew_data.get_relays()
+    sensor = brew_data.pressure_sensor.pressure_sensor
+    gain, offset = brew_data.pressure_sensor.gain, brew_data.pressure_sensor.offset
+    r = _sweep_break(brew_data, 'vkello_abort')
+    if r: print('VKELLO_END T_us=0 hz=0.00 windows=0 reason=%s' % r); return
+    tray_state, tray_reason = tray_guard_start(brew_data, utime)
+    if tray_reason: print('VKELLO_END T_us=0 hz=0.00 windows=0 reason=%s' % tray_reason); return
+    windows, reason, clock = 0, 'ok', None
+    brew_data.set_mode('vkello')
+    try:
+        RELAY_SOLENOID.value(1); RELAY_PUMP.value(1)
+        t0 = next_t = utime.ticks_us(); clock = Verkkokello(t0)
+        reached, j = False, 0
+        while not reached:
+            while utime.ticks_diff(next_t, utime.ticks_us()) > 0: pass
+            next_t = utime.ticks_add(next_t, PCAP_RATE_US)
+            bar = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset
+            if bar > PCAP_OVER_BAR: reason = 'overpressure'; break
+            if (j & PSTEP_FEED_MASK) == 0:
+                devsafe.feed(); r = _sweep_break(brew_data, 'vkello_abort') or tray_guard_poll(brew_data, utime, tray_state)
+                if r: reason = r; break
+                if utime.ticks_diff(utime.ticks_us(), t0) > PGAP_RUN_MAX_MS * 1000: reason = 'timeout'; break
+            if j >= PSTEP_MIN_MS and bar >= target: reached = True
+            elif j >= PSTEP_REACH_MAX_MS: reason = 'noreach'; break
+            j += 1
+        schedule = [(None, 4000)] + [(p, 4000) for p in (500, 1000, 2000, 5000)]
+        for pause_ms, on_ms in schedule:
+            if reason != 'ok': break
+            if pause_ms is not None:
+                RELAY_PUMP.value(0)  # tauolla pois; solenoidia ei avata (avattu jo ajon alussa)
+                p0, j3 = utime.ticks_us(), 0
+                while utime.ticks_diff(utime.ticks_us(), p0) < pause_ms * 1000:
+                    if (j3 & PSTEP_FEED_MASK) == 0:
+                        devsafe.feed(); r = _sweep_break(brew_data, 'vkello_abort') or tray_guard_poll(brew_data, utime, tray_state)
+                        if r: reason = r; break
+                        if utime.ticks_diff(utime.ticks_us(), t0) > PGAP_RUN_MAX_MS * 1000: reason = 'timeout'; break
+                    j3 += 1
+                if reason != 'ok': break
+                RELAY_PUMP.value(1)
+            on0 = next_t = utime.ticks_us()
+            clock.iq_start(on0); first_z, j2 = None, 0
+            while utime.ticks_diff(utime.ticks_us(), on0) < on_ms * 1000:
+                while utime.ticks_diff(next_t, utime.ticks_us()) > 0: pass
+                now = utime.ticks_us()
+                next_t = utime.ticks_add(next_t, PCAP_RATE_US)
+                bar = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset
+                if bar > PCAP_OVER_BAR: reason = 'overpressure'; break
+                if (j2 & PSTEP_FEED_MASK) == 0:
+                    devsafe.feed(); r = _sweep_break(brew_data, 'vkello_abort') or tray_guard_poll(brew_data, utime, tray_state)
+                    if r: reason = r; break
+                    if utime.ticks_diff(now, t0) > PGAP_RUN_MAX_MS * 1000: reason = 'timeout'; break
+                clock.iq_add(now, bar)
+                if clock.iq_ready(now):
+                    traja0 = clock.traja
+                    res = clock.iq_close(now)
+                    clock.iq_start(now)
+                    if res is not None:
+                        z, amp = res; windows += 1
+                        if first_z is None: first_z = z
+                        print('VKELLO w=%d t_ms=%d z_us=%.1f T_us=%.3f d=%.5f sd_us=%.1f amp=%.3f lock=%d' % (
+                            windows, utime.ticks_diff(now, t0) // 1000, z, clock.T, clock.d,
+                            clock.sd_us(now), amp, 1 if clock.locked(now) else 0))
+                        if clock.traja > traja0: print('VKELLO_TRAJA')
+                j2 += 1
+            if reason != 'ok': break
+            if pause_ms is not None:
+                print('VKELLO_RESTART pause_ms=%d z1_us=%.1f' % (pause_ms, first_z if first_z is not None else 0.0))
+    except Exception:
+        reason = 'error'
+    finally:
+        RELAY_PUMP.value(0); RELAY_SOLENOID.value(0)
+        brew_data.set_mode('IDLE'); brew_data.vkello_abort = False
+    tray_reason = await tray_guard_recheck(brew_data, utime, asyncio, tray_state)
+    if tray_reason and reason == 'ok': reason = tray_reason
+    t_us = clock.T if clock is not None else 0.0
+    hz = (1000000.0 / t_us) if t_us else 0.0; print('VKELLO_END T_us=%.3f hz=%.4f windows=%d reason=%s' % (t_us, hz, windows, reason))
+
+
+# ============================================================================
 # PRESSURE GAP LENGTH — kvantisoituuko tauko puolijaksoihin? (tilaus 20.9.2026)
 # ============================================================================
 # Kysymys ei ole hydraulinen vaan sahkoinen: "kohdistuksen tarkoitus ei ole vaikuttaa paineeseen
