@@ -7,7 +7,10 @@ tasanteeseen, 50 Hz vareily) ja tarkistaa:
   1. vkello:0, tasanne 5 bar -> VKELLO_RISE reason=plateau, ajo jatkuu taukosarjaan (reason=ok),
   2. vkello:7, tasanne 5 bar -> sama tasanne; vanha koodi antoi tassa reason=noreach,
   3. vkello:7, tasanne 9 bar -> reason=target,
-  4. paine ei nouse yli 1 barin (tayttovaihe) -> ei tasannetta, reason=noreach, releet pois.
+  4. paine ei nouse yli 1 barin (tayttovaihe) -> ei tasannetta, reason=noreach, releet pois,
+  5. jaannospaine 6 bar -> VKELLO_VENT purkaa ennen pumppua (TILAUS-H), nousu alkaa purettuna,
+  6. hidas nousu 0,2 bar/s (tasanne ~26 s) -> plateau, ei noreach (katto VKELLO_REACH_MAX_MS;
+     vkello-20260923-a nousi 19,2 s:ssa, vanha 20 s:n katto oli rajalla).
 
     python3 testit/vkello_rise_smoke.py       RESULT: <n> failed
 """
@@ -53,31 +56,38 @@ import functions as F   # noqa: E402
 
 class Pin:
     def __init__(self):
-        self.v = 0
+        self.v, self.hook = 0, None
 
     def value(self, x=None):
         if x is None:
             return self.v
+        if self.hook: self.hook()   # laitos integroi vanhalla tilalla vaihtoon asti
         self.v = x
 
 
 class Plant:
-    """Pumppu paalla: 1,2 s tayttoviive, sitten ensimmaisen kertaluvun nousu tasanteeseen."""
+    """Pumppu paalla: 1,2 s tayttoviive, sitten ensimmaisen kertaluvun nousu tasanteeseen (tai
+    lineaarinen `rate` bar/s). Pumppu pois: paine purkautuu vain venttiilin ollessa auki, kiinni
+    oleva jarjestelma pitaa paineen (`p0` = jaannospaine ennen ajoa)."""
 
-    def __init__(self, pump, plateau):
-        self.pump, self.plateau = pump, plateau
-        self.p, self.on_us, self.last = 0.0, None, 0
+    def __init__(self, pump, solenoid, plateau, p0=0.0, rate=None):
+        self.pump, self.solenoid, self.plateau, self.rate = pump, solenoid, plateau, rate
+        self.p, self.on_us, self.last = p0, None, 0
+        self.p_first_on = None   # paine pumpun ensimmaisella kaynnistyksella
+        pump.hook = solenoid.hook = lambda: self.bar(U.us)
 
     def bar(self, now):
         dt = (now - self.last) / 1e6
         self.last = now
         if self.pump.value():
             if self.on_us is None: self.on_us = now
+            if self.p_first_on is None: self.p_first_on = self.p
             if now - self.on_us > 1200000:
-                self.p += (self.plateau - self.p) * min(1.0, dt / 0.8)
+                if self.rate: self.p = min(self.plateau, self.p + self.rate * dt)
+                else: self.p += (self.plateau - self.p) * min(1.0, dt / 0.8)
         else:
             self.on_us = None
-            self.p += (0.0 - self.p) * min(1.0, dt / 0.5)
+            if self.solenoid.value(): self.p += (0.0 - self.p) * min(1.0, dt / 0.5)
         ripple = 0.4 * math.sin(2 * math.pi * 50.02 * now / 1e6) if self.pump.value() else 0.0
         return self.p + ripple
 
@@ -92,11 +102,12 @@ class Adc:
 
 
 class BrewData:
-    def __init__(self, plateau):
+    def __init__(self, plateau, p0=0.0, rate=None):
         self.pump, self.solenoid, self.heater = Pin(), Pin(), Pin()
         self.brew, self.water, self.steam = Pin(), Pin(), Pin()
+        self.plant = Plant(self.pump, self.solenoid, plateau, p0, rate)
         self.pressure_sensor = types.SimpleNamespace(
-            pressure_sensor=Adc(Plant(self.pump, plateau)), gain=1.0, offset=-0.99)
+            pressure_sensor=Adc(self.plant), gain=1.0, offset=-0.99)
         self.dev_safe, self.vkello_abort, self.mode = False, False, None
 
     def get_relays(self): return self.pump, self.solenoid, self.heater
@@ -113,8 +124,8 @@ class Asyncio:
         U.us += max(ms, 1) * 1000
 
 
-def run(plateau, target):
-    bd = BrewData(plateau)
+def run(plateau, target, p0=0.0, rate=None):
+    bd = BrewData(plateau, p0, rate)
     out = io.StringIO()
     with redirect_stdout(out):
         asyncio.run(F.pressure_clock_run(bd, U, Asyncio(), target))
@@ -154,6 +165,20 @@ def main():
     check('4 alle 1 barin tayttovaihe ei ole tasanne', 'VKELLO_RISE' not in out and
           field(out, 'VKELLO_END', 'reason') == 'noreach', field(out, 'VKELLO_END', 'reason'))
     check('4 releet pois', bd.pump.v == 0 and bd.solenoid.v == 0)
+
+    bd, out = run(5.0, 0.0, p0=6.0)
+    vent = out.find('VKELLO_VENT')
+    check('5 purku ennen nousua (TILAUS-H)', 0 <= vent < out.find('VKELLO_RISE') and
+          int(field(out, 'VKELLO_VENT', 'cycles') or 0) >= 2, (field(out, 'VKELLO_VENT', 'cycles') or '-') + ' sykliä')
+    check('5 pumppu kaynnistyy purettuna', bd.plant.p_first_on is not None and bd.plant.p_first_on < 1.0,
+          '%s bar' % (None if bd.plant.p_first_on is None else '%.2f' % bd.plant.p_first_on))
+    check('5 ajo loppuun', field(out, 'VKELLO_END', 'reason') == 'ok', field(out, 'VKELLO_END', 'reason'))
+
+    bd, out = run(6.0, 0.0, rate=0.2)
+    check('6 hidas nousu yli 20 s -> plateau', field(out, 'VKELLO_RISE', 'reason') == 'plateau' and
+          int(field(out, 'VKELLO_RISE', 'reach_ms') or 0) > 20000,
+          '%s %s ms' % (field(out, 'VKELLO_RISE', 'reason'), field(out, 'VKELLO_RISE', 'reach_ms')))
+    check('6 ajo loppuun', field(out, 'VKELLO_END', 'reason') == 'ok', field(out, 'VKELLO_END', 'reason'))
 
     print('RESULT: %d failed' % len(failed))
     return 1 if failed else 0
