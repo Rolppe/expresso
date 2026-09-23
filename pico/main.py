@@ -221,6 +221,12 @@ async def local_program(brew_data):
             await dev_run(pressure_gap_run(brew_data, utime, asyncio, pgap_target))
             continue
 
+        vkello_target = brew_data.take_pressure_clock_request()
+        if vkello_target is not None:
+            from functions import pressure_clock_run
+            await dev_run(pressure_clock_run(brew_data, utime, asyncio, vkello_target))
+            continue
+
         pstep_target = brew_data.take_pressure_step_request()
         if pstep_target is not None:
             from functions import pressure_step_run
