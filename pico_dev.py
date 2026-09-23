@@ -60,7 +60,10 @@ PICO_VID = '2e8a'
 
 
 def adb(*args, check=True):
-    return subprocess.run([ADB, '-s', PHONE] + list(args), capture_output=True, text=True, check=check)
+    # errors='replace': logcat carries non-UTF-8 bytes, and a decode crash mid-restore turned the
+    # charger back on while the flasher was still writing (23.9.2026)
+    return subprocess.run([ADB, '-s', PHONE] + list(args), capture_output=True, text=True,
+                          errors='replace', check=check)
 
 
 def charger(on):
@@ -365,7 +368,8 @@ def verify(manifest_path):
 def restore(set_name, seconds=300):
     # The app's flasher writes the set over USB; wait for its verdict in logcat so the charger stays
     # off until the flash is over (PICO-HALLINTA.md luku 7: no serial link before RESTORE_OK).
-    since = adb('shell', 'date', '+%m-%d %H:%M:%S.000').stdout.strip()
+    # One argument: adb shell joins its argv with spaces, so a split format string reaches date as two
+    since = adb('shell', "date '+%m-%d %H:%M:%S.000'").stdout.strip()
     adb('shell', 'am', 'start', '-n', APP + '/.MainActivity', '--es', 'espressopico_restore_backup', set_name)
     end = time.time() + seconds
     while time.time() < end:
