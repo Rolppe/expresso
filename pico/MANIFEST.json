@@ -26,13 +26,13 @@
   },
   {
     "name": "/classes.py",
-    "sha256": "87df1b68ce0b1fd58342b89dc946afea479f4cef8d38f3958561aa17b6f1f279",
-    "size": 47530
+    "sha256": "87113602749dde387df65b7a637251cbe25c2de15eb3ab3906b573b8b3fd0664",
+    "size": 55263
   },
   {
     "name": "/commands.py",
-    "sha256": "74f90b1e541bc278ac83769ac13dde1d98ac1cfcdf7b679452048ea2c44b8534",
-    "size": 10365
+    "sha256": "adcdc11bb783af0d6f4bc9c4761d6a215f3fa110e786a196839a9564f5728332",
+    "size": 15923
   },
   {
     "name": "/devsafe.py",
@@ -41,8 +41,8 @@
   },
   {
     "name": "/functions.py",
-    "sha256": "6592c81f40cc56867ba49128728e32a5ab3ba0aaa069b2ccfef4bad7d5b919c6",
-    "size": 53682
+    "sha256": "53655268dba1fe120b9b09c5fe6d1dbd7dce3b094c6aabab092b8e42e48f8a59",
+    "size": 107032
   },
   {
     "name": "/lib/adafruit_max31865.py",
@@ -56,13 +56,18 @@
   },
   {
     "name": "/main.py",
-    "sha256": "c00e9c500b2aaf7d13858ea16b687b4d71971fe9c25615bad710f28105b5ca3f",
-    "size": 14155
+    "sha256": "81801a870237903e16e78b08dbb466654f01a0101d46cc023064e38325210b0c",
+    "size": 18048
   },
   {
     "name": "/preset.py",
     "sha256": "f343f242d873d93dd7b8ab02d8cb9402ca8f809e0d95ec22db8a5bdc497c4113",
     "size": 2439
+  },
+  {
+    "name": "/relayguard.py",
+    "sha256": "deb70be21f8bc042a059d16a47c080563f594b8b2981590291ad85f4874f80eb",
+    "size": 11120
   },
   {
     "name": "/scale.py",
@@ -83,5 +88,10 @@
     "name": "/ugit.py",
     "sha256": "806ce9dc9868618a1f264cfbd03902f41e27a183d1d0e24ab8358abcaf65f275",
     "size": 9859
+  },
+  {
+    "name": "/verkkokello.py",
+    "sha256": "06d389c5ffe2abbb81c7e13301ab42cff314f903ffd4cf5ecdc183ce57d4af39",
+    "size": 7476
   }
 ]
