@@ -189,6 +189,10 @@ class BrewData:
         self.pvent_abort        = False
         # Learned pump feed-forward per phase (RAM, from the previous shot's average duty)
         self.learned_ff_pre     = 0.3
+        # Esiuuton tapa (pim:, RAM): 0 = PI 17 ms ikkunalla, 1 = vaiheseurattu (TILAUS-K 1-2,
+        # 24.9.2026). eu_coast_s = opittu jalkinousu (s) vaiheen 1 katkaisun jalkeen.
+        self.pre_infusion_method = 0
+        self.eu_coast_s         = 0.3
         self.learned_ff_brew    = 0.5
         self.pressure_filtered  = 0.0
         # Drip-tray scale (18.9.2026). weight is grams from scale.Scale.update(), None when no

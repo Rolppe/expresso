@@ -298,6 +298,15 @@ def handle_command(brew_data, command):
         except Exception:
             pass
 
+    elif command.startswith('pim:'):
+        # Pre-infusion method (24.9.2026): 0 = PI with 17 ms window, 1 = phase-tracked (TILAUS-K 1-2).
+        # RAM only like the weight limits: every restart and flash returns to 0; TS_START prints it.
+        try:
+            brew_data.pre_infusion_method = 1 if int(_float_arg(command)) == 1 else 0
+            updated = True
+        except Exception:
+            pass
+
     elif command.startswith('pip:'):
         try:
             brew_data.set_pre_infusion_pressure(_float_arg(command))
