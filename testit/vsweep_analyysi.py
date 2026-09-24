@@ -45,9 +45,11 @@ def analyse(rows):
     sham = [r['c'] for r in rows if r['cond'] == SHAM]
     trend = S.mean(sham) if sham else 0.0
     full = [r['c'] - trend for r in rows if r['cond'] == FULL]
+    # Ryhmittely TOTEUTUNEEN kohdan mukaan (act_us kellon reunasta), ei kasketyn: vsweep1:ssa tauko
+    # myohastyi 1,4-18,6 ms (sarjatulostus ja summat ennen ajoitusta, vsweep-20260924-a).
     per = {}
     for o in range(N_OFF):
-        v = [r['c'] - trend for r in rows if r['cond'] == o]
+        v = [r['c'] - trend for r in rows if r['len'] == 10000 and int(r['act'] // 1000) % N_OFF == o]
         if v:
             per[o] = (S.mean(v), len(v))
     out = {'trend': trend, 'sham_sd': S.pstdev(sham) if len(sham) > 1 else 0.0, 'n_sham': len(sham),
@@ -55,6 +57,25 @@ def analyse(rows):
            'act_err': max((abs((r['act'] - r['off'] + r['T'] / 2) % r['T'] - r['T'] / 2)
                            for r in rows if r['len'] > 0), default=0.0),
            'unlocked': sum(1 for r in rows if not r['lock'])}
+    ten = [r for r in rows if r['len'] == 10000]
+    late = [((r['act'] - r['off']) % r['T']) / 1000.0 for r in ten]
+    if late:
+        out['late_ms'] = (min(late), S.median(late), max(late))
+    if full and ten:
+        # Reunat yksittaisista tauoista: tauko 'poisti iskun', jos vaste on alle puolet 20 ms:n
+        # vasteesta. Haetaan alku a ja loppu b (0,1 ms hila), jotka luokittelevat parhaiten.
+        thr = S.mean(full) / 2.0
+        pts = [((r['act'] / 1000.0) % 20.0, (r['c'] - trend) < thr) for r in ten]
+        best = None
+        for ai in range(200):
+            for w in range(80, 121):
+                a0, b0 = ai / 10.0, (ai + w) / 10.0
+                def inside(x):
+                    return a0 <= x < b0 or a0 <= x + 20.0 < b0
+                err = sum(1 for x, rem in pts if inside(x) != rem)
+                if best is None or err < best[0]:
+                    best = (err, a0, b0 % 20.0)
+        out.update({'edge_err': best[0], 'edge_start_ms': best[1], 'edge_end_ms': best[2], 'thr': thr})
     if len(per) == N_OFF:
         # 10 ms levyinen lohko (kiertyvä): alku s, jolla kahden tason ero on suurin
         vals = [per[o][0] for o in range(N_OFF)]
@@ -83,12 +104,19 @@ def main(paths):
           'toteutuneen kohdan suurin virhe %.0f us' % (
               len(rows), a['n_sham'], a['trend'], a['sham_sd'], a['n_full'],
               '%+.3f' % a['full'] if a['full'] is not None else '-', a['unlocked'], a['act_err']))
-    print('kohta ms  vaste bar (trendi pois)  n')
+    if 'late_ms' in a:
+        print('tauon myöhästyminen käskystä: min %.1f / med %.1f / max %.1f ms' % a['late_ms'])
+    print('toteutunut kohta ms  vaste bar (trendi pois)  n')
     for o in range(N_OFF):
         if o in a['per']:
             m, n = a['per'][o]
             bar = '#' * max(0, int(round(-m / 0.02)))
             print('  %2d      %+.3f  %2d  %s' % (o, m, n, bar))
+    if 'edge_start_ms' in a:
+        print('reunat yksittäisistä tauoista: isku poistuu, kun 10 ms tauko alkaa %.1f–%.1f ms kellon '
+              'reunasta (väärin luokiteltuja %d/%d, raja %+.3f bar)' % (
+                  a['edge_start_ms'], a['edge_end_ms'], a['edge_err'],
+                  sum(1 for r in rows if r['len'] == 10000), a['thr']))
     if 'block_start_ms' in a:
         print('lohko (10 ms tauko poistaa iskun): %d–%d ms kellon reunasta, tasot %+.3f / %+.3f bar, '
               'välitasoja %d/20 (0–2 = jyrkkä raja)' % (

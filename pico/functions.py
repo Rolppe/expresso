@@ -1454,7 +1454,10 @@ VSWEEP_PRE_N = 200           # 2 x 100 naytetta = 2 x 5 jaksoa ennen taukoa: tas
 VSWEEP_POST1 = (30, 130)     # ms tauon alusta
 VSWEEP_POST2 = (130, 230)
 VSWEEP_DMIN = (20, 150)      # 5 naytteen keskiarvon minimi tassa valissa (vertailuksi)
-VSWEEP_LEAD_US = 2000        # tauon aloitus vahintaan nain pitkalla edelle
+VSWEEP_LEAD_US = 2000        # tauon aloitus vahintaan nain pitkalla edelle (tuoreesta ajasta)
+VSWEEP_LATE_MAX_US = 300     # myohassa enemman -> taukoa ei tehda, vaan se siirtyy seuraavaan jaksoon.
+                             # vsweep-20260924-a: sarjatulostus ja 200 naytteen summat ennen ajoitusta
+                             # myohastyttivat taukoa 1,4-18,6 ms kaskysta (tulos pelastui act_us:lla)
 VSWEEP_LOCK_MIN_W = 25       # tasanteella nain monta paivittavaa ikkunaa ennen ensimmaista taukoa: 12:lla
                              # sd ~395 us eli juuri LOCK_US-rajalla (2,5 sd), ja taukojen vasteajat kasvattavat
                              # sen yli (vsweep_smoke: 29/44 taukoa lukitsematta)
@@ -1474,7 +1477,7 @@ async def pressure_phase_sweep_run(brew_data, utime, asyncio, reps):
     if r: print('VSWEEP_END trials=0 windows=0 reason=%s' % r); return
     tray_state, tray_reason = tray_guard_start(brew_data, utime)
     if tray_reason: print('VSWEEP_END trials=0 windows=0 reason=%s' % tray_reason); return
-    trials, windows, reason, clock = 0, 0, 'ok', None
+    trials, windows, reason, clock, late = 0, 0, 'ok', None, 0
     brew_data.set_mode('vsweep')
     try:
         # TILAUS-H: purku ennen pumppua, sitten nousu tasanteeseen (sama saanto kuin vkello)
@@ -1545,8 +1548,10 @@ async def pressure_phase_sweep_run(brew_data, utime, asyncio, reps):
                         if cond == VSWEEP_SHAM: off_us, gap_len = 0, 0
                         elif cond == VSWEEP_FULL: off_us, gap_len = 0, VSWEEP_FULL_US
                         else: off_us, gap_len = cond * VSWEEP_STEP_US, VSWEEP_GAP_US
-                        target = utime.ticks_add(clock.edge(now), off_us)
-                        while utime.ticks_diff(target, now) < VSWEEP_LEAD_US:
+                        # Tuore aika: VKELLO-rivin tulostus on jo voinut vieda millisekunteja
+                        t_now = utime.ticks_us()
+                        target = utime.ticks_add(clock.edge(t_now), off_us)
+                        while utime.ticks_diff(target, t_now) < VSWEEP_LEAD_US:
                             target = utime.ticks_add(target, round(clock.T))
                         state = 'wait'
                     else:
@@ -1554,12 +1559,20 @@ async def pressure_phase_sweep_run(brew_data, utime, asyncio, reps):
                 continue
             if state == 'wait':
                 if utime.ticks_diff(target, now) < PCAP_RATE_US:
-                    # ring[(j - 1) % N] on uusin nayte: vanhempi ja uudempi puolisko
+                    while utime.ticks_diff(target, utime.ticks_us()) > 0: pass
+                    t_off = utime.ticks_us()
+                    if utime.ticks_diff(t_off, target) > VSWEEP_LATE_MAX_US:
+                        # Myohassa: ei taukoa vaaraan kohtaan, vaan sama kohta seuraavassa jaksossa
+                        late += 1
+                        while utime.ticks_diff(target, t_off) < VSWEEP_LEAD_US:
+                            target = utime.ticks_add(target, round(clock.T))
+                        continue
+                    if gap_len > 0: RELAY_PUMP.value(0)
+                    # Perustaso vasta kaynnistyksen jalkeen, jottei summa viivasta ajoitusta; tauon
+                    # loppu tarkistetaan seuraavalla naytteella. ring[(j - 1) % N] on viimeinen
+                    # nayte ennen taukoa (seuraava nayte kirjoittaa vanhimman yli).
                     pre0 = sum(ring[(j - VSWEEP_PRE_N + q) % VSWEEP_PRE_N] for q in range(half_n)) / half_n
                     pre = sum(ring[(j - half_n + q) % VSWEEP_PRE_N] for q in range(half_n)) / half_n
-                    while utime.ticks_diff(target, utime.ticks_us()) > 0: pass
-                    if gap_len > 0: RELAY_PUMP.value(0)
-                    t_off = utime.ticks_us()
                     t_on = utime.ticks_add(t_off, gap_len)
                     act = utime.ticks_diff(t_off, clock.edge(t_off)) % clock.T
                     s1 = s2 = 0.0; n1 = n2 = 0; dmin = 99.0
@@ -1591,8 +1604,8 @@ async def pressure_phase_sweep_run(brew_data, utime, asyncio, reps):
         brew_data.set_mode('IDLE'); brew_data.vsweep_abort = False
     tray_reason = await tray_guard_recheck(brew_data, utime, asyncio, tray_state)
     if tray_reason and reason == 'ok': reason = tray_reason
-    print('VSWEEP_END trials=%d windows=%d T_us=%.3f hz=%.4f reason=%s' % (
-        trials, windows, clock.T if clock else 0.0, (1e6 / clock.T) if clock else 0.0, reason))
+    print('VSWEEP_END trials=%d windows=%d late=%d T_us=%.3f hz=%.4f reason=%s' % (
+        trials, windows, late, clock.T if clock else 0.0, (1e6 / clock.T) if clock else 0.0, reason))
 
 
 # ============================================================================

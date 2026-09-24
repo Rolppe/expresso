@@ -115,9 +115,12 @@ class Plant:
 
 class Adc:
     def __init__(self, plant):
-        self.plant = plant
+        self.plant, self.stall_every, self.n = plant, 0, 0
 
     def read_u16(self):
+        self.n += 1
+        if self.stall_every and self.n % self.stall_every == 0:
+            U.us += 15000          # pysahdys (esim. roskienkeruu) odotuksen aikana
         return int((self.plant.bar(U.us) + 0.99 - F.PCAP_RAW_B) / F.PCAP_RAW_A)
 
 
@@ -144,9 +147,22 @@ class Asyncio:
         U.us += max(ms, 1) * 1000
 
 
-def run(reps, zero_cross=True):
+class SlowOut(io.StringIO):
+    """Sarjaportin viive: jokainen kirjoitettu rivi vie virtuaaliaikaa (vsweep-20260924-a: tauko
+    myohastyi kaskysta 1,4-18,6 ms tulostuksen takia)."""
+    def __init__(self, us_per_line):
+        super().__init__()
+        self.us = us_per_line
+
+    def write(self, text):
+        U.us += self.us * text.count('\n')
+        return super().write(text)
+
+
+def run(reps, zero_cross=True, us_per_line=0, stall_every=0):
     bd = BrewData(zero_cross)
-    out = io.StringIO()
+    bd.pressure_sensor.pressure_sensor.stall_every = stall_every
+    out = SlowOut(us_per_line)
     with redirect_stdout(out):
         asyncio.run(F.pressure_phase_sweep_run(bd, U, Asyncio(), reps))
     return bd, out.getvalue()
@@ -199,6 +215,29 @@ def main():
           field(out, 'VSWEEP_END', 'reason'))
     check('2 vapaavaiheinen SSR: loiva raja (välitasoja ≥ 4)', a2.get('mid', 0) >= 4,
           'välitasoja %s' % a2.get('mid'))
+
+    tmp3 = os.path.join('/tmp', 'vsweep_smoke_slow.log')
+    bd, out = run(1, zero_cross=True, us_per_line=4000)
+    open(tmp3, 'w').write(out)
+    a3 = VA.analyse(VA.parse([tmp3]))
+    check('3 sarjaviive 4 ms/rivi: ajo loppuun', field(out, 'VSWEEP_END', 'reason') == 'ok',
+          field(out, 'VSWEEP_END', 'reason'))
+    check('3 tuore aika tulostuksen jälkeen: ei myöhästymisiä', field(out, 'VSWEEP_END', 'late') == '0',
+          'late=%s' % field(out, 'VSWEEP_END', 'late'))
+    check('3 toteutunut kohta = käsketty (≤ %d us)' % F.VSWEEP_LATE_MAX_US,
+          a3['act_err'] <= F.VSWEEP_LATE_MAX_US, '%.0f us' % a3['act_err'])
+    check('3 lohko löytyy yhä', a3.get('edge_err', 99) <= 1,
+          '%s–%s ms, väärin %s' % (a3.get('edge_start_ms'), a3.get('edge_end_ms'), a3.get('edge_err')))
+
+    tmp4 = os.path.join('/tmp', 'vsweep_smoke_stall.log')
+    bd, out = run(1, zero_cross=True, stall_every=37)
+    open(tmp4, 'w').write(out)
+    a4 = VA.analyse(VA.parse([tmp4]))
+    check('4 pysähdykset: vahti siirsi myöhästyneet (late > 0)', int(field(out, 'VSWEEP_END', 'late') or 0) > 0,
+          'late=%s, %s' % (field(out, 'VSWEEP_END', 'late'), field(out, 'VSWEEP_END', 'reason')))
+    check('4 pysähdykset: toteutunut kohta ≤ %d us' % F.VSWEEP_LATE_MAX_US,
+          a4['act_err'] <= F.VSWEEP_LATE_MAX_US, '%.0f us' % a4['act_err'])
+    check('4 pysähdykset: 22 taukoa', field(out, 'VSWEEP_END', 'trials') == '22', field(out, 'VSWEEP_END', 'trials'))
 
     print('RESULT: %d failed' % len(failed))
     return 1 if failed else 0
