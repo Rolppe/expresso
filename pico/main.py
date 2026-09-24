@@ -227,6 +227,12 @@ async def local_program(brew_data):
             await dev_run(pressure_clock_run(brew_data, utime, asyncio, vkello_target))
             continue
 
+        vsweep_reps = brew_data.take_phase_sweep_request()
+        if vsweep_reps:
+            from functions import pressure_phase_sweep_run
+            await dev_run(pressure_phase_sweep_run(brew_data, utime, asyncio, vsweep_reps))
+            continue
+
         pstep_target = brew_data.take_pressure_step_request()
         if pstep_target is not None:
             from functions import pressure_step_run
