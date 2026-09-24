@@ -244,6 +244,12 @@ async def local_program(brew_data):
             await dev_run(pressure_hold_run(brew_data, utime, asyncio, phold_s))
             continue
 
+        klamp_s = brew_data.take_throttle_warmup_request()
+        if klamp_s:
+            from functions import throttle_warmup_run
+            await dev_run(throttle_warmup_run(brew_data, utime, asyncio, pump_ratio_calculator, klamp_s))
+            continue
+
         # PRINT VALUES
         if FEATURES['print_values_flag']:
             print_values(brew_data)

@@ -240,6 +240,18 @@ def handle_command(brew_data, command):
             except Exception:
                 pass
 
+    elif command.startswith('klamp:'):
+        # Throttle warm-up (24.9.2026): klamp:<s 10-120> | klamp:stop. Continuous pump to the
+        # plateau, then that pressure is held until the pump no longer needs limiting.
+        arg = command.split(':', 1)[1]
+        if arg == 'stop':
+            brew_data.stop_throttle_warmup()
+        else:
+            try:
+                brew_data.request_throttle_warmup(float(arg))
+            except Exception:
+                pass
+
     elif command.startswith('tshot:'):
         # Remote test shot without the brew switch: tshot:<seconds 5-60> | tshot:stop
         arg = command.split(':', 1)[1]

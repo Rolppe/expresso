@@ -151,6 +151,9 @@ class BrewData:
         # Remote pressure hold (phold:<s>): free pump+valve run for restrictor balancing
         self.phold_request      = None      # seconds, queued by a command (1-120)
         self.phold_abort        = False
+        # Throttle warm-up (klamp:<s>, 24.9.2026): plateau pressure held until the pump is unlimited
+        self.klamp_request      = None      # seconds, queued by a command (10-120)
+        self.klamp_abort        = False
         # Remote phase sweep (psweep:<ms>:<bar>[:<n>]): PWM-1B4-PYYHKAISY
         self.psweep_request     = None      # ms, queued by a command (200-2500)
         self.psweep_abort       = False
@@ -649,6 +652,22 @@ class BrewData:
     def stop_pressure_hold(self):
         self.phold_request = None
         self.phold_abort = True
+
+    def request_throttle_warmup(self, seconds=60):
+        if self.dev_safe:
+            return False
+        self.klamp_request = min(120, max(10, int(seconds)))
+        self.klamp_abort = False
+        return True
+
+    def take_throttle_warmup_request(self):
+        seconds = self.klamp_request
+        self.klamp_request = None
+        return seconds
+
+    def stop_throttle_warmup(self):
+        self.klamp_request = None
+        self.klamp_abort = True
 
     def pressure_calibration_save(self):
         self.pressure_sensor.save_calibration()
