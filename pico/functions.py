@@ -1765,6 +1765,121 @@ async def pressure_hold_run(brew_data, utime, asyncio, seconds):
 
 
 # ============================================================================
+# KURISTIMEN LAMMITYS (klamp:<s>) — kayttaja 24.9.2026, KAYTTAJAN-TIEDOT "Kuristin lammitetaan"
+# ============================================================================
+# Kylma kuristin nosti paineen yli PCAP_OVER_BAR:n (vkello-20260924-a). Kayttajan menetelma:
+# pumppu kay jatkuvasti, kunnes keskipaineen merkittava kasvu pysahtyy; sen hetken paine on
+# tavoite (ei vakio), ja sita pidetaan rajoittamalla pumppua, kunnes rajoitusta ei enaa tarvita.
+
+KLAMP_MIN_S = 10             # pyynnon alaraja: nousu + tasanne + DONE_MS mahtuu
+KLAMP_MAX_S = 120            # ajon katto, sama kuin PHOLD_MAX_S
+KLAMP_RISE_MAX_MS = 40000    # nousun katto, sama kuin VKELLO_REACH_MAX_MS
+KLAMP_DONE_DUTY = 0.95       # "pumppua ei tarvitse rajoittaa": dutyn keskiarvo vahintaan tama...
+KLAMP_DONE_MS = 3000         # ...yhtajaksoisesti nain kauan
+KLAMP_DUTY_TAU = 1.0         # dutyn keskiarvon aikavakio, s: 100 ms ikkunan on/off-kvantisointi pois
+KLAMP_PRINT_MS = 500
+
+
+async def throttle_warmup_run(brew_data, utime, asyncio, pump_ratio_calculator, seconds):
+    from classes import PumpPressureController
+    RELAY_PUMP, RELAY_SOLENOID, RELAY_HEATER = brew_data.get_relays()
+    sensor = brew_data.pressure_sensor.pressure_sensor
+    gain = brew_data.pressure_sensor.gain
+    offset = brew_data.pressure_sensor.offset
+    reason = 'ok'
+    target = None
+    duty_avg = 0.0
+    p_filt = 0.0
+    r = _sweep_break(brew_data, 'klamp_abort')
+    if r:
+        print('KLAMP_END reason=%s target=0.00 duty_avg=0.00 ms=0' % r); return
+    tray_state, tray_reason = tray_guard_start(brew_data, utime)
+    if tray_reason:
+        print('KLAMP_END reason=%s target=0.00 duty_avg=0.00 ms=0' % tray_reason); return
+    brew_data.set_mode('throttle warmup')
+    print('KLAMP_START s=%d' % seconds)
+    start = utime.ticks_ms()
+    try:
+        # Venttiili ennen pumppua (sama jarjestys kuin phold): suljettua piiria ei voi lammittaa.
+        RELAY_SOLENOID.value(1)
+        RELAY_PUMP.value(1)
+        pump_ratio_calculator.set_pump_on()
+        brew_data.pressure_sensor.reset_average()
+        p_filt = brew_data.get_pressure_average(utime)
+        plateau_ms, plateau_bar = 0, p_filt
+        controller = None
+        done_since = None
+        last_t = start
+        last_print = start
+        while True:
+            r = _sweep_break(brew_data, 'klamp_abort')
+            if r:
+                reason = r; break
+            tray_reason = tray_guard_check(brew_data, utime, tray_state)
+            if tray_reason:
+                reason = tray_reason; break
+            # Turvaraja raa'asta naytteesta (spec 2.5 kuten pcap/phold), ei suodatetusta
+            bar = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset
+            if bar > PCAP_OVER_BAR:
+                reason = 'overpressure'; break
+            now = utime.ticks_ms()
+            elapsed = utime.ticks_diff(now, start)
+            dt = utime.ticks_diff(now, last_t) / 1000.0
+            last_t = now
+            pressure = brew_data.get_pressure_average(utime)
+            p_filt += (pressure - p_filt) * min(1.0, dt / PCAP_FILT_TAU)
+            if elapsed >= seconds * 1000:
+                reason = 'timeout'; break
+
+            if controller is None:
+                # Vaihe 1: jatkuva pumppu, tasanne kuten vkello/pcap_settle (tayttovaihe ei kelpaa)
+                if p_filt < PCAP_PLATEAU_MIN_BAR:
+                    plateau_ms, plateau_bar = elapsed, p_filt
+                elif elapsed >= PCAP_SETTLE_MIN_MS and elapsed - plateau_ms >= PCAP_PLATEAU_MS:
+                    if p_filt - plateau_bar < PCAP_PLATEAU_BAR:
+                        target = p_filt
+                        print('KLAMP_RISE bar=%.2f reach_ms=%d reason=plateau' % (target, elapsed))
+                        # Tasanteessa tayden pumpun duty on maaritelmallisesti 1: saadin aloittaa
+                        # siita (ff 1.0), ei oppimastaan uuton ff:sta.
+                        controller = PumpPressureController(RELAY_PUMP, pump_ratio_calculator, utime,
+                                                            ff=1.0)
+                        duty_avg = 1.0
+                    else:
+                        plateau_ms, plateau_bar = elapsed, p_filt
+                if controller is None and elapsed >= KLAMP_RISE_MAX_MS:
+                    reason = 'noreach'; break
+            else:
+                # Vaihe 2: pida tavoite; valmis, kun pumppua ei tarvitse rajoittaa
+                controller.update(pressure, target)
+                duty_avg += (controller.duty - duty_avg) * min(1.0, dt / KLAMP_DUTY_TAU)
+                if duty_avg >= KLAMP_DONE_DUTY:
+                    if done_since is None:
+                        done_since = now
+                    elif utime.ticks_diff(now, done_since) >= KLAMP_DONE_MS:
+                        reason = 'done'; break
+                else:
+                    done_since = None
+            brew_data.pressure_filtered = p_filt
+
+            if utime.ticks_diff(now, last_print) >= KLAMP_PRINT_MS:
+                last_print = now
+                print('KLAMP t=%d bar=%.2f filt=%.2f target=%.2f duty=%.2f duty_avg=%.2f' % (
+                    elapsed, pressure, p_filt, target if target is not None else 0.0,
+                    controller.duty if controller is not None else 1.0, duty_avg))
+            await asyncio.sleep_ms(5)
+    except Exception:
+        reason = 'error'
+    finally:
+        RELAY_PUMP.value(0)
+        RELAY_SOLENOID.value(0)
+        pump_ratio_calculator.set_pump_off()
+        brew_data.set_mode('IDLE')
+        brew_data.klamp_abort = False
+    print('KLAMP_END reason=%s target=%.2f duty_avg=%.2f ms=%d' % (
+        reason, target if target is not None else 0.0, duty_avg, utime.ticks_diff(utime.ticks_ms(), start)))
+
+
+# ============================================================================
 # FAST HEATUP
 # ============================================================================
 
