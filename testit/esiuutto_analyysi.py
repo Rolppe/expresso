@@ -24,7 +24,7 @@ def parse(path):
     lines = text.splitlines()
     ts = next((l for l in lines if l.startswith('TS_START')), '')
     m = re.search(r'pim=(\d)', ts)
-    rows, kind, hold_t, target = [], None, None, None
+    rows, kind, hold_t, target, p5s = [], None, None, None, []
     for l in lines:
         f = l.split()
         if l.startswith('PI ') and len(f) >= 6:
@@ -32,7 +32,9 @@ def parse(path):
             rows.append((int(f[1]) / 1000.0, float(f[2]), float(f[3])))
         elif l.startswith('EU ') and len(f) >= 7:
             kind = 'pim1'
+            m5 = re.search(r' p5=(\S+)', l)
             rows.append((int(f[1]) / 1000.0, float(f[2]), float(f[3])))
+            if m5: p5s.append((int(f[1]) / 1000.0, float(m5.group(1))))
         elif l.startswith('EU_HOLD'):
             hold_t = int(re.search(r't_ms=(\d+)', l).group(1)) / 1000.0
         elif l.startswith('EU_START'):
@@ -65,6 +67,9 @@ def parse(path):
     rise = [p for t, p, _ in rows if t < hold_t + OVER_S]
     hold = [p for t, p, _ in rows if t >= hold_t + OVER_S]
     r['over'] = max(rise) - target
+    if p5s:
+        # Firmwaren EU_END over lasketaan 5 jakson keskiarvosta; sama tassa, yksittainen jakso heiluu
+        r['over5'] = max(v for t, v in p5s if t - t0 < hold_t + OVER_S) - target
     r['max'] = max(p for _, p, _ in rows)
     if len(hold) >= 2:
         r['hold_mean'] = statistics.mean(hold)
@@ -81,7 +86,8 @@ def show(r):
     print('   tapa %s (TS_START pim=%s), tavoite %.2f bar, %d riviä' % (r['kind'], r['pim_ts'], r['target'], r['n']))
     if r.get('error'):
         print('   VIRHE: %s (max %.2f bar)' % (r['error'], r['max'])); return
-    print('   nousuaika pitoon %.2f s, yliampuma %+.2f bar, koko ajon maksimi %.2f bar' % (r['hold_t'], r['over'], r['max']))
+    print('   nousuaika pitoon %.2f s, yliampuma %+.2f bar%s, koko ajon maksimi %.2f bar' % (
+        r['hold_t'], r['over'], (' (p5 %+.2f)' % r['over5']) if 'over5' in r else '', r['max']))
     if 'hold_mean' in r:
         print('   pito %.1f s: keskiarvo %.3f bar, sd %.3f bar, suurin poikkeama %.2f bar' % (
             r['hold_s'], r['hold_mean'], r['hold_sd'], r['hold_dev']))
