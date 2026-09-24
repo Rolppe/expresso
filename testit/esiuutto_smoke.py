@@ -76,8 +76,11 @@ class Pin:
 class Plant:
     """Iskumalli. Puolijakso k: [phi + k*HALF, phi + (k+1)*HALF); pariton = aktiivinen (isku)."""
 
-    def __init__(self, pump, delta=0.2, tau=0.8, lag_us=40000, phi_us=0.0, noise=0.02):
+    def __init__(self, pump, delta=0.2, tau=0.8, lag_us=40000, phi_us=0.0, noise=0.02, fill_us=0, cyc_sd=0.0):
         self.pump, self.delta, self.tau, self.lag = pump, delta, tau, lag_us
+        # Tayttovaihe (iskut eivat nosta painetta) ja puolijaksoittainen kohina: laitteella yksittaisen
+        # jakson keskiarvo heilui taytossa +-0,5 bar (esiuutto-20260924-b/c)
+        self.fill_us, self.cyc_sd, self.cn, self.t_first = fill_us, cyc_sd, 0.0, None
         self.phi, self.noise = phi_us, noise
         self.p, self.last, self.eff, self.k = 0.0, 0, 0, 0
         self.pending = []           # (aika, delta)
@@ -104,11 +107,14 @@ class Plant:
             t_zc = self.phi + (self.k + 1) * HALF_US
             self._apply(t_zc)
             if self.k % 2 == 1 and self.eff:        # aktiivinen puolijakso paattyi johtavana
-                self.pending.append((t_zc + self.lag, self.delta))
+                if self.t_first is None: self.t_first = t_zc
+                if t_zc - self.t_first >= self.fill_us:
+                    self.pending.append((t_zc + self.lag, self.delta))
                 self.strokes += 1
                 self.stroke_times.append(t_zc)
             self.k += 1
             self.eff = self.pump.v                   # tila vaihtuu nollakohdassa
+            if self.cyc_sd: self.cn = random.gauss(0.0, self.cyc_sd)
         self._apply(now)
 
     def _apply(self, t):
@@ -122,7 +128,7 @@ class Plant:
         self.advance(now)
         ph = (now - self.phi) / (2 * HALF_US)
         rip = RIPPLE_AMP * math.sin(2 * math.pi * (ph - RIPPLE_SHIFT_US / (2 * HALF_US))) if (self.eff and self.k % 2 == 1) else 0.0
-        return self.p + rip + random.gauss(0.0, self.noise)
+        return self.p + rip + self.cn + random.gauss(0.0, self.noise)
 
 
 class Adc:
@@ -260,6 +266,19 @@ def main():
     out5 = run(bd5, until_s=3.0, seed=5)
     check('5 huuhtelu: ei katkaisua, ei taukoja', 'EU_CUT' not in out5 and field(out5, 'EU_END', 'rm') == '0',
           'max=%s rm=%s' % (field(out5, 'EU_END', 'max'), field(out5, 'EU_END', 'rm')))
+
+    # 6 kohinainen taytto kuten laitteella (b/c-ajot): 2,4 s ilman painetta, jaksokohina sd 0,3 bar
+    bd6 = BrewData(phi_us=4100.0, fill_us=2400000, cyc_sd=0.3)
+    out6 = run(bd6, seed=6)
+    open('/tmp/esiuutto_smoke_6.log', 'w').write(out6)
+    cut_p, cut_ms = num(out6, 'EU_CUT', 'p'), num(out6, 'EU_CUT', 't_ms')
+    check('6 taytto: katkaisu vasta taytön jälkeen, ei piikistä (t > 2,6 s, p5 ≥ 1,0 bar)',
+          cut_ms > 2600 and cut_p >= 1.0, 't=%s ms p=%s' % (field(out6, 'EU_CUT', 't_ms'), field(out6, 'EU_CUT', 'p')))
+    hold_p = num(out6, 'EU_HOLD', 'p')
+    check('6 taytto: pito alkaa vasta tavoitepaineessa (p5 ≥ 2,4)', hold_p >= 2.4, field(out6, 'EU_HOLD', 'p'))
+    check('6 taytto: yliampuma (p5) ≤ 0,3 bar', num(out6, 'EU_END', 'over') <= 0.3, field(out6, 'EU_END', 'over'))
+    check('6 taytto: pidon keskiarvo 2,5 ± 0,1', abs(num(out6, 'EU_END', 'hold_mean') - 2.5) <= 0.1,
+          field(out6, 'EU_END', 'hold_mean'))
 
     print('RESULT: %d failed' % len(failed))
     return 1 if failed else 0

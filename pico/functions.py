@@ -148,6 +148,9 @@ EU_RATE_MIN = 0.5            # bar/s: hitaammasta noususta ei opita jalkinousua
 EU_RAMP_BAR_PER_S = 2.0      # sama loppunoston ramppi kuin pre_infusion
 EU_KP, EU_KI = 0.2, 0.3      # sama PI kuin PumpPressureController
 EU_LOG_SLOTS = 5             # EU-rivi joka 5. jakso (100 ms)
+EU_AVG_N = 5                 # paatosten keskiarvo 5 jaksoa (100 ms); nousunopeus kahdesta perakkaisesta
+EU_HOLD_TOL_BAR = 0.1        # pito alkaa, kun ramppi on tavoitteessa ja p5 >= tavoite - tama
+EU_INT_BAND_BAR = 0.3        # ennen pitoa integraali kertyy vain, kun |virhe| < tama
 EU_OVER_MS = 1000            # yliampuma = huippu nousussa ja pidon ensimmaisen sekunnin; sen jalkeen on
                              # pidon heittelya (hold_sd). Sama ikkuna kuin esiuutto_analyysi.py
 
@@ -231,53 +234,68 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                 brew_data.pressure = p
                 brew_data.pressure_filtered = p
                 hist.append(p)
-                if len(hist) > 6: hist.pop(0)
-                rate = (hist[-1] - hist[0]) / (0.02 * (len(hist) - 1)) if len(hist) > 1 else 0.0
+                if len(hist) > 2 * EU_AVG_N: hist.pop(0)
+                # Paatokset 5 jakson keskiarvosta: yksittaisen jakson keskiarvo heiluu taytossa +-0,5 bar
+                # (esiuutto-20260924-c: katkaisu piikista 1,37 bar, rate 16,5 bar/s, todellinen ~0,3 bar)
+                p5 = sum(hist[-EU_AVG_N:]) / min(len(hist), EU_AVG_N)
+                rate = ((p5 - sum(hist[:EU_AVG_N]) / EU_AVG_N) / (EU_AVG_N * 0.02)
+                        if len(hist) == 2 * EU_AVG_N else 0.0)
                 dt = 0.02 if last_slot is None else min(0.1, utime.ticks_diff(t, last_slot) / 1e6)
                 last_slot = t
                 n_slot += 1
                 if p > p_max: p_max = p
-                if (hold_t is None or utime.ticks_diff(t, hold_t) < EU_OVER_MS * 1000) and p > rise_max:
-                    rise_max = p
+                if (hold_t is None or utime.ticks_diff(t, hold_t) < EU_OVER_MS * 1000) and p5 > rise_max:
+                    rise_max = p5
                 if end_t is not None and utime.ticks_diff(t, end_t) >= 0:
                     reason = 'done'; break
                 if not keep_running():
                     reason = 'stop'; break
 
-                # Ensimmainen keskiarvo on vajaa jakso (t0 -> ensimmainen kohta), ei paatosta siita
-                if phase == 1 and n_slot >= 2 and p >= target * 0.5 and p + rate * coast_s >= target - EU_CUT_MARGIN_BAR:
+                # Katkaisu vasta taysista keskiarvoista (2 x 5 jaksoa)
+                if phase == 1 and len(hist) == 2 * EU_AVG_N and p5 >= target * 0.5 and \
+                        p5 + rate * coast_s >= target - EU_CUT_MARGIN_BAR:
                     phase = 2
-                    cut_t, p_cut, rate_cut, peak, coast_open = t, p, rate, p, True
-                    ramp_base, ramp_t, integ, acc = p, t, 0.0, 0.0
+                    cut_t, p_cut, rate_cut, peak, coast_open = t, p5, rate, p5, True
+                    ramp_base, ramp_t, integ, acc = p5, t, 0.0, 0.0
                     brew_data.set_mode('pre-infusion final rise')
                     out.append('EU_CUT t_ms=%d p=%.2f rate=%.2f coast_s=%.3f pred=%.2f' % (
-                        utime.ticks_diff(t, t0) // 1000, p, rate, coast_s, p + rate * coast_s))
+                        utime.ticks_diff(t, t0) // 1000, p5, rate, coast_s, p5 + rate * coast_s))
                 if phase == 2:
                     if hold_t is None:
                         sp = ramp_base + EU_RAMP_BAR_PER_S * utime.ticks_diff(t, ramp_t) / 1e6
                         if sp >= target:
-                            sp, hold_t = target, t
-                            end_t = utime.ticks_add(t, hold_us)
-                            brew_data.set_mode('pre-infusion main')
-                            out.append('EU_HOLD t_ms=%d p=%.2f' % (utime.ticks_diff(t, t0) // 1000, p))
+                            sp = target
+                            # Menetelmaohje: laskuri alkaa vasta, kun paine on saavutettu - ei silloin, kun
+                            # ramppi on (esiuutto-20260924-b/c: pito alkoi paineessa 1,34 / 1,09 bar)
+                            if p5 >= target - EU_HOLD_TOL_BAR:
+                                hold_t = t
+                                end_t = utime.ticks_add(t, hold_us)
+                                brew_data.set_mode('pre-infusion main')
+                                out.append('EU_HOLD t_ms=%d p=%.2f' % (utime.ticks_diff(t, t0) // 1000, p5))
                     else:
                         sp = target
                         h_s += p; h_ss += p * p; h_n += 1
                     if coast_open:
                         # Jalkinousun huippu: katkaisusta siihen, kun ramppi saavuttaa paineen
-                        if p > peak: peak = p
+                        if p5 > peak: peak = p5
                         el = utime.ticks_diff(t, cut_t)
-                        if (sp >= p and el >= EU_COAST_MIN_MS * 1000) or el >= EU_COAST_MS * 1000:
+                        if (sp >= p5 and el >= EU_COAST_MIN_MS * 1000) or el >= EU_COAST_MS * 1000:
                             coast_open = False
-                            if rate_cut >= EU_RATE_MIN:
+                            # Ei oppia, jos paine ei noussut katkaisun jalkeen: silloin katkaisu ei ollut
+                            # nousun keskella (c-ajo: huippu = katkaisu, coast_s puolittui turhaan)
+                            learn = rate_cut >= EU_RATE_MIN and peak > p_cut
+                            if learn:
                                 obs = (peak - p_cut) / rate_cut
                                 coast_s += 0.5 * (obs - coast_s)
                                 coast_s = max(EU_COAST_MIN, min(EU_COAST_MAX, coast_s))
-                            out.append('EU_COAST peak=%.2f rise=%.2f rate=%.2f coast_s=%.3f' % (
-                                peak, peak - p_cut, rate_cut, coast_s))
+                            out.append('EU_COAST peak=%.2f rise=%.2f rate=%.2f coast_s=%.3f learn=%d' % (
+                                peak, peak - p_cut, rate_cut, coast_s, 1 if learn else 0))
                     e = sp - p
                     u = ff + EU_KP * e + EU_KI * integ
-                    if 0.0 < u < 1.0 or (u >= 1.0 and e < 0) or (u <= 0.0 and e > 0):
+                    # Integraali vain pidossa tai lahella asetusarvoa: rampin viive kasasi sen c-ajossa
+                    # (1,1 bar vajetta 0,5 s) ja se purkautui yliampumana 3,6 bariin
+                    if (hold_t is not None or abs(e) < EU_INT_BAND_BAR) and \
+                            (0.0 < u < 1.0 or (u >= 1.0 and e < 0) or (u <= 0.0 and e > 0)):
                         integ = max(-1.5, min(1.5, integ + e * dt))
                     u = ff + EU_KP * e + EU_KI * integ
                     d = 0.0 if u < 0.0 else (1.0 if u > 1.0 else u)
@@ -310,8 +328,8 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                 slot = nxt
 
                 if n_slot % EU_LOG_SLOTS == 0:
-                    out.append('EU %d %.2f %.2f %d %.2f %d sd_us=%.0f rm=%d sk10=%d sk20=%d late=%d %s' % (
-                        utime.ticks_diff(t, t0) // 1000, p, sp, 1 if relay[0] else 0, d, phase,
+                    out.append('EU %d %.2f %.2f %d %.2f %d p5=%.2f sd_us=%.0f rm=%d sk10=%d sk20=%d late=%d %s' % (
+                        utime.ticks_diff(t, t0) // 1000, p, sp, 1 if relay[0] else 0, d, phase, p5,
                         clock.sd_us(t), removed, skips10, skips20, late, weight_flow_log(brew_data)))
                 for line in out: print(line)
                 out = []
