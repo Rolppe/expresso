@@ -402,6 +402,11 @@ def restore(set_name, seconds=300):
     # The app's flasher writes the set over USB; wait for its verdict in logcat so the charger stays
     # off until the flash is over (PICO-HALLINTA.md luku 7: no serial link before RESTORE_OK).
     # One argument: adb shell joins its argv with spaces, so a split format string reaches date as two
+    # Fresh app process first: after the CHARGER_CYCLE re-enumeration the running app can still hold
+    # the dead USB handle, and the flasher then fails at once with 'no size ack for /api_functions.py'
+    # (logcat: 'USB get_status request failed'; klamp1 and vsweep1 24.9.2026, force-stop fixed both).
+    adb('shell', 'am', 'force-stop', APP, check=False)
+    time.sleep(2)
     since = adb('shell', "date '+%m-%d %H:%M:%S.000'").stdout.strip()
     adb('shell', 'am', 'start', '-n', APP + '/.MainActivity', '--es', 'espressopico_restore_backup', set_name)
     end = time.time() + seconds
