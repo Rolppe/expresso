@@ -159,6 +159,14 @@ def handle_command(brew_data, command):
         else:
             try: brew_data.request_pressure_clock(float(arg))
             except Exception: pass
+    elif command.startswith('vsweep:'):
+        # vsweep:<reps 1-5> | vsweep:stop — taukojen vaihepyyhkaisy kellon reunasta (TILAUS-K/L)
+        arg = command.split(':', 1)[1]
+        if arg == 'stop':
+            brew_data.abort_phase_sweep()
+        else:
+            try: brew_data.request_phase_sweep(float(arg))
+            except Exception: pass
     elif command.startswith('pstep:'):
         # pstep:<bar>[:<hold_ms>[:<tail_ms>]] | pstep:stop — yksi ohitettu verkkojakso
         # tasapainossa (tilaus 20.9.2026). Kentat nollataan joka pyynnolla, kuten psweep:ssa.

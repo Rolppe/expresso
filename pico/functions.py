@@ -1424,6 +1424,178 @@ async def pressure_clock_run(brew_data, utime, asyncio, target):
 
 
 # ============================================================================
+# VAIHEPYYHKAISY (vsweep:<reps>) — TILAUS-K/L askel 1 (kayttaja 24.9.2026)
+# ============================================================================
+# Kysymys: missa kohdassa verkkojaksoa (verkkokellon reunasta) 10 ms tauko poistaa pumpun iskun ja
+# kuinka jyrkka raja on. Pumppu iskee vain toisella puolijaksolla (TILAUS-L: "10ms ... vaikuttaa
+# 20ms ajan"), joten alle jakson tauon vaikutus riippuu vaiheesta: plen 20.9.2026 antoi alle 20 ms
+# tauoille ~puolet 20 ms:n kuopasta, mutta ilman kelloa vaihe jai selvittamatta. Jyrkka raja =
+# taukokohdistus on vaihemittaus (TILAUS-K vaiheet 2 ja 4); samalla SSR-tyyppi ja puolijaksot.
+#
+# Mittari ei ole kuopan syvyys: 1b-sarjassa (pgap q1-q4) se mittasi painetrendia (r 0,85
+# kulmakertoimen kanssa). Tassa keskipaine 100 ms (5 jaksoa, vareily kumoutuu) ennen taukoa ja
+# 30-130 / 130-230 ms sen alusta (pohja 64-68 ms, plen), ja trendi saadaan tyhjista vertailuista
+# (ehto SHAM, ei taukoa). Ehdot kierretaan (STRIDE), joten ajautuma jakautuu tasan.
+# Kello pysyy synkronissa: jokaisen tauon valissa yksi puhdas I/Q-ikkuna, joka paivittaa kellon
+# (VKELLO-rivit samassa muodossa kuin vkello, jotta vkello_analyysi voi rekonstruoida kayran).
+
+VSWEEP_GAP_US = 10000        # TILAUS-L: pienin tauko
+VSWEEP_FULL_US = 20000       # positiivinen vertailu: koko jakso poistaa aina yhden iskun
+VSWEEP_STEP_US = 1000        # kohdan askel kellon reunasta
+VSWEEP_N_OFF = 20            # kohdat 0..19 ms
+VSWEEP_SHAM = VSWEEP_N_OFF   # ehto 20: ei taukoa (trendin vertailu)
+VSWEEP_FULL = VSWEEP_N_OFF + 1   # ehto 21: 20 ms tauko kohdassa 0
+VSWEEP_N_COND = VSWEEP_N_OFF + 2
+VSWEEP_STRIDES = (7, 5, 9, 3, 13)   # toisto r: ehto = i*STRIDES[r] mod 22 (syt 1). Kiintea askel antoi
+                             # jokaiselle ehdolle aina saman edeltajan, ja edellisen kuopan palautuminen
+                             # (tau ~0,8 s, tauot 0,4 s valein) naytti jarjestelmallisena (vsweep_smoke:
+                             # tyhja vertailu +0,045 bar)
+VSWEEP_PRE_N = 200           # 2 x 100 naytetta = 2 x 5 jaksoa ennen taukoa: taso ja trendi
+VSWEEP_POST1 = (30, 130)     # ms tauon alusta
+VSWEEP_POST2 = (130, 230)
+VSWEEP_DMIN = (20, 150)      # 5 naytteen keskiarvon minimi tassa valissa (vertailuksi)
+VSWEEP_LEAD_US = 2000        # tauon aloitus vahintaan nain pitkalla edelle
+VSWEEP_LOCK_MIN_W = 25       # tasanteella nain monta paivittavaa ikkunaa ennen ensimmaista taukoa: 12:lla
+                             # sd ~395 us eli juuri LOCK_US-rajalla (2,5 sd), ja taukojen vasteajat kasvattavat
+                             # sen yli (vsweep_smoke: 29/44 taukoa lukitsematta)
+VSWEEP_LOCK_MAX_MS = 10000   # lukko tasanteelta nain ajassa, muuten nolock
+VSWEEP_REPS_MAX = 5
+
+
+async def pressure_phase_sweep_run(brew_data, utime, asyncio, reps):
+    import devsafe
+    from verkkokello import Verkkokello
+    RELAY_PUMP, RELAY_SOLENOID, RELAY_HEATER = brew_data.get_relays()
+    sensor = brew_data.pressure_sensor.pressure_sensor
+    gain, offset = brew_data.pressure_sensor.gain, brew_data.pressure_sensor.offset
+    reps = max(1, min(VSWEEP_REPS_MAX, int(reps)))
+    n_trials = reps * VSWEEP_N_COND
+    r = _sweep_break(brew_data, 'vsweep_abort')
+    if r: print('VSWEEP_END trials=0 windows=0 reason=%s' % r); return
+    tray_state, tray_reason = tray_guard_start(brew_data, utime)
+    if tray_reason: print('VSWEEP_END trials=0 windows=0 reason=%s' % tray_reason); return
+    trials, windows, reason, clock = 0, 0, 'ok', None
+    brew_data.set_mode('vsweep')
+    try:
+        # TILAUS-H: purku ennen pumppua, sitten nousu tasanteeseen (sama saanto kuin vkello)
+        RELAY_PUMP.value(0)
+        cycles, bar = await _mcal_vent(brew_data, utime, asyncio, sensor, gain, offset)
+        print('VSWEEP_VENT cycles=%d bar=%.2f' % (cycles, bar))
+        if cycles >= MCAL_VENT_MAX_CYCLES: reason = 'vent_runaway'
+        else: RELAY_SOLENOID.value(1); RELAY_PUMP.value(1)
+        t0 = next_t = utime.ticks_us(); clock = Verkkokello(t0)
+        p_filt = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset
+        alpha = (PCAP_RATE_US / 1000000.0) / PCAP_FILT_TAU
+        plateau_j, plateau_bar, j, rise_done = 0, p_filt, 0, False
+        ring = [0.0] * VSWEEP_PRE_N
+        half_n = VSWEEP_PRE_N // 2
+        sm = [0.0] * PGAP_SMOOTH_N
+        state, lock_w, lock_t = 'iq', 0, None
+        cond = gap_len = off_us = 0
+        target = t_off = t_on = 0
+        pre = pre0 = act = 0.0
+        s1 = s2 = 0.0; n1 = n2 = 0; dmin = 99.0
+        while reason == 'ok':
+            while utime.ticks_diff(next_t, utime.ticks_us()) > 0: pass
+            now = utime.ticks_us()
+            next_t = utime.ticks_add(next_t, PCAP_RATE_US)
+            bar = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset
+            if bar > PCAP_OVER_BAR: reason = 'overpressure'; break
+            if (j & PSTEP_FEED_MASK) == 0:
+                devsafe.feed(); r = _sweep_break(brew_data, 'vsweep_abort') or tray_guard_poll(brew_data, utime, tray_state)
+                if r: reason = r; break
+                if utime.ticks_diff(now, t0) > PGAP_RUN_MAX_MS * 1000: reason = 'timeout'; break
+            ring[j % VSWEEP_PRE_N] = bar
+            sm[j % PGAP_SMOOTH_N] = bar
+            j += 1
+            if not rise_done:
+                p_filt += (bar - p_filt) * alpha
+                if p_filt < PCAP_PLATEAU_MIN_BAR:
+                    plateau_j, plateau_bar = j, p_filt   # tayttovaihe ei ole tasanne
+                if j >= PSTEP_MIN_MS and j - plateau_j >= PCAP_PLATEAU_MS:
+                    if p_filt - plateau_bar < PCAP_PLATEAU_BAR:
+                        rise_done, lock_t = True, now
+                        print('VSWEEP_RISE bar=%.2f reach_ms=%d reason=plateau' % (p_filt, j))
+                        clock.iq_start(now)
+                    else:
+                        plateau_j, plateau_bar = j, p_filt
+                if not rise_done and j >= VKELLO_REACH_MAX_MS: reason = 'noreach'
+                continue
+            if state == 'iq':
+                clock.iq_add(now, bar)
+                if clock.iq_ready(now):
+                    res = clock.iq_close(now)
+                    if res is not None:
+                        z, amp, p_bar, g = res; windows += 1
+                        print('VKELLO w=%d t_ms=%d z_us=%.1f T_us=%.3f d=%.5f sd_us=%.1f amp=%.3f lock=%d p_bar=%.2f gate=%d' % (
+                            windows, utime.ticks_diff(now, t0) // 1000, z, clock.T, clock.d,
+                            clock.sd_us(now), amp, 1 if clock.locked(now) else 0, p_bar, g))
+                        if g == 0: lock_w += 1
+                    if lock_t is not None:
+                        if lock_w >= VSWEEP_LOCK_MIN_W and clock.locked(now):
+                            print('VSWEEP_LOCK windows=%d sd_us=%.1f T_us=%.3f ms=%d' % (
+                                lock_w, clock.sd_us(now), clock.T, utime.ticks_diff(now, lock_t) // 1000))
+                            lock_t = None
+                        elif utime.ticks_diff(now, lock_t) > VSWEEP_LOCK_MAX_MS * 1000:
+                            reason = 'nolock'; break
+                    if lock_t is None:
+                        # Seuraava tauko: kohta kellon reunasta, vahintaan LEAD_US edella
+                        rep, i = divmod(trials, VSWEEP_N_COND)
+                        cond = (i * VSWEEP_STRIDES[rep % len(VSWEEP_STRIDES)]) % VSWEEP_N_COND
+                        if cond == VSWEEP_SHAM: off_us, gap_len = 0, 0
+                        elif cond == VSWEEP_FULL: off_us, gap_len = 0, VSWEEP_FULL_US
+                        else: off_us, gap_len = cond * VSWEEP_STEP_US, VSWEEP_GAP_US
+                        target = utime.ticks_add(clock.edge(now), off_us)
+                        while utime.ticks_diff(target, now) < VSWEEP_LEAD_US:
+                            target = utime.ticks_add(target, round(clock.T))
+                        state = 'wait'
+                    else:
+                        clock.iq_start(now)
+                continue
+            if state == 'wait':
+                if utime.ticks_diff(target, now) < PCAP_RATE_US:
+                    # ring[(j - 1) % N] on uusin nayte: vanhempi ja uudempi puolisko
+                    pre0 = sum(ring[(j - VSWEEP_PRE_N + q) % VSWEEP_PRE_N] for q in range(half_n)) / half_n
+                    pre = sum(ring[(j - half_n + q) % VSWEEP_PRE_N] for q in range(half_n)) / half_n
+                    while utime.ticks_diff(target, utime.ticks_us()) > 0: pass
+                    if gap_len > 0: RELAY_PUMP.value(0)
+                    t_off = utime.ticks_us()
+                    t_on = utime.ticks_add(t_off, gap_len)
+                    act = utime.ticks_diff(t_off, clock.edge(t_off)) % clock.T
+                    s1 = s2 = 0.0; n1 = n2 = 0; dmin = 99.0
+                    state = 'gap' if gap_len > 0 else 'resp'
+                continue
+            if state == 'gap' and utime.ticks_diff(t_on, now) < PCAP_RATE_US:
+                while utime.ticks_diff(t_on, utime.ticks_us()) > 0: pass
+                RELAY_PUMP.value(1)
+                state = 'resp'
+            el = utime.ticks_diff(now, t_off) // 1000
+            if VSWEEP_POST1[0] <= el < VSWEEP_POST1[1]: s1 += bar; n1 += 1
+            elif VSWEEP_POST2[0] <= el < VSWEEP_POST2[1]: s2 += bar; n2 += 1
+            if VSWEEP_DMIN[0] <= el < VSWEEP_DMIN[1]:
+                v = sum(sm) / PGAP_SMOOTH_N
+                if v < dmin: dmin = v
+            if state == 'resp' and el >= VSWEEP_POST2[1]:
+                print('VSWEEP k=%d cond=%d off_us=%d len_us=%d act_us=%.0f pre0=%.3f pre=%.3f post1=%.3f post2=%.3f dmin=%.3f sd_us=%.0f lock=%d T_us=%.3f' % (
+                    trials, cond, off_us, gap_len, act, pre0, pre, s1 / max(1, n1), s2 / max(1, n2),
+                    dmin, clock.sd_us(now), 1 if clock.locked(now) else 0, clock.T))
+                trials += 1
+                if trials >= n_trials: break
+                state = 'iq'
+                clock.iq_start(now)
+    except Exception as e:
+        reason = 'error'
+        print('VSWEEP_ERR %r' % (e,))
+    finally:
+        RELAY_PUMP.value(0); RELAY_SOLENOID.value(0)
+        brew_data.set_mode('IDLE'); brew_data.vsweep_abort = False
+    tray_reason = await tray_guard_recheck(brew_data, utime, asyncio, tray_state)
+    if tray_reason and reason == 'ok': reason = tray_reason
+    print('VSWEEP_END trials=%d windows=%d T_us=%.3f hz=%.4f reason=%s' % (
+        trials, windows, clock.T if clock else 0.0, (1e6 / clock.T) if clock else 0.0, reason))
+
+
+# ============================================================================
 # PRESSURE GAP LENGTH — kvantisoituuko tauko puolijaksoihin? (tilaus 20.9.2026)
 # ============================================================================
 # Kysymys ei ole hydraulinen vaan sahkoinen: "kohdistuksen tarkoitus ei ole vaikuttaa paineeseen

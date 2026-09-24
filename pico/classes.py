@@ -179,6 +179,7 @@ class BrewData:
         self.pgap_lo_us         = None      # rajatun vaihealueen alaraja
         self.pgap_hi_us         = None      # ...ja ylaraja; molemmat paatepisteet mukana
         self.vkello_request, self.vkello_abort = None, False  # vkello:<bar>: brief VERKKOKELLO
+        self.vsweep_request, self.vsweep_abort = None, False  # vsweep:<reps>: TILAUS-K/L askel 1
         # Tauon pituuden pyyhkaisy (plen:<bar>): kvantisoituuko katkaisu puolijaksoihin
         self.plen_request       = None      # bar, queued by a command
         self.plen_abort         = False
@@ -609,6 +610,18 @@ class BrewData:
 
     def abort_pressure_clock(self):
         self.vkello_request, self.vkello_abort = None, True
+
+    def request_phase_sweep(self, reps):
+        if self.dev_safe: return False
+        self.vsweep_request, self.vsweep_abort = max(1, min(5, int(reps))), False
+        return True
+
+    def take_phase_sweep_request(self):
+        reps, self.vsweep_request = self.vsweep_request, None
+        return reps
+
+    def abort_phase_sweep(self):
+        self.vsweep_request, self.vsweep_abort = None, True
 
     def request_pressure_len(self, target):
         if self.dev_safe: return False

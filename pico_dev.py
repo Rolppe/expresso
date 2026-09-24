@@ -24,6 +24,9 @@ Usage:
                                         until PSTEP_END: one skipped mains cycle at target pressure
   pico_dev.py phold <s> [out.log]       CMD phold:<s>, capture PHOLD lines until PHOLD_END
   pico_dev.py vkello <bar> [out.log]    CMD vkello:<bar> (0 = rise ends at plateau only), capture VKELLO lines until VKELLO_END
+  pico_dev.py vsweep <reps> [out.log]   CMD vsweep:<reps 1-5>: vent, rise to plateau, lock the mains clock, then
+                                        single 10 ms gaps at 0..19 ms from the clock edge + sham + 20 ms,
+                                        reps times; VSWEEP/VKELLO lines until VSWEEP_END
   pico_dev.py klamp <s> [out.log]       CMD klamp:<s 10-120>: throttle warm-up — continuous pump to the
                                         plateau, hold that pressure until the pump is unlimited
                                         (duty_avg >= 0.95 for 3 s); KLAMP lines until KLAMP_END
@@ -318,6 +321,19 @@ def vkello(arg, out_path=None):
     return 0
 
 
+def vsweep(reps, out_path=None):
+    # Phase sweep of single 10 ms gaps from the mains clock edge (TILAUS-K/L step 1, 24.9.2026).
+    link = Link()
+    link.send(('CMD vsweep:%s\r\n' % reps).encode())
+    tail = capture(300, out_path, stop_marker=b'VSWEEP_END', link=link)
+    text = tail.decode('utf-8', 'replace')
+    line = next((l for l in text.splitlines() if l.startswith('VSWEEP_END')), None)
+    reason = line.split('reason=')[-1].split()[0].strip() if line and 'reason=' in line else None
+    if not line or reason != 'ok':
+        print('VSWEEP_FAIL reason=%s' % (reason or 'no_end')); return 1
+    return 0
+
+
 def klamp(seconds, out_path=None):
     # Throttle warm-up (24.9.2026): success is reason=done — the plateau pressure is held with the
     # pump unlimited. timeout means the throttle still needed limiting when the time ran out.
@@ -443,6 +459,8 @@ def main(op):
         sys.exit(pgap(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else None))
     elif op == 'vkello':
         sys.exit(vkello(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else None))
+    elif op == 'vsweep':
+        sys.exit(vsweep(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else None))
     elif op == 'klamp':
         sys.exit(klamp(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else None))
     elif op == 'pstep':
@@ -461,7 +479,7 @@ def main(op):
         sys.exit(__doc__)
 
 
-OPS = ('safe', 'cmd', 'shot', 'pcap', 'psweep', 'plen', 'pgap', 'vkello', 'klamp', 'pstep', 'phold', 'capture',
+OPS = ('safe', 'cmd', 'shot', 'pcap', 'psweep', 'plen', 'pgap', 'vkello', 'vsweep', 'klamp', 'pstep', 'phold', 'capture',
        'verify', 'watchdog-test', 'restore')
 
 if __name__ == '__main__':
