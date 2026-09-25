@@ -43,14 +43,17 @@ Source of truth: /srv/work/Infra/iot/expresso/pico_dev.py (copied to the Mac leg
 """
 import json
 import os
+import shutil
 import socket
 import subprocess
 import sys
 import time
 
 # Mac: /opt/homebrew/bin/adb; palvelin: ~/.local/share/platform-tools/adb (PICO_ADB overrides)
-ADB = os.environ.get('PICO_ADB') or ('/opt/homebrew/bin/adb' if os.path.exists('/opt/homebrew/bin/adb')
-                                     else os.path.expanduser('~/.local/share/platform-tools/adb'))
+# palvelin: /usr/bin/adb from PATH when neither exists
+ADB = os.environ.get('PICO_ADB') or next(
+    (a for a in ('/opt/homebrew/bin/adb', os.path.expanduser('~/.local/share/platform-tools/adb'))
+     if os.path.exists(a)), None) or shutil.which('adb') or 'adb'
 PHONE = '192.0.2.11:5555'
 PORT = 2217
 APP = 'com.example.silvia_pico_ui'
@@ -118,8 +121,25 @@ def ensure_bridge():
     adb('shell', 'input', 'keyevent', 'KEYCODE_WAKEUP', check=False)
     adb('shell', 'am', 'start', '-n', APP + '/.MainActivity', '--ez', 'espressopico_start_bridge', 'true',
         check=False)
-    adb('forward', 'tcp:%d' % PORT, 'tcp:%d' % PORT, check=False)
+    if on_phone():
+        # palvelin runs on the phone itself: the bridge listens on this 127.0.0.1, and an adb
+        # forward would take the port first, so the bridge could not bind it (25.9.2026)
+        adb('forward', '--remove', 'tcp:%d' % PORT, check=False)
+    else:
+        adb('forward', 'tcp:%d' % PORT, 'tcp:%d' % PORT, check=False)
     time.sleep(2)
+
+
+def on_phone():
+    # Binding succeeds only to an address of this host
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.bind((PHONE.split(':')[0], 0))
+        return True
+    except OSError:
+        return False
+    finally:
+        s.close()
 
 
 class Link:
