@@ -292,6 +292,23 @@ def main():
     check('7 sovitettu malli: laitteen iskut = mallin iskut (±4) pysähdyksissä', all(abs(g) <= 4 for g in gaps),
           'laite - malli %s' % gaps)
 
+    # 8 loppunosto sovitetulla iskumallilla (esiuutto-20260925-a/b: iskukoko ~0,1 bar, vuoto tau ~1,6 s,
+    # tayttö ~1 s), ilman kohinaa: ramppi ei saa jaada nousemaan pelkan P-termin varassa. Vanha koodi:
+    # katkaisusta pitoon 1,4-1,6 s ja paine ~0,6 bar rampin alla. Viimeiset 0,1-0,2 bar ennen pitoa
+    # vievat hitaalla vuodolla ~0,4 s, eika sita kiirehdita (ylitys).
+    bd8 = BrewData(hold_s=3.0, phi_us=7300.0, delta=0.1, tau=1.6, fill_us=1000000, noise=0.0)
+    for r in (1, 2):
+        bd8.plant.p, bd8.plant.pending, bd8.plant.t_first = 0.0, [], None
+        out8 = run(bd8, seed=80 + r)
+        cut8, hold8 = num(out8, 'EU_CUT', 't_ms'), num(out8, 'EU_HOLD', 't_ms')
+        lag = max([float(l.split()[3]) - float(re.search(r'p5=(\S+)', l).group(1)) for l in out8.splitlines()
+                   if l.startswith('EU ') and cut8 + 150 < int(l.split()[1]) < hold8
+                   and float(l.split()[3]) < float(field(out8, 'EU_START', 'target'))] or [0.0])
+        check('8 sovitettu malli ajo %d: paine enintään 0,3 bar rampin alla' % r, lag <= 0.3, '%.2f bar' % lag)
+        check('8 sovitettu malli ajo %d: katkaisusta pitoon ≤ 1,1 s' % r, hold8 - cut8 <= 1100, '%.0f ms' % (hold8 - cut8))
+        check('8 sovitettu malli ajo %d: yliampuma ≤ 0,2 bar' % r, num(out8, 'EU_END', 'over') <= 0.2,
+              field(out8, 'EU_END', 'over'))
+
     print('RESULT: %d failed' % len(failed))
     return 1 if failed else 0
 

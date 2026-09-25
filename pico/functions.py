@@ -146,6 +146,8 @@ EU_COAST_MIN_MS = 100        # ja vahintaan nain kauan (viive 40 ms + iskun nous
                              # ramppi = paine, joten pelkka 'ramppi saavutti paineen' sulki heti
 EU_RATE_MIN = 0.5            # bar/s: hitaammasta noususta ei opita jalkinousua
 EU_RAMP_BAR_PER_S = 2.0      # sama loppunoston ramppi kuin pre_infusion
+EU_RAMP_FF_MAX = 0.5         # rampin oman myotakytkennan yläraja (duty)
+EU_RAMP_LEAD_S = 0.1         # rampin myotakytkenta loppuu nain paljon ennen tavoitetta (iskun + p5:n viive)
 EU_KP, EU_KI = 0.2, 0.3      # sama PI kuin PumpPressureController
 EU_LOG_SLOTS = 5             # EU-rivi joka 5. jakso (100 ms)
 EU_AVG_N = 5                 # paatosten keskiarvo 5 jaksoa (100 ms); nousunopeus kahdesta perakkaisesta
@@ -203,6 +205,7 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
     strokes = removed = skips10 = skips20 = late = miss = windows = win_low = learned = 0
     p_max, rise_max, h_s, h_ss, h_n, duty_avg = 0.0, 0.0, 0.0, 0.0, 0, ff
     out = []
+    ramp_ff = 0.0
     try:
         while True:
             now = utime.ticks_us()
@@ -257,6 +260,15 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                     phase = 2
                     cut_t, p_cut, rate_cut, peak, coast_open = t, p5, rate, p5, True
                     ramp_base, ramp_t, integ, acc = p5, t, 0.0, 0.0
+                    # Rampin myotakytkenta (EXPRESSO-ESIUUTTO-PITO): 2 bar/s nousu tarvitsee laitteella
+                    # 0,36-0,43 dutya pidon ff:n paalle, ja pelkka P-termi jatti paineen ~0,6 bar rampin
+                    # alle ~1 s ajaksi. Iskun vahvistus G = 50 x iskukoko (bar/s dutya kohden) taman ajon
+                    # katkaisuhetken noususta taydella dutylla: rate = G - p/tau ja pidossa G*ff*tau = tavoite,
+                    # joten G = rate / (1 - p*ff/tavoite). Hitaasta noususta G:ta ei voi arvioida.
+                    ramp_ff = 0.0
+                    if rate >= EU_RATE_MIN:
+                        g = rate / max(0.2, 1.0 - p5 * ff / target)
+                        ramp_ff = min(EU_RAMP_FF_MAX, EU_RAMP_BAR_PER_S / g)
                     brew_data.set_mode('pre-infusion final rise')
                     out.append('EU_CUT t_ms=%d p=%.2f rate=%.2f coast_s=%.3f pred=%.2f' % (
                         utime.ticks_diff(t, t0) // 1000, p5, rate, coast_s, p5 + rate * coast_s))
@@ -291,13 +303,22 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                             out.append('EU_COAST peak=%.2f rise=%.2f rate=%.2f coast_s=%.3f learn=%d' % (
                                 peak, peak - p_cut, rate_cut, coast_s, 1 if learn else 0))
                     e = sp - p
-                    u = ff + EU_KP * e + EU_KI * integ
+                    # Rampin aikana tasapainoduty skaalautuu paineen mukana (ff on mitattu tavoitteessa).
+                    # Rampin myotakytkenta vain, kun paine on rampin alla, ja se loppuu EU_RAMP_LEAD_S ennen
+                    # tavoitetta: jalkinousun edella oleva paine ja iskun + p5:n viive (~0,1 s) nostivat
+                    # ilman naita rajoja ylityksia (sovitettu malli: yli 0,3 bar 17/48 ajoa, vanha 4/48)
+                    uff = ff
+                    if hold_t is None and sp < target:
+                        uff = ff * sp / target
+                        if p5 < sp and sp < target - EU_RAMP_BAR_PER_S * EU_RAMP_LEAD_S:
+                            uff += ramp_ff
+                    u = uff + EU_KP * e + EU_KI * integ
                     # Integraali vain pidossa tai lahella asetusarvoa: rampin viive kasasi sen c-ajossa
                     # (1,1 bar vajetta 0,5 s) ja se purkautui yliampumana 3,6 bariin
                     if (hold_t is not None or abs(e) < EU_INT_BAND_BAR) and \
                             (0.0 < u < 1.0 or (u >= 1.0 and e < 0) or (u <= 0.0 and e > 0)):
                         integ = max(-1.5, min(1.5, integ + e * dt))
-                    u = ff + EU_KP * e + EU_KI * integ
+                    u = uff + EU_KP * e + EU_KI * integ
                     d = 0.0 if u < 0.0 else (1.0 if u > 1.0 else u)
                     if hold_t is not None:
                         duty_avg += (d - duty_avg) * (dt / 5.0)
