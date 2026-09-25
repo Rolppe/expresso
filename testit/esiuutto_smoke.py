@@ -280,6 +280,18 @@ def main():
     check('6 taytto: pidon keskiarvo 2,5 ± 0,1', abs(num(out6, 'EU_END', 'hold_mean') - 2.5) <= 0.1,
           field(out6, 'EU_END', 'hold_mean'))
 
+    # 7 laitteeseen sovitettu malli (esiuutto-20260924-d/e): jaksokohina sd 0,25 ja pysahdykset 0,8 %
+    # asyncio-vuoroista toistavat laitteen pidon p5-hajonnan 0,16-0,17, iskuvaihtelun ~0,9 / 100 ms,
+    # late 13-18 ja jaksohajonnan 0,25. Myohastynyt paatos (5-10 ms) ei saa jattaa jaksoa ilman paatosta:
+    # vanha koodi paasti 14-24 laskematonta iskua ajossa.
+    gaps = []
+    for seed in (7, 8, 9):
+        bd7 = BrewData(hold_s=6.0, phi_us=(7300.0 * seed) % 20000, cyc_sd=0.25)
+        out7 = run(bd7, stall_p=0.008, seed=seed)
+        gaps.append(int(num(out7, 'EU_END', 'strokes')) - bd7.plant.strokes)
+    check('7 sovitettu malli: laitteen iskut = mallin iskut (±4) pysähdyksissä', all(abs(g) <= 4 for g in gaps),
+          'laite - malli %s' % gaps)
+
     print('RESULT: %d failed' % len(failed))
     return 1 if failed else 0
 

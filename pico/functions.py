@@ -321,9 +321,13 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                     if pump_next and ok:      # 10 ms tauko; muuten rele palaa seuraavassa kohdassa (20 ms)
                         pend_on = utime.ticks_add(slot, EU_GAP_US)
 
-                # Seuraava paatoskohta kellon seuraavasta reunasta
+                # Seuraava paatoskohta kellon seuraavasta reunasta. Vali mitataan nimelliseen kohtaan, jolle
+                # tama paatos kuului, ei myohastyneeseen t:hen: 5-10 ms myohastyminen siirsi seuraavan
+                # paatoksen jaksolla eteenpain, rele pysyi paalla laskematta iskua ja delta-sigma ei tiennyt
+                # siita (EXPRESSO-ESIUUTTO-PITO: sovitetussa mallissa 14-24 laskematonta iskua ajossa)
+                cur_n = utime.ticks_add(clock.edge(utime.ticks_add(t, -EU_OFF_US)), EU_OFF_US)
                 nxt = utime.ticks_add(clock.edge(utime.ticks_add(t, round(clock.T) - EU_OFF_US)), EU_OFF_US)
-                while utime.ticks_diff(nxt, t) < EU_MIN_SLOT_US:
+                while utime.ticks_diff(nxt, cur_n) < EU_MIN_SLOT_US:
                     nxt = utime.ticks_add(nxt, round(clock.T))
                 slot = nxt
 
