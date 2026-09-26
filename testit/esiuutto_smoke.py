@@ -312,34 +312,52 @@ def main():
         check('8 sovitettu malli ajo %d: yliampuma ≤ 0,2 bar' % r, num(out8, 'EU_END', 'over') <= 0.2,
               field(out8, 'EU_END', 'over'))
 
-    # 9 pidon myotakytkenta taman ajon noususta (EXPRESSO-ESIUUTTO-FF): kylma kuristin (iskukoko 0,15 bar,
-    # vuoto tau 2,2 s, tasapainoduty 0,15) edellisen lampiman ajon opitulla ff:lla 0,31 ja painvastoin
-    # (lampin 0,1 / 1,6 s, duty 0,31, opittu 0,15). Laitteella esiuutto-20260925-c: opittu 0,30, tarve 0,15,
-    # pidon alku +0,44 bar 1,5 s. Kohinaton ajo mittaa menetelman, kohinainen (jaksokohina 0,25,
-    # pysahdykset 0,8 %) sen, ettei yksittainen nousunopeus heita ff:aa.
-    for name, delta, tau, ff_old, ff_true in (('kylmä', 0.15, 2.2, 0.31, 0.15), ('lämmin', 0.1, 1.6, 0.15, 0.31)):
-        for noisy in (False, True):
-            errs, dev, overs = [], [], []
-            for seed in ((91, 92, 93) if noisy else (90,)):
-                bd9 = BrewData(hold_s=6.0, phi_us=(3100.0 * seed) % 20000, delta=delta, tau=tau, fill_us=1000000,
-                               noise=0.02 if noisy else 0.0, cyc_sd=0.25 if noisy else 0.0)
-                bd9.learned_ff_pre = ff_old
-                out9 = run(bd9, stall_p=0.008 if noisy else 0.0, seed=seed)
-                open('/tmp/esiuutto_smoke_9_%s_%d.log' % (name, seed), 'w').write(out9)
-                hold9 = num(out9, 'EU_HOLD', 't_ms')
-                ps = [float(l.split()[2]) for l in out9.splitlines() if l.startswith('EU ')
-                      and hold9 <= int(l.split()[1]) < hold9 + 2000]
-                dev.append(abs(sum(ps) / len(ps) - 2.5) if ps else 9.0)
-                errs.append(num(out9, 'EU_CUT', 'ff') - ff_true)
-                overs.append(num(out9, 'EU_END', 'over'))
-            tag = '9 %s%s' % (name, ', kohina' if noisy else '')
-            lim = 0.08 if noisy else 0.05
-            check('%s: katkaisun ff tästä ajosta ±%.2f tarpeesta %.2f' % (tag, lim, ff_true),
-                  all(abs(e) <= lim for e in errs), 'virhe %s' % ['%+.2f' % e for e in errs])
-            check('%s: pidon 2 ensimmäisen s keskiarvo 2,5 ± %.2f bar' % (tag, 0.1 if noisy else 0.05),
-                  all(v <= (0.1 if noisy else 0.05) for v in dev), 'poikkeama %s' % ['%.2f' % v for v in dev])
-            check('%s: yliampuma ≤ %.1f bar' % (tag, 0.3 if noisy else 0.2), all(o <= (0.3 if noisy else 0.2) for o in overs),
-                  '%s' % ['%.2f' % o for o in overs])
+    # 9 pidon myotakytkenta (EXPRESSO-ESIUUTTO-FF): vuoto edellisen ajon pidosta, G taman ajon noususta, ja
+    # ensimmainen ajo alakanttiin (laite 26.9.2026: nousun arvio 0,22-0,43, tarve 0,09-0,10). Tilat: lampin
+    # (iskukoko 0,1, tau 1,6 s, tarve 0,31), kylma (0,15 / 2,2, tarve 0,15) ja kiinni (0,05 / 10 s, tarve 0,10:
+    # hidas nousu kuten 26.9. a-ajo). Parit: 1. ajo ilman edellista, 2. ajo edellisen pidon tiedoilla.
+    states = {'lämmin': (0.1, 1.6), 'kylmä': (0.15, 2.2), 'kiinni': (0.05, 10.0)}
+
+    def run9(state, seed, noisy, carry=None):
+        delta, tau = states[state]
+        bd9 = BrewData(hold_s=6.0, phi_us=(3100.0 * seed) % 20000, delta=delta, tau=tau, fill_us=1000000,
+                       noise=0.02 if noisy else 0.0, cyc_sd=0.25 if noisy else 0.0)
+        if carry: bd9.learned_ff_pre, bd9.eu_g_pre, bd9.eu_coast_s = carry
+        out9 = run(bd9, stall_p=0.008 if noisy else 0.0, seed=seed)
+        open('/tmp/esiuutto_smoke_9_%s_%d.log' % (state, seed), 'w').write(out9)
+        hold9 = num(out9, 'EU_HOLD', 't_ms')
+        ps = [float(l.split()[2]) for l in out9.splitlines() if l.startswith('EU ') and hold9 <= int(l.split()[1]) < hold9 + 2000]
+        need = 2.5 / (50 * delta * tau)
+        return dict(ff=num(out9, 'EU_CUT', 'ff') - need, dev=(sum(ps) / len(ps) - 2.5) if ps else 9.0,
+                    c2h=hold9 - num(out9, 'EU_CUT', 't_ms'), learn=bd9.learned_ff_pre - need,
+                    over=num(out9, 'EU_END', 'over')), (bd9.learned_ff_pre, bd9.eu_g_pre, bd9.eu_coast_s)
+
+    first = {}
+    for st in ('lämmin', 'kylmä'):
+        r, first[st] = run9(st, 90, False)
+        check('9 1. ajo %s: ff ei yli tarpeen (≤ +0,05)' % st, r['ff'] <= 0.05, '%+.2f' % r['ff'])
+        check('9 1. ajo %s: pidon 2 s keskiarvo 2,5 ± 0,1, katkaisusta pitoon ≤ 1,1 s' % st,
+              abs(r['dev']) <= 0.1 and r['c2h'] <= 1100, '%+.2f bar, %.0f ms' % (r['dev'], r['c2h']))
+        check('9 1. ajo %s: pidon tarve opittu (±0,03)' % st, abs(r['learn']) <= 0.03, '%+.3f' % r['learn'])
+    for a, b in (('lämmin', 'kylmä'), ('kylmä', 'lämmin')):
+        r, _ = run9(b, 91, False, first[a])
+        check('9 %s -> %s: ff ±0,1 tarpeesta' % (a, b), abs(r['ff']) <= 0.1, '%+.2f' % r['ff'])
+        check('9 %s -> %s: pidon 2 s keskiarvo 2,5 ± 0,05, yliampuma ≤ 0,2' % (a, b),
+              abs(r['dev']) <= 0.05 and r['over'] <= 0.2, '%+.2f bar, over %.2f' % (r['dev'], r['over']))
+    # Kiinni: 1. ajo yliarvioi (tunnettu raja, laite 26.9. a), mutta oppii tarpeen, ja 2. ajo osuu
+    r1, c1 = run9('kiinni', 92, False)
+    check('9 1. ajo kiinni: pidon tarve opittu (±0,03)', abs(r1['learn']) <= 0.03, '%+.3f (1. ajon ff %+.2f)' % (r1['learn'], r1['ff']))
+    r2, _ = run9('kiinni', 93, False, c1)
+    check('9 kiinni -> kiinni: pidon 2 s keskiarvo 2,5 ± 0,05', abs(r2['dev']) <= 0.05, '%+.2f bar' % r2['dev'])
+    # Kohina (jaksokohina 0,25, pysahdykset 0,8 %): lampin -> kylma ja kylma -> lampin, 3 siementa
+    for a, b in (('lämmin', 'kylmä'), ('kylmä', 'lämmin')):
+        devs = []
+        for seed in (94, 95, 96):
+            _, c = run9(a, seed, True)
+            r, _ = run9(b, seed + 10, True, c)
+            devs.append(r['dev'])
+        check('9 kohina %s -> %s: pidon 2 s keskiarvo 2,5 ± 0,1' % (a, b), all(abs(v) <= 0.1 for v in devs),
+              '%s' % ['%+.2f' % v for v in devs])
 
     print('RESULT: %d failed' % len(failed))
     return 1 if failed else 0
