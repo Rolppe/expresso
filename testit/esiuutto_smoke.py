@@ -34,6 +34,7 @@ class Utime:
 
     def ticks_us(self):
         self.us += 20
+        if GC.period is not None: GC.tick()
         return self.us
 
     def ticks_ms(self):
@@ -46,10 +47,51 @@ class Utime:
         return a + b
 
 
+class Gc:
+    """MicroPythonin roskienkeruu virtuaalikellolla (EXPRESSO-ESIUUTTO-VUORONVARAUS). Oletuksena pois: tapaukset 1-13 eivat
+    kuluta kekoa. enable(): keko kuluu tasaisesti, ja kun se loppuu, automaattinen keruu pysayttaa silmukan 13-28 ms missa
+    kohdassa tahansa (laite ah-am 26.9.2026: pysahdys 0,4-1,2 s valein). collect() pysayttaa yhta kauan, mutta firmwaren
+    valitsemassa kohdassa. Jakso arvotaan run():ssa siemenen jalkeen."""
+    HEAP = 200 * 1024
+
+    def __init__(self):
+        self.enabled, self.period, self.last, self.auto = False, None, 0, 0
+
+    def enable(self, period_s=(0.4, 1.2), stall_ms=(13, 28)):
+        self.enabled, self.period_s, self.stall_ms = True, period_s, stall_ms
+
+    def disable(self):
+        self.enabled, self.period = False, None
+
+    def start(self):
+        if self.enabled:
+            self.auto, self.last = 0, U.us
+            self.period = random.uniform(*self.period_s) * 1e6
+
+    def _stall(self):
+        U.us += random.randint(*self.stall_ms) * 1000
+        self.last = U.us
+        self.period = random.uniform(*self.period_s) * 1e6
+
+    def mem_free(self):
+        if self.period is None: return self.HEAP
+        return max(0, int(self.HEAP * (1 - (U.us - self.last) / self.period)))
+
+    def collect(self):
+        if self.period is not None: self._stall()
+
+    def tick(self):
+        if U.us - self.last >= self.period:
+            self.auto += 1
+            self._stall()
+
+
 U = Utime()
+GC = Gc()
 sys.modules['utime'] = U
 sys.modules.setdefault('devsafe', types.SimpleNamespace(feed=lambda: None))
 import functions as F   # noqa: E402
+F.gc = GC
 
 F_MAINS = 50.01
 HALF_US = 1e6 / F_MAINS / 2
@@ -193,8 +235,9 @@ class Asyncio:
             U.us += random.randint(*self.stall_ms) * 1000   # toinen tehtava (BLE, vaaka) varaa vuoron
 
 
-def run(bd, until_s=None, stall_p=0.0, seed=1):
+def run(bd, until_s=None, stall_p=0.0, seed=1, stall_ms=(5, 15)):
     random.seed(seed)
+    GC.start()
     start = U.us
     # Aikaraja aina: ajo, jonka pito ei ala, ei paaty koskaan (26.9.2026: kaksi testiajoa pyori ~80 min).
     # 30 s virtuaaliaikaa ylittaa jokaisen tapauksen pidon; raja -> reason=stop -> tapaus kaatuu.
@@ -202,14 +245,17 @@ def run(bd, until_s=None, stall_p=0.0, seed=1):
     keep = lambda: U.us - start < lim * 1e6
     out = io.StringIO()
     with redirect_stdout(out):
-        asyncio.run(F.pre_infusion_phased(bd, U, Asyncio(stall_p), Ratio(), keep))
+        asyncio.run(F.pre_infusion_phased(bd, U, Asyncio(stall_p, stall_ms), Ratio(), keep))
     return out.getvalue()
 
 
 def field(text, prefix, key):
-    line = next((l for l in text.splitlines() if l.startswith(prefix)), '')
-    m = re.search(r'\b%s=(\S+)' % key, line)
-    return m.group(1) if m else None
+    # Ensimmainen prefiksilla alkava rivi, jolla avain on: EU_END on jaettu riveihin EU_END ja EU_END2 (<= 255 merkkia)
+    for line in text.splitlines():
+        if line.startswith(prefix):
+            m = re.search(r'\b%s=(\S+)' % key, line)
+            if m: return m.group(1)
+    return None
 
 
 def num(text, prefix, key):
@@ -296,26 +342,34 @@ def main():
           F.EU_COAST_MIN <= getattr(bd, attr) <= F.EU_COAST_MAX and c1 != c0, '%.3f -> %.3f' % (c1, getattr(bd, attr)))
     check('2 toinen ajo: yliampuma ≤ yksi isku (0,2 bar)', num(out2, 'EU_END', 'over') <= 0.2, field(out2, 'EU_END', 'over'))
 
-    # 3 pysähdykset (toinen tehtävä varaa vuoron 5-15 ms)
-    bd3 = BrewData(phi_us=2100.0)
-    out3 = run(bd3, stall_p=0.005, seed=3)
-    open('/tmp/esiuutto_smoke_3.log', 'w').write(out3)
-    fw3 = int(num(out3, 'EU_END', 'strokes'))
-    check('3 pysähdykset: ajo loppuun', field(out3, 'EU_END', 'reason') == 'done', field(out3, 'EU_END', 'reason'))
-    # Vain kellon lukituttua alkaneet tauot (firmwaren ehto 2,5 sd < EU_PHASE_OK_US -> 10 ms tauot): sita ennen 20 ms
-    # tauko poistaa iskun vaiheesta riippumatta, eika ajon lopun katkaisu (rele ei palaa) ole tauko. Kun kello jatkui
-    # edellisesta tapauksesta, HEADin vaihe vaisti molemmat sattumalta (EXPRESSO-SMOKE-TILASTO).
-    t_lock = next((int(l.split()[1]) * 1000 for l in out3.splitlines() if l.startswith('EU ')
-                   and 2.5 * float(re.search(r'sd_us=(\S+)', l).group(1)) < F.EU_PHASE_OK_US), None)
-    offs10 = [o for o, t, n in zip(bd3.plant.pause_offs, bd3.plant.pause_t, bd3.plant.pause_lens)
-              if n is not None and t_lock is not None and t >= t_lock]
-    bad = [o for o in offs10 if o >= HALF_US]
-    check('3 pysähdykset: jokainen tehty 10 ms tauko alkaa passiivisella puolijaksolla', not bad and offs10,
-          '%d/%d väärin, late=%s miss=%s' % (len(bad), len(offs10), field(out3, 'EU_END', 'late'),
-                                           field(out3, 'EU_END', 'miss')))
-    check('3 pysähdykset: vahti toimi (late > 0)', int(num(out3, 'EU_END', 'late')) > 0, field(out3, 'EU_END', 'late'))
-    check('3 pysähdykset: pito 2,5 ± 0,08 bar', abs(num(out3, 'EU_END', 'hold_mean') - 2.5) <= 0.08,
-          field(out3, 'EU_END', 'hold_mean'))
+    # 3 pysähdykset (toinen tehtävä varaa vuoron 5-15 ms). vv=0 (euv:0, vanha vuorosaanto): myohastymisvahti jattaa tauon
+    # tekematta. vv=1 (EXPRESSO-ESIUUTTO-VUORONVARAUS): vaiheessa 2 vuoro vain releen ollessa pois ja seuraavan jakson
+    # ollessa tauko, joten vuoron varaus ei myohastyta yhtaan taukoa; vahti jaa varmistukseksi (keskeytykset).
+    for vv in (0, 1):
+        bd3 = BrewData(phi_us=2100.0)
+        bd3.eu_vv = vv
+        out3 = run(bd3, stall_p=0.005, seed=3)
+        open('/tmp/esiuutto_smoke_3_vv%d.log' % vv, 'w').write(out3)
+        c3 = '3 pysähdykset vv=%d' % vv
+        check('%s: ajo loppuun' % c3, field(out3, 'EU_END', 'reason') == 'done', field(out3, 'EU_END', 'reason'))
+        # Vain kellon lukituttua alkaneet tauot (firmwaren ehto 2,5 sd < EU_PHASE_OK_US -> 10 ms tauot): sita ennen 20 ms
+        # tauko poistaa iskun vaiheesta riippumatta, eika ajon lopun katkaisu (rele ei palaa) ole tauko. Kun kello jatkui
+        # edellisesta tapauksesta, HEADin vaihe vaisti molemmat sattumalta (EXPRESSO-SMOKE-TILASTO).
+        t_lock = next((int(l.split()[1]) * 1000 for l in out3.splitlines() if l.startswith('EU ')
+                       and 2.5 * float(re.search(r'sd_us=(\S+)', l).group(1)) < F.EU_PHASE_OK_US), None)
+        offs10 = [o for o, t, n in zip(bd3.plant.pause_offs, bd3.plant.pause_t, bd3.plant.pause_lens)
+                  if n is not None and t_lock is not None and t >= t_lock]
+        bad = [o for o in offs10 if o >= HALF_US]
+        check('%s: jokainen tehty 10 ms tauko alkaa passiivisella puolijaksolla' % c3, not bad and offs10,
+              '%d/%d väärin, late=%s miss=%s' % (len(bad), len(offs10), field(out3, 'EU_END', 'late'),
+                                               field(out3, 'EU_END', 'miss')))
+        if vv:
+            check('%s: ei myöhästyneitä taukoja (late = 0)' % c3, int(num(out3, 'EU_END', 'late')) == 0,
+                  field(out3, 'EU_END', 'late'))
+        else:
+            check('%s: vahti toimi (late > 0)' % c3, int(num(out3, 'EU_END', 'late')) > 0, field(out3, 'EU_END', 'late'))
+        check('%s: pito 2,5 ± 0,08 bar' % c3, abs(num(out3, 'EU_END', 'hold_mean') - 2.5) <= 0.08,
+              field(out3, 'EU_END', 'hold_mean'))
 
     # 4 pysäytys kesken pidon
     bd4 = BrewData(phi_us=15000.0)
@@ -524,6 +578,54 @@ def main():
         stat(check, '13 uuttoasento ajo %d: pidon 2-5 s p5 ka 2,5 ± 0,1' % r, [x['h25'] for x in rs], 0.1, lo=-0.1)
         check('13 uuttoasento ajo %d: opittu tarve = iskuosuus (±0,03)' % r, all(abs(x['learn']) <= 0.03 for x in rs),
               'max |%.3f|' % max(abs(x['learn']) for x in rs))
+
+    # 14 vuoronvaraus (EXPRESSO-ESIUUTTO-VUORONVARAUS, laite ah-am 26.9.2026): silmukka pysahtyi 13-28 ms 0,4-1,2 s valein,
+    # ja kun rele oli paalla, tauko jai tekematta (late) ja pidon p5 nousi 3,2-3,6 bariin. Uuttoasennon malli (tapaus 13),
+    # automaattinen roskienkeruu (Gc) ja toisen tehtavan varaukset (0,8 % vuoroista, 13-28 ms), 8 siementa x 2 ajoa.
+    # vv=0 (euv:0) on vanha: rele paalla vuoron ja keruun ajan. vv=1: vuoro ja keruu vain releen ollessa pois.
+    def run14(seed, carry, cf, vv):
+        bd14 = BrewData(hold_s=6.0, phi_us=(3100.0 * seed) % 20000, delta=0.25, tau=0.8, delta_f=0.6, tau_f=0.08,
+                        lag_us=20000, fill_us=600000, noise=0.02, cyc_sd=0.25)
+        bd14.learned_ff_pre, bd14.eu_g_pre, bd14.eu_coast_s, bd14.eu_tau_pre = carry
+        if cf is not None: bd14.eu_coast_fast_s = cf
+        bd14.eu_vv = vv
+        GC.enable()
+        out14 = run(bd14, stall_p=0.008, seed=seed, stall_ms=(13, 28))
+        auto = GC.auto
+        GC.disable()
+        open('/tmp/esiuutto_smoke_14_%d_vv%d.log' % (seed, vv), 'w').write(out14)
+        r14_len[0] = max(r14_len[0], max(len(l) for l in out14.splitlines()))
+        hold14 = num(out14, 'EU_HOLD', 't_ms')
+        rows = [(int(l.split()[1]) - hold14, float(re.search(r'p5=(\S+)', l).group(1))) for l in out14.splitlines()
+                if l.startswith('EU ')]
+        h = [r[1] for r in rows if F.EU_OVER_MS <= r[0] < 5000]
+        m = sum(h) / len(h)
+        h25 = [r[1] for r in rows if 2000 <= r[0] < 5000]
+        return dict(late=int(num(out14, 'EU_END', 'late')), peak=max(h) - 2.5, sd=math.sqrt(sum((x - m) ** 2 for x in h) / len(h)),
+                    h25=sum(h25) / len(h25) - 2.5, auto=auto, gc=int(num(out14, 'EU_VV', 'gc_n'))), \
+            (bd14.learned_ff_pre, bd14.eu_g_pre, bd14.eu_coast_s, bd14.eu_tau_pre), getattr(bd14, 'eu_coast_fast_s', None)
+    r14 = {(vv, r): [] for vv in (0, 1) for r in (1, 2)}
+    r14_len = [0]
+    for vv in (0, 1):
+        for seed in range(140, 148):
+            carry, cf = (0.08, 7.73, 0.061, 4.55), None
+            for r in (1, 2):
+                res, carry, cf = run14(seed + 50 * (r - 1), carry, cf, vv)
+                r14[(vv, r)].append(res)
+    for r in (1, 2):
+        rs0, rs1 = r14[(0, r)], r14[(1, r)]
+        pk0 = sum(x['peak'] for x in rs0) / len(rs0)
+        check('14 vuoronvaraus ajo %d: vanha (vv=0) toistaa vian (late > 0, pidon piikki ka ≥ +0,7)' % r,
+              all(x['late'] > 0 for x in rs0) and pk0 >= 0.7,
+              'late %s, piikki ka %+.2f' % ([x['late'] for x in rs0], pk0))
+        check('14 vuoronvaraus ajo %d: vv=1 ei myöhästyneitä taukoja eikä automaattista keruuta' % r,
+              all(x['late'] == 0 and x['auto'] == 0 for x in rs1),
+              'late %s, auto %s, hallittu %s' % ([x['late'] for x in rs1], [x['auto'] for x in rs1], [x['gc'] for x in rs1]))
+        stat(check, '14 vuoronvaraus ajo %d: vv=1 pidon piikki (p5 max 1 s:sta) ≤ +0,7 bar' % r, [x['peak'] for x in rs1],
+             0.7, share=NOISE_SHARE)
+        stat(check, '14 vuoronvaraus ajo %d: vv=1 pidon p5 sd ≤ 0,3 bar' % r, [x['sd'] for x in rs1], 0.3, share=NOISE_SHARE)
+        stat(check, '14 vuoronvaraus ajo %d: vv=1 pidon 2-5 s p5 ka 2,5 ± 0,1' % r, [x['h25'] for x in rs1], 0.1, lo=-0.1)
+    check('14 vuoronvaraus: rivit ≤ 255 merkkiä (USB-CDC:n jono)', r14_len[0] <= 255, '%d' % r14_len[0])
 
     print('RESULT: %d failed' % len(failed))
     return 1 if failed else 0
