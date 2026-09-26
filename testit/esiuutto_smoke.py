@@ -150,7 +150,8 @@ class BrewData:
         self.plant = Plant(self.pump, **plant_kw)
         self.pressure_sensor = types.SimpleNamespace(pressure_sensor=Adc(self.plant), gain=1.0, offset=-0.99)
         self.target, self.hold_s = target, hold_s
-        self.learned_ff_pre, self.eu_coast_s = 0.3, F.EU_COAST_S0
+        self.learned_ff_pre, self.eu_coast_s, self.eu_g_pre = 0.3, F.EU_COAST_S0, 0.0
+        self.saved = 0
         self.mode, self.pressure, self.pressure_filtered = None, 0.0, 0.0
 
     def get_relays(self): return self.pump, self.solenoid, self.heater
@@ -158,6 +159,7 @@ class BrewData:
     def get_pre_infusion_pressure(self): return self.target
     def get_pre_infusion_time(self): return self.hold_s
     def set_mode(self, m): self.mode = m
+    def set_setting_changed(self): self.saved += 1
     def get_pressure(self): return self.plant.bar(U.us)
     def get_weight(self): return None
     def get_flow(self): return None
