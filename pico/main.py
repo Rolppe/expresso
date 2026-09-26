@@ -78,6 +78,19 @@ brew_data = BrewData(
 )
 
 
+# Pisin tehtavan kierros sitten viime nollauksen: pim:1-saadin nollaa sen ennen asyncio-vuoroaan ja kirjaa EU_STALL-
+# riville, kuka vuoron varasi (EXPRESSO-ESIUUTTO-VUORONVARAUS, 26.9.2026)
+brew_data.tbusy = ['-', 0]
+
+
+def task_busy(name, t0):
+    d = utime.ticks_diff(utime.ticks_us(), t0)
+    tb = brew_data.tbusy
+    if d > tb[1]:
+        tb[0] = name
+        tb[1] = d
+
+
 # ============================================================================
 # BLE COMMUNICATION
 # ============================================================================
@@ -89,6 +102,7 @@ async def ble_communication(brew_data):
     last_transmission_time = utime.ticks_ms()
 
     while True:
+        t0 = utime.ticks_us()
         # Lähetetään data max 5 kertaa sekunnissa
         if utime.ticks_diff(utime.ticks_ms(), last_transmission_time) >= 200:
             last_transmission_time = utime.ticks_ms()
@@ -96,6 +110,7 @@ async def ble_communication(brew_data):
 
         # Mainostus disconnectin jälkeen
         ble_handler.advertise_if_needed()
+        task_busy('ble', t0)
 
         await asyncio.sleep_ms(30)
         
@@ -364,6 +379,7 @@ async def serial_commands(brew_data):
     poller.register(sys.stdin, select.POLLIN)
     buf = ''
     while True:
+        t0 = utime.ticks_us()
         while poller.poll(0):
             ch = sys.stdin.read(1)
             if ch == '\r' or ch == '\n':
@@ -375,6 +391,7 @@ async def serial_commands(brew_data):
                     print('%s %s' % ('CMD_OK' if brew_data.command_known else 'CMD_UNKNOWN', command))
             elif len(buf) < 80:
                 buf += ch
+        task_busy('ser', t0)
         await asyncio.sleep_ms(50)
 
 
@@ -389,7 +406,9 @@ async def scale_reader(brew_data):
     if tray_scale is None:
         return
     while True:
+        t0 = utime.ticks_us()
         scale_poll_once()
+        task_busy('scale', t0)
         await asyncio.sleep_ms(SCALE_POLL_MS)
 
 
@@ -421,7 +440,9 @@ async def watchdog_feeder():
     brew_data.relay_guard.start()
     devsafe.start_watchdog()
     while True:
+        t0 = utime.ticks_us()
         devsafe.feed()
+        task_busy('wd', t0)
         await asyncio.sleep_ms(1000)
 
 

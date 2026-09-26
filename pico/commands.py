@@ -307,6 +307,15 @@ def handle_command(brew_data, command):
         except Exception:
             pass
 
+    elif command.startswith('euv:'):
+        # Vuoronvarauksen korjaus pim:1:ssa (EXPRESSO-ESIUUTTO-VUORONVARAUS, 26.9.2026): 1 = pidossa asyncio-vuoro ja
+        # roskienkeruu vain releen ollessa pois, 0 = vanha, jotta varaava tehtava voidaan mitata. RAM only, oletus 1.
+        try:
+            brew_data.eu_vv = 1 if int(_float_arg(command)) == 1 else 0
+            updated = True
+        except Exception:
+            pass
+
     elif command.startswith('pip:'):
         try:
             brew_data.set_pre_infusion_pressure(_float_arg(command))
