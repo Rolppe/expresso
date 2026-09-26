@@ -153,7 +153,7 @@ EU_TAU_S = 1.8               # kuristimen vuodon aikavakio pidon ff:n laskuun (l
                              # kylma 2,2 s). Nousudatasta sita ei saa: nousu kiihtyy tayton jalkeen, joten
                              # kahden nousupisteen tau olisi negatiivinen (a/b/c), ja vuoto muuttaa nousua vain
                              # ~0,5 bar/s, kun nousunopeuden kohina on ~1,5 bar/s.
-EU_FF_FIRST_X = 0.6          # ensimmainen ajo (ei edellisen pidon tietoa): ff = tama x nousun arvio. Yliarvio maksaa
+EU_FF_FIRST_X = 0.4          # ensimmainen ajo (ei edellisen pidon tietoa): ff = tama x nousun arvio. Yliarvio maksaa
                              # enemman kuin aliarvio: vuodon tau 2,5-10 s purkaa 0,2 bar ylityksen sekunneissa, mutta
                              # pumppu nostaa vajetta 5-10 bar/s (esiuutto-20260926-a: arvio 0,43, tarve 0,10)
 EU_LEARN_SKIP_MS = 2000      # pidon tarve opitaan vasta taman jalkeen (asettunut pito); ennen sita duty seuraa ff:aa
@@ -436,13 +436,14 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
     # Pidon toteutunut duty ja katkaisun nousu antavat vuodon aikavakion jalkikateen: G*tau = tavoite/duty
     # ja G = rate + p/tau -> tau = (tavoite/duty - p) / rate. Vain lokiin (EU_TAU_S:n tarkistus ajoista).
     # Pidon tarve asettuneesta pidosta (>= 1 s EU_LEARN_SKIP_MS:n jalkeen): 5 s:n liukuva duty_avg jai ff:n
-    # puolelle (26.9. b: ff 0,22, tarve ~0,09, duty_avg 0,14). Vain silloin G talteen seuraavan ajon tau:ta varten.
+    # puolelle (26.9. b: ff 0,22, tarve ~0,09, duty_avg 0,14). Lyhyt pito ei korvaa edellista tietoa (26.9. c:
+    # 2,3 s pito nollasi sen, ja seuraava ajo meni 1. ajon polkuun). Tallennus settings.txt:hen.
     tau_obs = 0.0
-    if hold_t is not None and utime.ticks_diff(utime.ticks_us(), hold_t) >= 2000000:
-        settled = dh_n >= 50
-        need = dh_s / dh_n if settled else duty_avg
+    if hold_t is not None and dh_n >= 50:
+        need = dh_s / dh_n
         brew_data.learned_ff_pre = min(0.9, max(0.05, need))
-        brew_data.eu_g_pre = g_cut if settled else 0.0
+        brew_data.eu_g_pre = g_cut
+        brew_data.set_setting_changed()
         if rate_cut is not None and rate_cut >= EU_RATE_MIN and need > 0.0:
             tau_obs = (target / need - p_cut) / rate_cut
     brew_data.eu_coast_s = coast_s
@@ -2536,7 +2537,12 @@ def save_settings(brew_data, json_module):
         # so a stored limit cannot affect a real shot. Not persisting them meant the protection was
         # silently off after every restart and flash - a memory burden on the user, not a safeguard.
         'weight_limit'              : brew_data.get_weight_limit(),
-        'weight_rise_limit'         : brew_data.get_weight_rise_limit()
+        'weight_rise_limit'         : brew_data.get_weight_rise_limit(),
+        # Esiuuton opittu pidon tarve, G ja jalkinousu (EXPRESSO-ESIUUTTO-FF 26.9.2026): ilman niita
+        # jokainen kaynnistyksen tai flashin jalkeinen ajo on 1. ajo, joka yliarvioi (laite 26.9. c/d: 2,73-2,76 bar)
+        'eu_ff_pre'                 : brew_data.learned_ff_pre,
+        'eu_g_pre'                  : brew_data.eu_g_pre,
+        'eu_coast_s'                : brew_data.eu_coast_s
     }
     
     # Save data to file in json format
@@ -2584,6 +2590,13 @@ def load_settings(json_module, brew_data):
             brew_data.set_weight_limit(data.get('weight_limit'))
         if data.get('weight_rise_limit') is not None:
             brew_data.set_weight_rise_limit(data.get('weight_rise_limit'))
+        # Esiuuton opitut arvot 26.9.2026: sama saanto
+        if data.get('eu_ff_pre') is not None:
+            brew_data.learned_ff_pre = data.get('eu_ff_pre')
+        if data.get('eu_g_pre') is not None:
+            brew_data.eu_g_pre = data.get('eu_g_pre')
+        if data.get('eu_coast_s') is not None:
+            brew_data.eu_coast_s = data.get('eu_coast_s')
         
         print('Loaded settings: brew_temperature, steam_temperature, pre_infusion_time, pressure_soft_release_time, pre_infusion_mode, pressure_soft_release_mode, fast_heatup_mode')
         return True

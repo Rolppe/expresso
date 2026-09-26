@@ -193,6 +193,9 @@ class BrewData:
         # 24.9.2026). eu_coast_s = opittu jalkinousu (s) vaiheen 1 katkaisun jalkeen.
         self.pre_infusion_method = 0
         self.eu_coast_s         = 0.3
+        # Edellisen asettuneen pidon G (bar/s dutya kohden); 0 = ei tietoa -> 1. ajon polku (EXPRESSO-ESIUUTTO-FF).
+        # learned_ff_pre, eu_g_pre ja eu_coast_s tallentuvat settings.txt:hen (sailyvat kaynnistyksen ja flashin yli).
+        self.eu_g_pre           = 0.0
         self.learned_ff_brew    = 0.5
         self.pressure_filtered  = 0.0
         # Drip-tray scale (18.9.2026). weight is grams from scale.Scale.update(), None when no
