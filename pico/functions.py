@@ -362,18 +362,24 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                     # kaista ei rajaa: liian pienella ff:lla P-termi jatti paineen ~0,8 bar tavoitteen alle,
                     # integraali ei kertynyt, pito ei alkanut eika ajo paattynyt (esiuutto_smoke 26.9.2026)
                     if (hold_t is not None or sp >= target or abs(e) < EU_INT_BAND_BAR) and \
-                            (0.0 < u < 1.0 or (u >= 1.0 and e < 0) or (u <= 0.0 and e > 0)):
+                            (-1.0 < u < 1.0 or (u >= 1.0 and e < 0) or (u <= -1.0 and e > 0)):
                         integ = max(-1.5, min(1.5, integ + e * dt * ki_x))
                     u = uff + kp * e + EU_KI * integ + dterm
-                    d = 0.0 if u < 0.0 else (1.0 if u > 1.0 else u)
+                    # Delta-sigma saa myos negatiivisen tarpeen (-1..1, EXPRESSO-ESIUUTTO-ALKU 26.9.2026): pidon
+                    # tarve 0,05 on lahella nollaa, ja jaksokohinan (sd 0,25 bar) P- ja D-termi heiluttavat u:ta
+                    # sen molemmin puolin. Nollaan rajattu duty tasasuuntasi kohinan lisaiskuiksi, eika integraali
+                    # voinut korjata sita (anti-windup esti laskun, kun u <= 0): pidon 2 s keskiarvo +0,1...+0,4 bar
+                    # (laite g 2,61; sovitettu malli +0,16, max +0,39 -> +0,04, max +0,13).
+                    us = -1.0 if u < -1.0 else (1.0 if u > 1.0 else u)
+                    d = 0.0 if us < 0.0 else us
                     if hold_t is not None:
-                        duty_avg += (d - duty_avg) * (dt / 5.0)
+                        duty_avg += (us - duty_avg) * (dt / 5.0)
                         if utime.ticks_diff(t, hold_t) >= EU_LEARN_SKIP_MS * 1000:
-                            dh_s += d; dh_n += 1
+                            dh_s += us; dh_n += 1
 
                 # Seuraava jakso paatetaan nyt (delta-sigma); tama jakso toimi jo yllä.
                 if phase == 2:
-                    acc += d
+                    acc = max(-1.0, acc + us)
                     pump_next = acc >= 1.0
                     if pump_next: acc -= 1.0
                 if cur:
