@@ -145,6 +145,7 @@ EU_COAST_MS = 300            # jalkinousun huippua haetaan enintaan nain kauan k
 EU_COAST_MIN_MS = 100        # ja vahintaan nain kauan (viive 40 ms + iskun nousu): katkaisuhetkella
                              # ramppi = paine, joten pelkka 'ramppi saavutti paineen' sulki heti
 EU_RATE_MIN = 0.5            # bar/s: hitaammasta noususta ei opita jalkinousua
+EU_RATE_FAST = 8.0           # bar/s: tata nopeampi nousu ei ole huuhtelu (katkaisun huuhtelusaanto, ks. vaihe 1)
 EU_RAMP_BAR_PER_S = 2.0      # sama loppunoston ramppi kuin pre_infusion
 EU_RAMP_FF_MAX = 0.5         # rampin oman myotakytkennan yläraja (duty)
 EU_RAMP_LEAD_S = 0.1         # rampin myotakytkenta loppuu, kun p5 on nain monen rampin sekunnin paassa tavoitteesta
@@ -270,8 +271,12 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                 if not keep_running():
                     reason = 'stop'; break
 
-                # Katkaisu vasta taysista keskiarvoista (2 x 5 jaksoa)
-                if phase == 1 and len(hist) == 2 * EU_AVG_N and p5 >= target * 0.5 and \
+                # Katkaisu vasta taysista keskiarvoista (2 x 5 jaksoa). Huuhtelusaanto (p5 >= 1/2 tavoite) ei koske nopeaa
+                # nousua: huuhtelu (tasapaino G*tau < 1/2 tavoite) nousee >= EU_RATE_FAST bar/s paineessa >= 1/4 tavoite vain,
+                # jos G > EU_RATE_FAST / (1 - 1/2) = 16 bar/s; laitteella G <= 12,5 (EXPRESSO-ESIUUTTO-ALKU 26.9.2026: taysi
+                # jarjestelma, nousu 11,5 bar/s, katkaisu vasta 1,3-1,6 barissa -> huippu 3,4-4,3 bar)
+                if phase == 1 and len(hist) == 2 * EU_AVG_N and \
+                        (p5 >= target * 0.5 or (p5 >= target * 0.25 and rate >= EU_RATE_FAST)) and \
                         p5 + rate * coast_s >= target - EU_CUT_MARGIN_BAR:
                     phase = 2
                     cut_t, p_cut, rate_cut, peak, coast_open = t, p5, rate, p5, True

@@ -288,8 +288,10 @@ def main():
     out6 = run(bd6, seed=6)
     open('/tmp/esiuutto_smoke_6.log', 'w').write(out6)
     cut_p, cut_ms = num(out6, 'EU_CUT', 'p'), num(out6, 'EU_CUT', 't_ms')
-    check('6 taytto: katkaisu vasta taytön jälkeen, ei piikistä (t > 2,6 s, p5 ≥ 1,0 bar)',
-          cut_ms > 2600 and cut_p >= 1.0, 't=%s ms p=%s' % (field(out6, 'EU_CUT', 't_ms'), field(out6, 'EU_CUT', 'p')))
+    # Taytto loppuu 2,4 s + viive 40 ms. Nopea nousu saa katkaista jo 1/4 tavoitteesta (EXPRESSO-ESIUUTTO-ALKU): raja
+    # oli p5 >= 1,0 / t > 2,6 s vanhan 1/2 tavoitteen saannon mukaan; uusi katkaisee 2593 ms / 0,92 todellisessa nousussa.
+    check('6 taytto: katkaisu vasta taytön jälkeen, ei piikistä (t > 2,44 s, p5 ≥ 1/4 tavoite)',
+          cut_ms > 2440 and cut_p >= 0.625, 't=%s ms p=%s' % (field(out6, 'EU_CUT', 't_ms'), field(out6, 'EU_CUT', 'p')))
     hold_p = num(out6, 'EU_HOLD', 'p')
     check('6 taytto: pito alkaa vasta tavoitepaineessa (p5 ≥ 2,4)', hold_p >= 2.4, field(out6, 'EU_HOLD', 'p'))
     check('6 taytto: yliampuma (p5) ≤ 0,3 bar', num(out6, 'EU_END', 'over') <= 0.3, field(out6, 'EU_END', 'over'))
@@ -383,6 +385,17 @@ def main():
     mean10 = sum(devs) / len(devs)
     check('10 kiinni + kohina, edellisen tieto: pidon 2 s keskiarvo ka ≤ +0,06, max ≤ +0,2',
           mean10 <= 0.06 and max(devs) <= 0.2, 'ka %+.3f, max %+.2f' % (mean10, max(devs)))
+
+    # 11 nopea nousu ilman tayttoa (EXPRESSO-ESIUUTTO-ALKU, laite 26.9. o-q: kuristin lahes kiinni, jarjestelma taynna,
+    # nousu 11,5 bar/s, iskun vaikutus ~100 ms viiveella). Huuhtelusaanto p5 >= 1/2 tavoite myohastytti katkaisun 1,3-1,6
+    # bariin -> huippu 3,4-4,3. Kohinaton malli: vanha koodi katkaisu 1,46 / over 1,07, uusi 1,05 / 0,61.
+    bd11 = BrewData(hold_s=6.0, phi_us=(3100.0 * 510) % 20000, delta=0.25, tau=4.0, lag_us=100000, fill_us=0,
+                    noise=0.0)
+    out11 = run(bd11, seed=510)
+    open('/tmp/esiuutto_smoke_11.log', 'w').write(out11)
+    check('11 nopea nousu: katkaisu ennen puolta tavoitetta ja yliampuma ≤ 0,8 bar',
+          num(out11, 'EU_CUT', 'p') < 1.25 and num(out11, 'EU_END', 'over') <= 0.8,
+          'katkaisu %s, over %s' % (field(out11, 'EU_CUT', 'p'), field(out11, 'EU_END', 'over')))
 
     print('RESULT: %d failed' % len(failed))
     return 1 if failed else 0
