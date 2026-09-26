@@ -5,8 +5,8 @@ Reads only. Enters devsafe first (relays driven off and read back as [0, 0, 0]) 
 machine.reset(), which restarts the normal firmware and BLE. Samples in short chunks so the 8 s
 hardware watchdog is fed between them (Link.exec feeds it at the start of every chunk).
 """
-import sys, time
-sys.path.insert(0, '/srv/work/Infra/iot/expresso')
+import os, sys, time
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 import pico_dev
 
 SETUP = """

@@ -5,8 +5,8 @@ Reads only: enters devsafe (relays off + read-back) and ends with machine.reset(
 HX711 pair unfiltered (no median, no averaging) in 3 s chunks so the 8 s watchdog is fed between
 them, and prints time_us:grams so the host can measure rate, jitter and per-sample noise.
 """
-import sys
-sys.path.insert(0, '/srv/work/Infra/iot/expresso')
+import os, sys
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 import pico_dev
 
 SETUP = """
