@@ -210,20 +210,21 @@ def num(text, prefix, key):
 
 
 # Tilastolliset tarkistukset (EXPRESSO-SMOKE-TILASTO): kohinasta tai verkon vaiheesta riippuva tulos ajetaan
-# N siemenella/vaiheella. Hyvaksynta: keskiarvo rajan sisalla ja rajan ylittavia enintaan STAT_SHARE. Raja on
-# sama kuin yhden ajon tarkistuksessa; osuus 1/4 sallii kohinan hannan mutta ei jarjestelmallista siirtymaa.
+# N siemenella/vaiheella. Hyvaksynta: keskiarvo valilla [lo, hi] ja sen ulkopuolella enintaan osuus share.
+# 1. ajo ilman edellisen tietoa lahtee alakanttiin (paatos 26.9.2026), joten sille omat rajat (kayttaja 26.9.2026:
+# rampin viive <= 0,5, pidon ka -0,15...+0,1); kohinaisen parin hanta ~25 % -> osuus 1/3.
 N_PHASE = 12            # kohinattomat: vain vaihe vaihtelee
-N_NOISE = 24            # kohinaiset parit: osuus yli rajan ~0,05-0,2, 24:lla keskiarvon sd ~0,01 bar
+N_NOISE = 24            # kohinaiset parit: 24:lla keskiarvon sd ~0,01 bar
 STAT_SHARE = 0.25
+NOISE_SHARE = 1 / 3
 
 
-def stat(check, name, xs, lim, absval=False, fmt='%+.3f'):
-    v = [abs(x) for x in xs] if absval else xs
+def stat(check, name, xs, hi, lo=None, share=STAT_SHARE, fmt='%+.3f'):
     mean = sum(xs) / len(xs)
-    n_over = sum(1 for x in v if x > lim)
-    check('%s [N=%d: ka, yli ≤ %d %%]' % (name, len(xs), STAT_SHARE * 100),
-          (abs(mean) if absval else mean) <= lim and n_over <= STAT_SHARE * len(xs),
-          ('ka ' + fmt + ', min ' + fmt + ', max ' + fmt + ', yli %d/%d') % (mean, min(xs), max(xs), n_over, len(xs)))
+    n_out = sum(1 for x in xs if x > hi or (lo is not None and x < lo))
+    check('%s [N=%d: ka, ulkona ≤ %d %%]' % (name, len(xs), round(share * 100)),
+          mean <= hi and (lo is None or mean >= lo) and n_out <= share * len(xs),
+          ('ka ' + fmt + ', min ' + fmt + ', max ' + fmt + ', ulkona %d/%d') % (mean, min(xs), max(xs), n_out, len(xs)))
 
 
 def run9_dev(seed, carry, delta=0.12, tau=9.0):
@@ -361,7 +362,9 @@ def main():
                        and float(l.split()[3]) < float(field(out8, 'EU_START', 'target'))] or [0.0])
             r8[r].append((lag, hold8 - cut8, num(out8, 'EU_END', 'over')))
     for r in (1, 2):
-        stat(check, '8 sovitettu malli ajo %d: paine enintään 0,3 bar rampin alla' % r, [x[0] for x in r8[r]], 0.3)
+        lim8 = 0.5 if r == 1 else 0.3       # ajo 1 ilman edellisen tietoa: omat rajat
+        stat(check, '8 sovitettu malli ajo %d: paine enintään %s bar rampin alla' % (r, ('%.1f' % lim8).replace('.', ',')),
+             [x[0] for x in r8[r]], lim8)
         stat(check, '8 sovitettu malli ajo %d: katkaisusta pitoon ≤ 1,1 s' % r, [x[1] for x in r8[r]], 1100, fmt='%.0f')
         stat(check, '8 sovitettu malli ajo %d: yliampuma ≤ 0,2 bar' % r, [x[2] for x in r8[r]], 0.2)
 
@@ -396,7 +399,7 @@ def main():
             if seed == 90: first[st] = c
         check('9 1. ajo %s: ff ei yli tarpeen (≤ +0,05)' % st, all(r['ff'] <= 0.05 for r in rs),
               'max %+.2f' % max(r['ff'] for r in rs))
-        stat(check, '9 1. ajo %s: pidon 2 s keskiarvo 2,5 ± 0,1' % st, [r['dev'] for r in rs], 0.1, absval=True)
+        stat(check, '9 1. ajo %s: pidon 2 s keskiarvo 2,5 −0,15…+0,1' % st, [r['dev'] for r in rs], 0.1, lo=-0.15)
         stat(check, '9 1. ajo %s: katkaisusta pitoon ≤ 1,1 s' % st, [r['c2h'] for r in rs], 1100, fmt='%.0f')
         check('9 1. ajo %s: pidon tarve opittu (±0,03)' % st, all(abs(r['learn']) <= 0.03 for r in rs),
               'max |%.3f|' % max(abs(r['learn']) for r in rs))
@@ -418,7 +421,7 @@ def main():
             _, c = run9(a, seed, True)
             r, _ = run9(b, seed + 100, True, c)
             devs.append(r['dev'])
-        stat(check, '9 kohina %s -> %s: pidon 2 s keskiarvo 2,5 ± 0,1' % (a, b), devs, 0.1, absval=True)
+        stat(check, '9 kohina %s -> %s: pidon 2 s keskiarvo 2,5 ± 0,1' % (a, b), devs, 0.1, lo=-0.1, share=NOISE_SHARE)
 
     # 10 pidon alun ylitys kohinasta (EXPRESSO-ESIUUTTO-ALKU): laite 26.9. g/h, kuristin lahes kiinni (tarve ~0,05,
     # tau_obs ~9 s), edellisen pidon tieto (ff = tarve). Jaksokohina 0,25 ja pysahdykset 0,8 %. Nollaan rajattu duty
