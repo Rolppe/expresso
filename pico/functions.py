@@ -146,12 +146,6 @@ EU_COAST_MIN_MS = 100        # ja vahintaan nain kauan (viive 40 ms + iskun nous
                              # ramppi = paine, joten pelkka 'ramppi saavutti paineen' sulki heti
 EU_RATE_MIN = 0.5            # bar/s: hitaammasta noususta ei opita jalkinousua
 EU_RATE_FAST = 8.0           # bar/s: tata nopeampi nousu ei ole huuhtelu (katkaisun huuhtelusaanto, ks. vaihe 1)
-EU_FAST_G = 10.0             # bar/s: edellisen ajon G tasta yli -> nosto alkaa suoraan rampilla (vaihe 1 ohitetaan).
-                             # Taysi jarjestelma + lahes kiinni oleva kuristin: G 12,2-12,5 (1/4-katkaisulla mitattuna 8,9-9,7,
-                             # nousu kiihtyy viela), iskun viive ~100 ms, taydella pumpulla lennossa ~1,25 bar (laite 26.9. o-t);
-                             # muut tilat G 2,8-6,8. Kayttajan valinta 26.9.2026.
-EU_INFLIGHT_US = 100000      # nopea tila: iskun viive paineeseen (laite o-q: pumppu pois, paine nousi viela ~100 ms)
-EU_FAST_LAG_BAR = 0.5        # nopea alku: p5 nain paljon rampin alla -> G ei enaa pida, seuraava ajo mittaa sen
 EU_RAMP_BAR_PER_S = 2.0      # sama loppunoston ramppi kuin pre_infusion
 EU_RAMP_FF_MAX = 0.5         # rampin oman myotakytkennan yläraja (duty)
 EU_RAMP_LEAD_S = 0.1         # rampin myotakytkenta loppuu, kun p5 on nain monen rampin sekunnin paassa tavoitteesta
@@ -191,7 +185,6 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
     coast_s = getattr(brew_data, 'eu_coast_s', EU_COAST_S0)
     ff = brew_data.learned_ff_pre
     g_prev = getattr(brew_data, 'eu_g_pre', 0.0)
-    fast = g_prev >= EU_FAST_G
 
     # Kuten pre_infusion: jaannospaine ensin tavoitteen alle venttiili auki
     brew_data.set_mode('pre-infusion pressure stabilization')
@@ -202,8 +195,8 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
         await asyncio.sleep_ms(20)
 
     brew_data.set_mode('pre-infusion pressure build-up')
-    print('EU_START target=%.2f hold_s=%.1f coast_s=%.3f ff=%.2f off_us=%d fast=%d' % (
-        target, hold_us / 1e6, coast_s, ff, EU_OFF_US, 1 if fast else 0))
+    print('EU_START target=%.2f hold_s=%.1f coast_s=%.3f ff=%.2f off_us=%d' % (
+        target, hold_us / 1e6, coast_s, ff, EU_OFF_US))
     t0 = utime.ticks_us()
     clock = Verkkokello(t0)
     clock.iq_start(t0)
@@ -229,7 +222,6 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
     p_max, rise_max, h_s, h_ss, h_n, duty_avg = 0.0, 0.0, 0.0, 0.0, 0, ff
     out = []
     ramp_ff = 0.0
-    recent = []
     g_cut, ff_rate, ff_carry, dh_s, dh_n = 0.0, 0.0, 0.0, 0.0, 0
     try:
         while True:
@@ -283,18 +275,6 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                 # nousua: huuhtelu (tasapaino G*tau < 1/2 tavoite) nousee >= EU_RATE_FAST bar/s paineessa >= 1/4 tavoite vain,
                 # jos G > EU_RATE_FAST / (1 - 1/2) = 16 bar/s; laitteella G <= 12,5 (EXPRESSO-ESIUUTTO-ALKU 26.9.2026: taysi
                 # jarjestelma, nousu 11,5 bar/s, katkaisu vasta 1,3-1,6 barissa -> huippu 3,4-4,3 bar)
-                # Nopea alku (EU_FAST_G): ei taytta pumppua, ramppi heti nykyisesta paineesta; ff ja G edellisesta ajosta.
-                # Jalkinousua ei opita (ei nousua katkaisussa). Huuhtelu tai taytto (paine ei seuraa ramppia) -> vaihe 1.
-                if phase == 1 and fast:
-                    phase = 2
-                    cut_t, p_cut, rate_cut, peak, coast_open = t, p5, 0.0, p5, False
-                    ramp_base, ramp_t, integ, acc = p5, t, 0.0, 0.0
-                    g_cut = g_prev
-                    ramp_ff = min(EU_RAMP_FF_MAX, EU_RAMP_BAR_PER_S / g_prev)
-                    duty_avg = ff
-                    brew_data.set_mode('pre-infusion final rise')
-                    out.append('EU_CUT t_ms=%d p=%.2f rate=0.00 coast_s=%.3f pred=%.2f g=%.2f ff=%.2f ffr=0.00 ffc=%.2f fast=1' % (
-                        utime.ticks_diff(t, t0) // 1000, p5, coast_s, p5, g_prev, ff, ff))
                 if phase == 1 and len(hist) == 2 * EU_AVG_N and \
                         (p5 >= target * 0.5 or (p5 >= target * 0.25 and rate >= EU_RATE_FAST)) and \
                         p5 + rate * coast_s >= target - EU_CUT_MARGIN_BAR:
@@ -333,12 +313,6 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                 if phase == 2:
                     if hold_t is None:
                         sp = ramp_base + EU_RAMP_BAR_PER_S * utime.ticks_diff(t, ramp_t) / 1e6
-                        if fast and p5 < sp - EU_FAST_LAG_BAR:
-                            g_cut = 0.0             # G ei pida: seuraava ajo mittaa sen taydella nostolla
-                            if sp >= target * 0.5 and p5 < target * 0.25:
-                                # Huuhtelu tai taytto: takaisin vaiheeseen 1 (pumppu jatkuvasti, katkaisu normaalisti)
-                                phase, fast, pump_next, acc = 1, False, True, 0.0
-                                out.append('EU_FAST_OFF t_ms=%d p=%.2f sp=%.2f' % (utime.ticks_diff(t, t0) // 1000, p5, sp))
                         if sp >= target:
                             sp = target
                             # Menetelmaohje: laskuri alkaa vasta, kun paine on saavutettu - ei silloin, kun
@@ -366,11 +340,7 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                                 coast_s = max(EU_COAST_MIN, min(EU_COAST_MAX, coast_s))
                             out.append('EU_COAST peak=%.2f rise=%.2f rate=%.2f coast_s=%.3f learn=%d' % (
                                 peak, peak - p_cut, rate_cut, coast_s, 1 if learn else 0))
-                    # Nopeassa tilassa iskun vaikutus nakyy ~100 ms myohassa (laite o-q): lennossa olevat iskut
-                    # (G/50 bar kukin) lasketaan paineeseen, muuten loppulahestyminen ampuu 3-4 iskua yli
-                    if fast:
-                        while recent and utime.ticks_diff(t, recent[0]) > EU_INFLIGHT_US: recent.pop(0)
-                    e = sp - p - len(recent) * g_cut / 50.0
+                    e = sp - p
                     # Rampin aikana tasapainoduty skaalautuu paineen mukana (ff on mitattu tavoitteessa).
                     # Rampin myotakytkenta vain, kun paine on rampin alla, ja se loppuu, kun p5 on EU_RAMP_LEAD_S
                     # rampin sekuntia tavoitteen alla: jalkinousun edella oleva paine ja iskun + p5:n viive (~0,1 s)
@@ -415,8 +385,6 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                         if utime.ticks_diff(t, hold_t) >= EU_LEARN_SKIP_MS * 1000:
                             dh_s += us; dh_n += 1
 
-                if phase == 1:
-                    d = 1.0                 # EU_FAST_OFF: lokin d vaiheen 1 mukaan (pumppu jatkuvasti)
                 # Seuraava jakso paatetaan nyt (delta-sigma); tama jakso toimi jo yllä.
                 if phase == 2:
                     acc = max(-1.0, acc + us)
@@ -424,7 +392,6 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                     if pump_next: acc -= 1.0
                 if cur:
                     strokes += 1
-                    if fast and phase == 2: recent.append(t)
                 elif skip_late:
                     # Myohassa: tauko jai tekematta, isku meni lapi, velka siirtyy seuraaviin jaksoihin
                     late += 1; strokes += 1; acc -= 1.0
