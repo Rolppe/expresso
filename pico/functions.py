@@ -185,6 +185,7 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
     coast_s = getattr(brew_data, 'eu_coast_s', EU_COAST_S0)
     ff = brew_data.learned_ff_pre
     g_prev = getattr(brew_data, 'eu_g_pre', 0.0)
+    tau_prev = getattr(brew_data, 'eu_tau_pre', 0.0)
 
     # Kuten pre_infusion: jaannospaine ensin tavoitteen alle venttiili auki
     brew_data.set_mode('pre-infusion pressure stabilization')
@@ -297,7 +298,16 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                     if rate >= EU_RATE_MIN:
                         g = rate + p5 / EU_TAU_S
                         ff_rate = target / (g * EU_TAU_S)
-                        if g_prev > 0.0:
+                        if g_prev > 0.0 and tau_prev > 0.0:
+                            # EXPRESSO-ESIUUTTO-AVOIN: tau edellisen ajon pidosta. ff = tavoite / (G*tau) = tavoite /
+                            # (rate*tau + p5), sama kuin edellisen tarve x G-suhde, kun molemmat G:t lasketaan
+                            # edellisen tau:lla. EU_TAU_S:n G-suhde ja yläraja aliarvioivat avoimella kuristimella
+                            # (laite l-n: tau 0,35-0,9 s, tarve 0,65, ff 0,21-0,35 -> pidon 2 ensimmaista s p5 2,28-2,37).
+                            # Ei alarajaa: kuristimen kaanto avoimesta lahes kiinni yliarvioi yhden ajon (malli over 0,43 ->
+                            # 0,86), mutta niin kova vastapaine ei ole todellinen uutto (kayttaja 26.9.2026)
+                            ff_carry = target / (rate * tau_prev + p5)
+                            ff = ff_carry
+                        elif g_prev > 0.0:
                             ff_carry = ff * g_prev / g
                             ff = min(ff_rate, ff_carry)
                         else:
@@ -307,9 +317,9 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                         ramp_ff = min(EU_RAMP_FF_MAX, EU_RAMP_BAR_PER_S / g)
                     g_cut = g
                     brew_data.set_mode('pre-infusion final rise')
-                    out.append('EU_CUT t_ms=%d p=%.2f rate=%.2f coast_s=%.3f pred=%.2f g=%.2f ff=%.2f ffr=%.2f ffc=%.2f' % (
+                    out.append('EU_CUT t_ms=%d p=%.2f rate=%.2f coast_s=%.3f pred=%.2f g=%.2f ff=%.2f ffr=%.2f ffc=%.2f tau=%.2f' % (
                         utime.ticks_diff(t, t0) // 1000, p5, rate, coast_s, p5 + rate * coast_s, g, ff, ff_rate,
-                        ff_carry))
+                        ff_carry, tau_prev))
                 if phase == 2:
                     if hold_t is None:
                         sp = ramp_base + EU_RAMP_BAR_PER_S * utime.ticks_diff(t, ramp_t) / 1e6
@@ -368,10 +378,13 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                     # integraali ei kertynyt, pito ei alkanut eika ajo paattynyt (esiuutto_smoke 26.9.2026)
                     if (hold_t is not None or sp >= target or abs(e) < EU_INT_BAND_BAR) and \
                             (-1.0 < u < 1.0 or (u >= 1.0 and e < 0) or (u <= -1.0 and e > 0)):
-                        integ = max(-1.5, min(1.5, integ + e * dt * ki_x))
+                        integ = integ + e * dt * ki_x
                         # Hidas osa (ff + integraali) on pidon tarve eika voi olla negatiivinen: -1...1-delta-sigman kanssa
-                        # integraali valui ylityksessa syvalle (laite r 26.9.2026: pito 2,7 -> 1,44 bar, ka 2,01)
+                        # integraali valui ylityksessa syvalle (laite r 26.9.2026: pito 2,7 -> 1,44 bar, ka 2,01).
+                        # Ylaraja samoin hitaasta osasta (EXPRESSO-ESIUUTTO-AVOIN): vanha integ <= 1,5 salli vain
+                        # +0,45, joten avoimen kuristimen tarve 0,65 jai 1. ajon ff 0,09:lla saavuttamatta (malli: pito 2,27)
                         if integ < -uff / EU_KI: integ = -uff / EU_KI
+                        if integ > (1.0 - uff) / EU_KI: integ = (1.0 - uff) / EU_KI
                     u = uff + kp * e + EU_KI * integ + dterm
                     # Delta-sigma saa myos negatiivisen tarpeen (-1..1, EXPRESSO-ESIUUTTO-ALKU 26.9.2026): pidon
                     # tarve 0,05 on lahella nollaa, ja jaksokohinan (sd 0,25 bar) P- ja D-termi heiluttavat u:ta
@@ -460,6 +473,11 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
         brew_data.set_setting_changed()
         if rate_cut is not None and rate_cut >= EU_RATE_MIN and need > 0.0:
             tau_obs = (target / need - p_cut) / rate_cut
+        # Seuraavan ajon tau rajatusta tarpeesta (EXPRESSO-ESIUUTTO-AVOIN): raaka tarve voi olla ~0 (-1...1-delta-sigma,
+        # laite u: tau_obs 180), ja rajatusta tau toistaa taman ajon ff:n, kun seuraava nousee samoin
+        brew_data.eu_tau_pre = 0.0
+        if g_cut > 0.0:
+            brew_data.eu_tau_pre = min(30.0, max(0.1, (target / brew_data.learned_ff_pre - p_cut) / rate_cut))
     brew_data.eu_coast_s = coast_s
     mean = h_s / h_n if h_n else 0.0
     sd = math.sqrt(max(0.0, h_ss / h_n - mean * mean)) if h_n else 0.0
@@ -2556,6 +2574,7 @@ def save_settings(brew_data, json_module):
         # jokainen kaynnistyksen tai flashin jalkeinen ajo on 1. ajo, joka yliarvioi (laite 26.9. c/d: 2,73-2,76 bar)
         'eu_ff_pre'                 : brew_data.learned_ff_pre,
         'eu_g_pre'                  : brew_data.eu_g_pre,
+        'eu_tau_pre'                : brew_data.eu_tau_pre,
         'eu_coast_s'                : brew_data.eu_coast_s
     }
     
@@ -2609,6 +2628,8 @@ def load_settings(json_module, brew_data):
             brew_data.learned_ff_pre = data.get('eu_ff_pre')
         if data.get('eu_g_pre') is not None:
             brew_data.eu_g_pre = data.get('eu_g_pre')
+        if data.get('eu_tau_pre') is not None:
+            brew_data.eu_tau_pre = data.get('eu_tau_pre')
         if data.get('eu_coast_s') is not None:
             brew_data.eu_coast_s = data.get('eu_coast_s')
         

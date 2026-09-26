@@ -12,6 +12,8 @@ Usage:
   pico_dev.py cmd <command> [seconds]   send "CMD <command>" to the running firmware (no interrupt)
                                         and print serial output for <seconds> (default 3)
   pico_dev.py shot <seconds> [out.log]  CMD tshot:<seconds>, capture PI/TS lines until TS_END
+  pico_dev.py hold <s> [out.log]        CMD pvent (TILAUS-H purku, keskeyttaa jos ei ok), sitten tshot:40 ja
+                                        tshot:stop <s> s EU_HOLDin jalkeen: pelkka esiuutto, ei uuttoa
   pico_dev.py pcap <ms>[:<bar>[:<phase_us>]] [out.log]  CMD pcap:<ms>[:<bar>[:<phase_us>]], capture
                                         PCAP lines until PCAP_END
   pico_dev.py psweep <ms>:<bar>[:<n>[:<mult>]] [out.log]  CMD psweep:<ms>:<bar>[:<n>[:<mult>]],
@@ -275,10 +277,30 @@ def hold(hold_s, out_path=None):
     # Pelkka esiuutto (kayttaja 26.9.2026: laiteajot vain 2,5 barin pidolla, kunnes esiuutto on hyvaksytty).
     # pit on rajattu 6 s:iin, joten tshot:<n> ei yksin estaisi uuttoa nopealla taytolla: tshot:stop lahtee
     # <hold_s> s EU_HOLDin jalkeen ja heti, jos uuton TS-rivi silti tulee. Sama yhteys kuin shot().
+    # TILAUS-H ensin (kayttaja 26.9.2026: pakkautunut paine ei ole todellinen tilanne, painetta taytyy keratä):
+    # pvent purkaa paineen kayttajan syklilla, ja pumppu kaynnistyy vain, jos purku paattyi ok. 26.9. o-z ajettiin ilman.
     link = Link()
     link.s.settimeout(0.1)
-    link.send(b'CMD tshot:40\r\n')
     out = open(out_path, 'ab') if out_path else None
+    link.send(b'CMD pvent\r\n')
+    end, buf = time.time() + 150, b''       # 200 sykliä x 0,7 s = karkausraja
+    while time.time() < end and b'PVENT_END' not in buf:
+        try:
+            d = link.s.recv(65536)
+        except socket.timeout:
+            d = b''
+        if d:
+            sys.stdout.write(d.decode('utf-8', 'replace')); sys.stdout.flush()
+            if out: out.write(d); out.flush()
+            buf = (buf + d)[-8192:]
+        else:
+            time.sleep(0.02)
+    line = buf[buf.find(b'PVENT_END'):].split(b'\n', 1)[0] if b'PVENT_END' in buf else b''
+    if b'reason=ok' not in line:
+        print('\nHOLD_ABORT purku ei onnistunut: %s' % (line.decode('utf-8', 'replace') or 'ei PVENT_END-rivia'))
+        return 1
+    time.sleep(0.5)                          # IDLE ennen tshotia (pressure_vent_run palauttaa tilan)
+    link.send(b'CMD tshot:40\r\n')
     end, stop_at, sent, buf = time.time() + 100, None, False, b''
     while time.time() < end:
         try:
@@ -511,7 +533,7 @@ def main(op):
     elif op == 'shot':
         shot(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else None)
     elif op == 'hold':
-        hold(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else None)
+        sys.exit(hold(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else None))
     elif op == 'pcap':
         sys.exit(pcap(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else None))
     elif op == 'psweep':

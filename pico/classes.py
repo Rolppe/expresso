@@ -196,6 +196,8 @@ class BrewData:
         # Edellisen asettuneen pidon G (bar/s dutya kohden); 0 = ei tietoa -> 1. ajon polku (EXPRESSO-ESIUUTTO-FF).
         # learned_ff_pre, eu_g_pre ja eu_coast_s tallentuvat settings.txt:hen (sailyvat kaynnistyksen ja flashin yli).
         self.eu_g_pre           = 0.0
+        # Edellisen pidon vuodon tau (s) ff:n laskuun; 0 = ei tietoa -> G-suhde EU_TAU_S:lla (EXPRESSO-ESIUUTTO-AVOIN)
+        self.eu_tau_pre         = 0.0
         self.learned_ff_brew    = 0.5
         self.pressure_filtered  = 0.0
         # Drip-tray scale (18.9.2026). weight is grams from scale.Scale.update(), None when no

@@ -150,7 +150,7 @@ class BrewData:
         self.plant = Plant(self.pump, **plant_kw)
         self.pressure_sensor = types.SimpleNamespace(pressure_sensor=Adc(self.plant), gain=1.0, offset=-0.99)
         self.target, self.hold_s = target, hold_s
-        self.learned_ff_pre, self.eu_coast_s, self.eu_g_pre = 0.3, F.EU_COAST_S0, 0.0
+        self.learned_ff_pre, self.eu_coast_s, self.eu_g_pre, self.eu_tau_pre = 0.3, F.EU_COAST_S0, 0.0, 0.0
         self.saved = 0
         self.mode, self.pressure, self.pressure_filtered = None, 0.0, 0.0
 
@@ -203,11 +203,11 @@ def run9_dev(seed, carry, delta=0.12, tau=9.0):
     """Laitteeseen sovitettu kiinni-tila kohinalla; palauttaa pidon 2 s keskiarvon poikkeaman ja opitut arvot."""
     bd = BrewData(hold_s=6.0, phi_us=(3100.0 * seed) % 20000, delta=delta, tau=tau, fill_us=1000000,
                   noise=0.02, cyc_sd=0.25)
-    if carry: bd.learned_ff_pre, bd.eu_g_pre, bd.eu_coast_s = carry
+    if carry: bd.learned_ff_pre, bd.eu_g_pre, bd.eu_coast_s, bd.eu_tau_pre = carry
     out = run(bd, stall_p=0.008, seed=seed)
     hold = num(out, 'EU_HOLD', 't_ms')
     ps = [float(l.split()[2]) for l in out.splitlines() if l.startswith('EU ') and hold <= int(l.split()[1]) < hold + 2000]
-    return (sum(ps) / len(ps) - 2.5) if ps else 9.0, (bd.learned_ff_pre, bd.eu_g_pre, bd.eu_coast_s)
+    return (sum(ps) / len(ps) - 2.5) if ps else 9.0, (bd.learned_ff_pre, bd.eu_g_pre, bd.eu_coast_s, bd.eu_tau_pre)
 
 
 def main():
@@ -337,7 +337,7 @@ def main():
         delta, tau = states[state]
         bd9 = BrewData(hold_s=6.0, phi_us=(3100.0 * seed) % 20000, delta=delta, tau=tau, fill_us=1000000,
                        noise=0.02 if noisy else 0.0, cyc_sd=0.25 if noisy else 0.0)
-        if carry: bd9.learned_ff_pre, bd9.eu_g_pre, bd9.eu_coast_s = carry
+        if carry: bd9.learned_ff_pre, bd9.eu_g_pre, bd9.eu_coast_s, bd9.eu_tau_pre = carry
         out9 = run(bd9, stall_p=0.008 if noisy else 0.0, seed=seed)
         open('/tmp/esiuutto_smoke_9_%s_%d.log' % (state, seed), 'w').write(out9)
         hold9 = num(out9, 'EU_HOLD', 't_ms')
@@ -345,7 +345,7 @@ def main():
         need = 2.5 / (50 * delta * tau)
         return dict(ff=num(out9, 'EU_CUT', 'ff') - need, dev=(sum(ps) / len(ps) - 2.5) if ps else 9.0,
                     c2h=hold9 - num(out9, 'EU_CUT', 't_ms'), learn=bd9.learned_ff_pre - need,
-                    over=num(out9, 'EU_END', 'over')), (bd9.learned_ff_pre, bd9.eu_g_pre, bd9.eu_coast_s)
+                    over=num(out9, 'EU_END', 'over')), (bd9.learned_ff_pre, bd9.eu_g_pre, bd9.eu_coast_s, bd9.eu_tau_pre)
 
     first = {}
     for st in ('lämmin', 'kylmä'):
@@ -396,6 +396,31 @@ def main():
     check('11 nopea nousu: katkaisu ennen puolta tavoitetta ja yliampuma ≤ 0,8 bar',
           num(out11, 'EU_CUT', 'p') < 1.25 and num(out11, 'EU_END', 'over') <= 0.8,
           'katkaisu %s, over %s' % (field(out11, 'EU_CUT', 'p'), field(out11, 'EU_END', 'over')))
+
+    # 12 avoin kuristin (EXPRESSO-ESIUUTTO-AVOIN, laite 26.9. l-n: tarve 0,64-0,69, tau_obs 0,35-0,92 s): iskukoko 0,128,
+    # tau 0,6 s, taytto 3 s, kohina kuten laitteella. ff EU_TAU_S:lla 0,20 -> pidon 2 ensimmaista s p5 2,33 (laite 2,28-2,37),
+    # edellisen tau:lla 0,64 -> 2,49. 1. ajo ff 0,09: integraali rajattiin 0,45:een, joten pito jai 2,27:aan koko ajaksi.
+    def run12(seed, carry):
+        bd12 = BrewData(hold_s=6.0, phi_us=(3100.0 * seed) % 20000, delta=0.128, tau=0.6, fill_us=3000000,
+                        noise=0.02, cyc_sd=0.28)
+        if carry: bd12.learned_ff_pre, bd12.eu_g_pre, bd12.eu_coast_s, bd12.eu_tau_pre = carry
+        out12 = run(bd12, stall_p=0.008, seed=seed)
+        hold12 = num(out12, 'EU_HOLD', 't_ms')
+        p5 = [(int(l.split()[1]) - hold12, float(re.search(r'p5=(\S+)', l).group(1))) for l in out12.splitlines()
+              if l.startswith('EU ') and int(l.split()[1]) >= hold12]
+        h02 = [v for t, v in p5 if t < 2000]
+        h26 = [v for t, v in p5 if 2000 <= t < 6000]
+        return (sum(h02) / len(h02) if h02 else 0.0, sum(h26) / len(h26) if h26 else 0.0), \
+            (bd12.learned_ff_pre, bd12.eu_g_pre, bd12.eu_coast_s, bd12.eu_tau_pre)
+    firsts, seconds = [], []
+    for seed in (120, 121, 122, 123):
+        h1, c = run12(seed, None)
+        h2, _ = run12(seed + 50, c)
+        firsts.append(h1[1]); seconds.append(h2[0])
+    check('12 avoin 1. ajo: pito 2-6 s p5 ≥ 2,42 (integraali ei rajaa tarvetta)', min(firsts) >= 2.42,
+          '%s' % ['%.2f' % v for v in firsts])
+    check('12 avoin, edellisen tieto: pidon 0-2 s p5 ka ≥ 2,42', sum(seconds) / len(seconds) >= 2.42,
+          'ka %.3f, %s' % (sum(seconds) / len(seconds), ['%.2f' % v for v in seconds]))
 
     print('RESULT: %d failed' % len(failed))
     return 1 if failed else 0
