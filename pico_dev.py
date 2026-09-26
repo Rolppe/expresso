@@ -145,6 +145,20 @@ def on_phone():
 class Link:
     def __init__(self):
         ensure_bridge()
+        self._connect()
+        hello = self.drain(0.8)
+        if b'ERR usb closed' in hello:
+            # USB re-enumerated (Pico reset): restart the app so it reopens the port
+            self.s.close()
+            adb('shell', 'am', 'force-stop', APP, check=False)
+            time.sleep(2)
+            ensure_bridge()
+            # Sama uusinta kuin ensimmaisessa yhteydessa: tassa ilman sita laturisyklin jalkeinen komento kaatui
+            # 'Connection refused' (26.9.2026: pit:6, 4 x shot/cmd, ennen sita 25.9.2026 b-ajo)
+            self._connect()
+            self.drain(0.8)
+
+    def _connect(self):
         for attempt in range(10):
             try:
                 self.s = socket.create_connection(('127.0.0.1', PORT), timeout=5)
@@ -154,16 +168,6 @@ class Link:
         else:
             sys.exit('bridge not reachable on 127.0.0.1:%d' % PORT)
         self.s.settimeout(0.3)
-        hello = self.drain(0.8)
-        if b'ERR usb closed' in hello:
-            # USB re-enumerated (Pico reset): restart the app so it reopens the port
-            self.s.close()
-            adb('shell', 'am', 'force-stop', APP, check=False)
-            time.sleep(2)
-            ensure_bridge()
-            self.s = socket.create_connection(('127.0.0.1', PORT), timeout=5)
-            self.s.settimeout(0.3)
-            self.drain(0.8)
 
     def drain(self, seconds):
         buf = b''
