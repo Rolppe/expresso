@@ -267,6 +267,38 @@ def shot(seconds, out_path=None):
     capture(float(seconds) + 60, out_path, stop_marker=b'TS_END', link=link)
 
 
+def hold(hold_s, out_path=None):
+    # Pelkka esiuutto (kayttaja 26.9.2026: laiteajot vain 2,5 barin pidolla, kunnes esiuutto on hyvaksytty).
+    # pit on rajattu 6 s:iin, joten tshot:<n> ei yksin estaisi uuttoa nopealla taytolla: tshot:stop lahtee
+    # <hold_s> s EU_HOLDin jalkeen ja heti, jos uuton TS-rivi silti tulee. Sama yhteys kuin shot().
+    link = Link()
+    link.s.settimeout(0.1)
+    link.send(b'CMD tshot:40\r\n')
+    out = open(out_path, 'ab') if out_path else None
+    end, stop_at, sent, buf = time.time() + 100, None, False, b''
+    while time.time() < end:
+        try:
+            d = link.s.recv(65536)
+        except socket.timeout:
+            d = b''
+        if d:
+            sys.stdout.write(d.decode('utf-8', 'replace')); sys.stdout.flush()
+            if out: out.write(d); out.flush()
+            buf = (buf + d)[-8192:]
+            if stop_at is None and b'EU_HOLD' in buf:
+                stop_at = time.time() + float(hold_s)
+        brew = b'\nTS ' in buf
+        if not sent and (brew or b'EU_END' in buf or (stop_at is not None and time.time() >= stop_at)):
+            link.send(b'CMD tshot:stop\r\n')
+            sent = True
+            print('\nHOLD_STOP %s' % ('brew' if brew else 'hold'))
+        if b'TS_END' in buf:
+            end = min(end, time.time() + 2)
+        if not d:
+            time.sleep(0.02)
+    return 0
+
+
 def pcap(ms, out_path=None):
     # One connection for the command and the capture, same pattern as shot(): the bridge serves
     # a single client (PICO-HALLINTA.md luku 3). ms is <ms>[:<bar>] (korjaus 4); the whole argument
@@ -474,6 +506,8 @@ def main(op):
         cmd(sys.argv[2], float(sys.argv[3]) if len(sys.argv) > 3 else 3.0)
     elif op == 'shot':
         shot(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else None)
+    elif op == 'hold':
+        hold(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else None)
     elif op == 'pcap':
         sys.exit(pcap(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else None))
     elif op == 'psweep':
@@ -504,7 +538,7 @@ def main(op):
         sys.exit(__doc__)
 
 
-OPS = ('safe', 'cmd', 'shot', 'pcap', 'psweep', 'plen', 'pgap', 'vkello', 'vsweep', 'klamp', 'pstep', 'phold', 'capture',
+OPS = ('safe', 'cmd', 'shot', 'hold', 'pcap', 'psweep', 'plen', 'pgap', 'vkello', 'vsweep', 'klamp', 'pstep', 'phold', 'capture',
        'verify', 'watchdog-test', 'restore')
 
 if __name__ == '__main__':
