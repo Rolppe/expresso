@@ -199,6 +199,17 @@ def num(text, prefix, key):
     return float(v) if v is not None else float('nan')
 
 
+def run9_dev(seed, carry, delta=0.12, tau=9.0):
+    """Laitteeseen sovitettu kiinni-tila kohinalla; palauttaa pidon 2 s keskiarvon poikkeaman ja opitut arvot."""
+    bd = BrewData(hold_s=6.0, phi_us=(3100.0 * seed) % 20000, delta=delta, tau=tau, fill_us=1000000,
+                  noise=0.02, cyc_sd=0.25)
+    if carry: bd.learned_ff_pre, bd.eu_g_pre, bd.eu_coast_s = carry
+    out = run(bd, stall_p=0.008, seed=seed)
+    hold = num(out, 'EU_HOLD', 't_ms')
+    ps = [float(l.split()[2]) for l in out.splitlines() if l.startswith('EU ') and hold <= int(l.split()[1]) < hold + 2000]
+    return (sum(ps) / len(ps) - 2.5) if ps else 9.0, (bd.learned_ff_pre, bd.eu_g_pre, bd.eu_coast_s)
+
+
 def main():
     failed = []
 
@@ -360,6 +371,18 @@ def main():
             devs.append(r['dev'])
         check('9 kohina %s -> %s: pidon 2 s keskiarvo 2,5 ± 0,1' % (a, b), all(abs(v) <= 0.1 for v in devs),
               '%s' % ['%+.2f' % v for v in devs])
+
+    # 10 pidon alun ylitys kohinasta (EXPRESSO-ESIUUTTO-ALKU): laite 26.9. g/h, kuristin lahes kiinni (tarve ~0,05,
+    # tau_obs ~9 s), edellisen pidon tieto (ff = tarve). Jaksokohina 0,25 ja pysahdykset 0,8 %. Nollaan rajattu duty
+    # tasasuuntasi kohinan lisaiskuiksi: vanha koodi 2 s keskiarvo +0,16 (max +0,39) 24 siemenella, laite g +0,11.
+    devs = []
+    for seed in range(100, 108):
+        _, c = run9_dev(seed, None)
+        dev, _ = run9_dev(seed + 50, c)
+        devs.append(dev)
+    mean10 = sum(devs) / len(devs)
+    check('10 kiinni + kohina, edellisen tieto: pidon 2 s keskiarvo ka ≤ +0,06, max ≤ +0,2',
+          mean10 <= 0.06 and max(devs) <= 0.2, 'ka %+.3f, max %+.2f' % (mean10, max(devs)))
 
     print('RESULT: %d failed' % len(failed))
     return 1 if failed else 0
