@@ -12,6 +12,7 @@ Usage:
   pico_dev.py cmd <command> [seconds]   send "CMD <command>" to the running firmware (no interrupt)
                                         and print serial output for <seconds> (default 3)
   pico_dev.py shot <seconds> [out.log]  CMD tshot:<seconds>, capture PI/TS lines until TS_END
+                                        (shot/hold: out.log ei saa olla olemassa, LOG_EXISTS)
   pico_dev.py hold <s> [out.log]        CMD pvent (TILAUS-H purku, keskeyttaa jos ei ok), sitten tshot:40 ja
                                         tshot:stop <s> s EU_HOLDin jalkeen: pelkka esiuutto, ei uuttoa
   pico_dev.py pcap <ms>[:<bar>[:<phase_us>]] [out.log]  CMD pcap:<ms>[:<bar>[:<phase_us>]], capture
@@ -575,5 +576,8 @@ if __name__ == '__main__':
         sys.exit(0 if charger(sys.argv[2] == 'on') else 1)
     if op not in OPS:
         sys.exit(__doc__)
+    # shot/hold liittaisivat vanhaan lokiin (26.9. a2/b2 erotettiin kasin): kieltaydy ennen laturia ja yhteytta
+    if op in ('shot', 'hold') and len(sys.argv) > 3 and os.path.exists(sys.argv[3]) and os.path.getsize(sys.argv[3]) > 0:
+        sys.exit('LOG_EXISTS %s: loki on jo olemassa, %s ei liita siihen; anna uusi nimi' % (sys.argv[3], op))
     with ChargerOff():
         main(op)
