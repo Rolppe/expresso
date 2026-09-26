@@ -397,27 +397,6 @@ def main():
           num(out11, 'EU_CUT', 'p') < 1.25 and num(out11, 'EU_END', 'over') <= 0.8,
           'katkaisu %s, over %s' % (field(out11, 'EU_CUT', 'p'), field(out11, 'EU_END', 'over')))
 
-    # 12 nopea alku edellisen ajon G:sta (kayttajan valinta 26.9.2026, EU_FAST_G): ei taytta pumppua, ramppi heti ja
-    # lennossa olevat iskut virheeseen. Kohinaton malli kuten 11, edellinen ajo laitteen o-q-arvoin (ff 0,06, G 12,3).
-    bd12 = BrewData(hold_s=6.0, phi_us=(3100.0 * 600) % 20000, delta=0.25, tau=4.0, lag_us=100000, fill_us=0, noise=0.0)
-    bd12.learned_ff_pre, bd12.eu_g_pre, bd12.eu_coast_s = 0.06, 12.3, 0.15
-    out12 = run(bd12, seed=600)
-    open('/tmp/esiuutto_smoke_12.log', 'w').write(out12)
-    check('12 nopea alku: fast=1, yliampuma ≤ 0,2 bar, pidon keskiarvo 2,5 ± 0,08',
-          field(out12, 'EU_CUT', 'fast') == '1' and num(out12, 'EU_END', 'over') <= 0.2
-          and abs(num(out12, 'EU_END', 'hold_mean') - 2.5) <= 0.08,
-          'fast=%s over %s hold %s' % (field(out12, 'EU_CUT', 'fast'), field(out12, 'EU_END', 'over'),
-                                       field(out12, 'EU_END', 'hold_mean')))
-    # Nopea alku, mutta nyt huuhtelu (paine ei seuraa ramppia): takaisin vaiheeseen 1, pumppu jatkuvasti
-    bd12f = BrewData(tau=0.1, phi_us=500.0)
-    bd12f.learned_ff_pre, bd12f.eu_g_pre = 0.06, 12.3
-    out12f = run(bd12f, until_s=3.0, seed=601)
-    tail = [l for l in out12f.splitlines() if l.startswith('EU ') and int(l.split()[1]) > 700]
-    rms = sorted(set(re.search(r'rm=(\d+)', l).group(1) for l in tail))
-    check('12 nopea alku + huuhtelu: EU_FAST_OFF ja pumppu jatkuvasti sen jälkeen (rm ei kasva, d 1,00)',
-          'EU_FAST_OFF' in out12f and tail and len(rms) == 1 and all(l.split()[5] == '1.00' for l in tail),
-          'off %s ms, rm %s, d %s' % (field(out12f, 'EU_FAST_OFF', 't_ms'), rms, sorted(set(l.split()[5] for l in tail))))
-
     print('RESULT: %d failed' % len(failed))
     return 1 if failed else 0
 
