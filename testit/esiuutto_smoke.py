@@ -74,10 +74,16 @@ class Pin:
 
 
 class Plant:
-    """Iskumalli. Puolijakso k: [phi + k*HALF, phi + (k+1)*HALF); pariton = aktiivinen (isku)."""
+    """Iskumalli. Puolijakso k: [phi + k*HALF, phi + (k+1)*HALF); pariton = aktiivinen (isku).
 
-    def __init__(self, pump, delta=0.2, tau=0.8, lag_us=40000, phi_us=0.0, noise=0.02, fill_us=0, cyc_sd=0.0):
+    delta_f > 0: isku nostaa myos nopeaa osaa, joka purkautuu tau_f:lla (kahden osan malli, EXPRESSO-ESIUUTTO-UUTTOASENTO).
+    Laite af/ag (kuristin lahella uuttoa): pudotus iskuryopyn jalkeen ~9 bar/s ja 300 ms rajasykli, vaikka pidon tarve
+    0,19 vastaa hidasta vuotoa; yksiosainen malli ei toistanut jaksoa eika hajontaa."""
+
+    def __init__(self, pump, delta=0.2, tau=0.8, lag_us=40000, phi_us=0.0, noise=0.02, fill_us=0, cyc_sd=0.0,
+                 delta_f=0.0, tau_f=0.08):
         self.pump, self.delta, self.tau, self.lag = pump, delta, tau, lag_us
+        self.delta_f, self.tau_f, self.pf = delta_f, tau_f, 0.0
         # Tayttovaihe (iskut eivat nosta painetta) ja puolijaksoittainen kohina: laitteella yksittaisen
         # jakson keskiarvo heilui taytossa +-0,5 bar (esiuutto-20260924-b/c)
         self.fill_us, self.cyc_sd, self.cn, self.t_first = fill_us, cyc_sd, 0.0, None
@@ -108,6 +114,7 @@ class Plant:
 
     def _leak(self, dt_us):
         self.p *= math.exp(-dt_us / 1e6 / self.tau)
+        if self.delta_f: self.pf *= math.exp(-dt_us / 1e6 / self.tau_f)
 
     def advance(self, now):
         while self.phi + (self.k + 1) * HALF_US <= now:
@@ -129,13 +136,14 @@ class Plant:
             ta, dp = self.pending.pop(0)
             self._leak(ta - self.last); self.last = ta
             self.p += dp
+            self.pf += self.delta_f
         self._leak(t - self.last); self.last = t
 
     def bar(self, now):
         self.advance(now)
         ph = (now - self.phi) / (2 * HALF_US)
         rip = RIPPLE_AMP * math.sin(2 * math.pi * (ph - RIPPLE_SHIFT_US / (2 * HALF_US))) if (self.eff and self.k % 2 == 1) else 0.0
-        return self.p + rip + self.cn + random.gauss(0.0, self.noise)
+        return self.p + self.pf + rip + self.cn + random.gauss(0.0, self.noise)
 
 
 class Adc:
@@ -276,13 +284,16 @@ def main():
           all('gate=-1' in l for l in out[:out.find('EU_CUT')].splitlines() if l.startswith('VKELLO')))
     check('1 opittu ff päivittyi (pito ≥ 2 s)', abs(bd.learned_ff_pre - 0.3) > 1e-3, '%.2f' % bd.learned_ff_pre)
 
-    # 2 jälkinousun oppiminen: toinen ajo samalla laitteella
-    c1 = bd.eu_coast_s
+    # 2 jälkinousun oppiminen: toinen ajo samalla laitteella. Nopea ja hidas nousu opitaan erikseen
+    # (EXPRESSO-ESIUUTTO-UUTTOASENTO): tarkistetaan katkaisun nousunopeuden luokka
+    fast = num(out, 'EU_CUT', 'rate') >= F.EU_RATE_FAST
+    attr, c0 = ('eu_coast_fast_s', F.EU_COAST_FAST_S0) if fast else ('eu_coast_s', F.EU_COAST_S0)
+    c1 = getattr(bd, attr)
     bd.plant.p, bd.plant.pending = 0.0, []    # ajojen valissa paine purkautuu kuristimen lapi
     out2 = run(bd, seed=2)
     open('/tmp/esiuutto_smoke_2.log', 'w').write(out2)
-    check('2 jälkinousu opittu ja rajoissa', F.EU_COAST_MIN <= bd.eu_coast_s <= F.EU_COAST_MAX and c1 != F.EU_COAST_S0,
-          '%.3f -> %.3f' % (c1, bd.eu_coast_s))
+    check('2 jälkinousu opittu ja rajoissa (%s)' % ('nopea' if fast else 'hidas'),
+          F.EU_COAST_MIN <= getattr(bd, attr) <= F.EU_COAST_MAX and c1 != c0, '%.3f -> %.3f' % (c1, getattr(bd, attr)))
     check('2 toinen ajo: yliampuma ≤ yksi isku (0,2 bar)', num(out2, 'EU_END', 'over') <= 0.2, field(out2, 'EU_END', 'over'))
 
     # 3 pysähdykset (toinen tehtävä varaa vuoron 5-15 ms)
@@ -470,6 +481,49 @@ def main():
           '%s' % ['%.2f' % v for v in firsts])
     check('12 avoin, edellisen tieto: pidon 0-2 s p5 ka ≥ 2,42', sum(seconds) / len(seconds) >= 2.42,
           'ka %.3f, %s' % (sum(seconds) / len(seconds), ['%.2f' % v for v in seconds]))
+
+    # 13 uuttoasento (EXPRESSO-ESIUUTTO-UUTTOASENTO, laite af/ag 26.9.2026: kuristin lahella uuttoa, G 13-18, pidon tarve
+    # 0,14-0,19). Kahden osan malli (hidas 0,25 / 0,8 s, nopea 0,6 / 0,08 s, viive 20 ms) sovitettiin af:hen vanhalla
+    # saatimella: g 18,6, pidon sd 0,59, 300 ms jakso (p:n autokorrelaatio 3 x 100 ms 0,54, laite 0,62), iskuosuus 0,20.
+    # Ketju: 1. ajo ae:n opituilla arvoilla (hidas tila ennen kaantoa, kuten af), 2. ajo edellisen tiedolla. Vanha saadin:
+    # jakso 0,51-0,53, pidon p5 sd 0,48-0,49, opittu tarve 0,10-0,12 vs. iskuosuus 0,19 (u:n keskiarvo).
+    def run13(seed, carry, cf):
+        bd13 = BrewData(hold_s=6.0, phi_us=(3100.0 * seed) % 20000, delta=0.25, tau=0.8, delta_f=0.6, tau_f=0.08,
+                        lag_us=20000, fill_us=600000, noise=0.02, cyc_sd=0.25)
+        bd13.learned_ff_pre, bd13.eu_g_pre, bd13.eu_coast_s, bd13.eu_tau_pre = carry
+        if cf is not None: bd13.eu_coast_fast_s = cf
+        out13 = run(bd13, stall_p=0.008, seed=seed)
+        open('/tmp/esiuutto_smoke_13_%d.log' % seed, 'w').write(out13)
+        hold13 = num(out13, 'EU_HOLD', 't_ms')
+        rows = [(int(l.split()[1]) - hold13, float(l.split()[2]), float(re.search(r'p5=(\S+)', l).group(1)),
+                 int(re.search(r'rm=(\d+)', l).group(1))) for l in out13.splitlines() if l.startswith('EU ')]
+        h = [r for r in rows if 500 <= r[0] < 5000]
+        ps = [r[1] for r in h]
+        m = sum(ps) / len(ps)
+        ac3 = sum((ps[i] - m) * (ps[i + 3] - m) for i in range(len(ps) - 3)) / sum((x - m) ** 2 for x in ps)
+        p5 = [r[2] for r in h]
+        m5 = sum(p5) / len(p5)
+        h25 = [r[2] for r in rows if 2000 <= r[0] < 5000]
+        # Iskuosuus poistolaskurista pidon 2 s:sta loppuun, sama ikkuna kuin oppimisessa (EU_LEARN_SKIP_MS)
+        l2 = [r for r in rows if r[0] >= F.EU_LEARN_SKIP_MS]
+        sfrac = 1 - (l2[-1][3] - l2[0][3]) / ((l2[-1][0] - l2[0][0]) / 20.0)
+        return dict(ac3=ac3, sd5=math.sqrt(sum((x - m5) ** 2 for x in p5) / len(p5)), h25=sum(h25) / len(h25) - 2.5,
+                    learn=bd13.learned_ff_pre - sfrac), \
+            (bd13.learned_ff_pre, bd13.eu_g_pre, bd13.eu_coast_s, bd13.eu_tau_pre), getattr(bd13, 'eu_coast_fast_s', None)
+    r13 = {1: [], 2: []}
+    for seed in range(130, 138):
+        carry, cf = (0.08, 7.73, 0.061, 4.55), None
+        for r in (1, 2):
+            res, carry, cf = run13(seed + 50 * (r - 1), carry, cf)
+            r13[r].append(res)
+    for r in (1, 2):
+        rs = r13[r]
+        stat(check, '13 uuttoasento ajo %d: ei 300 ms rajasykliä (p:n autokorrelaatio 3 × 100 ms ≤ 0,3)' % r,
+             [x['ac3'] for x in rs], 0.3, share=NOISE_SHARE)
+        stat(check, '13 uuttoasento ajo %d: pidon p5 sd ≤ 0,45 bar' % r, [x['sd5'] for x in rs], 0.45, share=NOISE_SHARE)
+        stat(check, '13 uuttoasento ajo %d: pidon 2-5 s p5 ka 2,5 ± 0,1' % r, [x['h25'] for x in rs], 0.1, lo=-0.1)
+        check('13 uuttoasento ajo %d: opittu tarve = iskuosuus (±0,03)' % r, all(abs(x['learn']) <= 0.03 for x in rs),
+              'max |%.3f|' % max(abs(x['learn']) for x in rs))
 
     print('RESULT: %d failed' % len(failed))
     return 1 if failed else 0

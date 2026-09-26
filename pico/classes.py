@@ -193,6 +193,8 @@ class BrewData:
         # 24.9.2026). eu_coast_s = opittu jalkinousu (s) vaiheen 1 katkaisun jalkeen.
         self.pre_infusion_method = 0
         self.eu_coast_s         = 0.3
+        # Nopean nousun (>= 8 bar/s) jalkinousu erikseen (EXPRESSO-ESIUUTTO-UUTTOASENTO, = EU_COAST_FAST_S0)
+        self.eu_coast_fast_s    = 0.2
         # Edellisen asettuneen pidon G (bar/s dutya kohden); 0 = ei tietoa -> 1. ajon polku (EXPRESSO-ESIUUTTO-FF).
         # learned_ff_pre, eu_g_pre ja eu_coast_s tallentuvat settings.txt:hen (sailyvat kaynnistyksen ja flashin yli).
         self.eu_g_pre           = 0.0
