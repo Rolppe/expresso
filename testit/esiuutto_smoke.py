@@ -176,7 +176,10 @@ class Asyncio:
 def run(bd, until_s=None, stall_p=0.0, seed=1):
     random.seed(seed)
     start = U.us
-    keep = (lambda: True) if until_s is None else (lambda: U.us - start < until_s * 1e6)
+    # Aikaraja aina: ajo, jonka pito ei ala, ei paaty koskaan (26.9.2026: kaksi testiajoa pyori ~80 min).
+    # 30 s virtuaaliaikaa ylittaa jokaisen tapauksen pidon; raja -> reason=stop -> tapaus kaatuu.
+    lim = 30.0 if until_s is None else until_s
+    keep = lambda: U.us - start < lim * 1e6
     out = io.StringIO()
     with redirect_stdout(out):
         asyncio.run(F.pre_infusion_phased(bd, U, Asyncio(stall_p), Ratio(), keep))
@@ -308,6 +311,35 @@ def main():
         check('8 sovitettu malli ajo %d: katkaisusta pitoon ≤ 1,1 s' % r, hold8 - cut8 <= 1100, '%.0f ms' % (hold8 - cut8))
         check('8 sovitettu malli ajo %d: yliampuma ≤ 0,2 bar' % r, num(out8, 'EU_END', 'over') <= 0.2,
               field(out8, 'EU_END', 'over'))
+
+    # 9 pidon myotakytkenta taman ajon noususta (EXPRESSO-ESIUUTTO-FF): kylma kuristin (iskukoko 0,15 bar,
+    # vuoto tau 2,2 s, tasapainoduty 0,15) edellisen lampiman ajon opitulla ff:lla 0,31 ja painvastoin
+    # (lampin 0,1 / 1,6 s, duty 0,31, opittu 0,15). Laitteella esiuutto-20260925-c: opittu 0,30, tarve 0,15,
+    # pidon alku +0,44 bar 1,5 s. Kohinaton ajo mittaa menetelman, kohinainen (jaksokohina 0,25,
+    # pysahdykset 0,8 %) sen, ettei yksittainen nousunopeus heita ff:aa.
+    for name, delta, tau, ff_old, ff_true in (('kylmä', 0.15, 2.2, 0.31, 0.15), ('lämmin', 0.1, 1.6, 0.15, 0.31)):
+        for noisy in (False, True):
+            errs, dev, overs = [], [], []
+            for seed in ((91, 92, 93) if noisy else (90,)):
+                bd9 = BrewData(hold_s=6.0, phi_us=(3100.0 * seed) % 20000, delta=delta, tau=tau, fill_us=1000000,
+                               noise=0.02 if noisy else 0.0, cyc_sd=0.25 if noisy else 0.0)
+                bd9.learned_ff_pre = ff_old
+                out9 = run(bd9, stall_p=0.008 if noisy else 0.0, seed=seed)
+                open('/tmp/esiuutto_smoke_9_%s_%d.log' % (name, seed), 'w').write(out9)
+                hold9 = num(out9, 'EU_HOLD', 't_ms')
+                ps = [float(l.split()[2]) for l in out9.splitlines() if l.startswith('EU ')
+                      and hold9 <= int(l.split()[1]) < hold9 + 2000]
+                dev.append(abs(sum(ps) / len(ps) - 2.5) if ps else 9.0)
+                errs.append(num(out9, 'EU_CUT', 'ff') - ff_true)
+                overs.append(num(out9, 'EU_END', 'over'))
+            tag = '9 %s%s' % (name, ', kohina' if noisy else '')
+            lim = 0.08 if noisy else 0.05
+            check('%s: katkaisun ff tästä ajosta ±%.2f tarpeesta %.2f' % (tag, lim, ff_true),
+                  all(abs(e) <= lim for e in errs), 'virhe %s' % ['%+.2f' % e for e in errs])
+            check('%s: pidon 2 ensimmäisen s keskiarvo 2,5 ± %.2f bar' % (tag, 0.1 if noisy else 0.05),
+                  all(v <= (0.1 if noisy else 0.05) for v in dev), 'poikkeama %s' % ['%.2f' % v for v in dev])
+            check('%s: yliampuma ≤ %.1f bar' % (tag, 0.3 if noisy else 0.2), all(o <= (0.3 if noisy else 0.2) for o in overs),
+                  '%s' % ['%.2f' % o for o in overs])
 
     print('RESULT: %d failed' % len(failed))
     return 1 if failed else 0
