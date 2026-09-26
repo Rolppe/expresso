@@ -9,13 +9,14 @@ difference. Nothing may touch the tray from the start of the pre-window to the e
 
 Usage: shot_measure.py <shot_seconds> [pre_s] [settle_s] [post_s]
 """
-import subprocess, sys, time, statistics
+import os, subprocess, sys, time, statistics
 
 SHOT = float(sys.argv[1])
 PRE_S = float(sys.argv[2]) if len(sys.argv) > 2 else 60.0
 SETTLE_S = float(sys.argv[3]) if len(sys.argv) > 3 else 90.0
 POST_S = float(sys.argv[4]) if len(sys.argv) > 4 else 60.0
 CSV = '/tmp/scale.csv'
+PICO_DEV = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'pico_dev.py')
 
 
 def window(t_from, t_to):
@@ -61,7 +62,7 @@ print('  ryöminta vakaa: %.2f -> %.2f g/min' % (slope_a, slope_b))
 
 t_start = time.time()
 print('Testiuutto %.0f s...' % SHOT)
-r = subprocess.run([sys.executable, '/srv/work/Infra/iot/expresso/pico_dev.py', 'shot', str(SHOT),
+r = subprocess.run([sys.executable, PICO_DEV, 'shot', str(SHOT),
                     '/tmp/tshot-mittaus.log'], capture_output=True, text=True, timeout=SHOT + 120)
 t_end = time.time()
 tail = [l for l in r.stdout.splitlines() if l.startswith(('TS_END', 'PI_END', 'TS_START', 'CMD_OK'))]

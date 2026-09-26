@@ -42,7 +42,7 @@ Usage:
 Every operation except `charger` runs with the charger off and powers it again when done
 (CHARGER_CYCLE, temporary until the Type-C fault is fixed; PICO_CHARGER_CYCLE=0 disables).
 
-Source of truth: /srv/work/Infra/iot/expresso/pico_dev.py (copied to the Mac legacy folder).
+Source of truth: Infra/iot/expresso/pico_dev.py in the project repo (copied to the Mac legacy folder).
 """
 import json
 import os
