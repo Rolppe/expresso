@@ -147,12 +147,16 @@ EU_COAST_MIN_MS = 100        # ja vahintaan nain kauan (viive 40 ms + iskun nous
 EU_RATE_MIN = 0.5            # bar/s: hitaammasta noususta ei opita jalkinousua
 EU_RAMP_BAR_PER_S = 2.0      # sama loppunoston ramppi kuin pre_infusion
 EU_RAMP_FF_MAX = 0.5         # rampin oman myotakytkennan yläraja (duty)
-EU_RAMP_LEAD_S = 0.1         # rampin myotakytkenta loppuu nain paljon ennen tavoitetta (iskun + p5:n viive)
+EU_RAMP_LEAD_S = 0.1         # rampin myotakytkenta loppuu, kun p5 on nain monen rampin sekunnin paassa tavoitteesta
+                             # (iskun + p5:n viive)
 EU_TAU_S = 1.8               # kuristimen vuodon aikavakio pidon ff:n laskuun (laite 25.9.2026: lampin 1,4-1,8,
                              # kylma 2,2 s). Nousudatasta sita ei saa: nousu kiihtyy tayton jalkeen, joten
                              # kahden nousupisteen tau olisi negatiivinen (a/b/c), ja vuoto muuttaa nousua vain
                              # ~0,5 bar/s, kun nousunopeuden kohina on ~1,5 bar/s.
 EU_KP, EU_KI = 0.2, 0.3      # sama PI kuin PumpPressureController
+EU_KP_TAIL = 0.4             # loppulahestyminen (ramppi tavoitteessa, pito ei alkanut) ja pidon 1. sekunti:
+EU_KI_TAIL_X = 3.0           # P ja integraalin kerroin. Katkaisun ff:n virhe (vuodon tau 1,6 vs. EU_TAU_S 1,8
+EU_TAIL_HOLD_MS = 1000       # -> -0,04; nousunopeuden kohina sd ~0,05) korjautuu nain ennen pitoa eika sen aikana
 EU_LOG_SLOTS = 5             # EU-rivi joka 5. jakso (100 ms)
 EU_AVG_N = 5                 # paatosten keskiarvo 5 jaksoa (100 ms); nousunopeus kahdesta perakkaisesta
 EU_HOLD_TOL_BAR = 0.1        # pito alkaa, kun ramppi on tavoitteessa ja p5 >= tavoite - tama
@@ -314,23 +318,31 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                                 peak, peak - p_cut, rate_cut, coast_s, 1 if learn else 0))
                     e = sp - p
                     # Rampin aikana tasapainoduty skaalautuu paineen mukana (ff on mitattu tavoitteessa).
-                    # Rampin myotakytkenta vain, kun paine on rampin alla, ja se loppuu EU_RAMP_LEAD_S ennen
-                    # tavoitetta: jalkinousun edella oleva paine ja iskun + p5:n viive (~0,1 s) nostivat
-                    # ilman naita rajoja ylityksia (sovitettu malli: yli 0,3 bar 17/48 ajoa, vanha 4/48)
+                    # Rampin myotakytkenta vain, kun paine on rampin alla, ja se loppuu, kun p5 on EU_RAMP_LEAD_S
+                    # rampin sekuntia tavoitteen alla: jalkinousun edella oleva paine ja iskun + p5:n viive (~0,1 s)
+                    # nostivat ilman naita rajoja ylityksia (sovitettu malli: yli 0,3 bar 17/48 ajoa, vanha 4/48).
+                    # Raja paineesta eika rampista (EXPRESSO-ESIUUTTO-FF 26.9.2026): rampin mukaan lopetettu
+                    # myotakytkenta jatti paineen ~0,25 bar tavoitteen alle, ja loppu vei pelkalla P-termilla
+                    # 0,4-0,6 s (sovitettu malli: katkaisusta pitoon 1,2-1,3 s -> 0,63-0,72 s).
                     uff = ff
-                    if hold_t is None and sp < target:
-                        uff = ff * sp / target
-                        if p5 < sp and sp < target - EU_RAMP_BAR_PER_S * EU_RAMP_LEAD_S:
+                    kp, ki_x = EU_KP, 1.0
+                    if hold_t is None:
+                        if sp < target:
+                            uff = ff * sp / target
+                        if p5 < sp and p5 < target - EU_RAMP_BAR_PER_S * EU_RAMP_LEAD_S:
                             uff += ramp_ff
-                    u = uff + EU_KP * e + EU_KI * integ
+                    if (hold_t is None and sp >= target) or \
+                            (hold_t is not None and utime.ticks_diff(t, hold_t) < EU_TAIL_HOLD_MS * 1000):
+                        kp, ki_x = EU_KP_TAIL, EU_KI_TAIL_X
+                    u = uff + kp * e + EU_KI * integ
                     # Integraali vain pidossa, rampin paatyttya tai lahella asetusarvoa: rampin viive kasasi sen
                     # c-ajossa (1,1 bar vajetta 0,5 s) ja se purkautui yliampumana 3,6 bariin. Rampin paatyttya
                     # kaista ei rajaa: liian pienella ff:lla P-termi jatti paineen ~0,8 bar tavoitteen alle,
                     # integraali ei kertynyt, pito ei alkanut eika ajo paattynyt (esiuutto_smoke 26.9.2026)
                     if (hold_t is not None or sp >= target or abs(e) < EU_INT_BAND_BAR) and \
                             (0.0 < u < 1.0 or (u >= 1.0 and e < 0) or (u <= 0.0 and e > 0)):
-                        integ = max(-1.5, min(1.5, integ + e * dt))
-                    u = uff + EU_KP * e + EU_KI * integ
+                        integ = max(-1.5, min(1.5, integ + e * dt * ki_x))
+                    u = uff + kp * e + EU_KI * integ
                     d = 0.0 if u < 0.0 else (1.0 if u > 1.0 else u)
                     if hold_t is not None:
                         duty_avg += (d - duty_avg) * (dt / 5.0)
