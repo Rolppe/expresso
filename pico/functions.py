@@ -148,6 +148,10 @@ EU_RATE_MIN = 0.5            # bar/s: hitaammasta noususta ei opita jalkinousua
 EU_RAMP_BAR_PER_S = 2.0      # sama loppunoston ramppi kuin pre_infusion
 EU_RAMP_FF_MAX = 0.5         # rampin oman myotakytkennan yläraja (duty)
 EU_RAMP_LEAD_S = 0.1         # rampin myotakytkenta loppuu nain paljon ennen tavoitetta (iskun + p5:n viive)
+EU_TAU_S = 1.8               # kuristimen vuodon aikavakio pidon ff:n laskuun (laite 25.9.2026: lampin 1,4-1,8,
+                             # kylma 2,2 s). Nousudatasta sita ei saa: nousu kiihtyy tayton jalkeen, joten
+                             # kahden nousupisteen tau olisi negatiivinen (a/b/c), ja vuoto muuttaa nousua vain
+                             # ~0,5 bar/s, kun nousunopeuden kohina on ~1,5 bar/s.
 EU_KP, EU_KI = 0.2, 0.3      # sama PI kuin PumpPressureController
 EU_LOG_SLOTS = 5             # EU-rivi joka 5. jakso (100 ms)
 EU_AVG_N = 5                 # paatosten keskiarvo 5 jaksoa (100 ms); nousunopeus kahdesta perakkaisesta
@@ -260,18 +264,24 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                     phase = 2
                     cut_t, p_cut, rate_cut, peak, coast_open = t, p5, rate, p5, True
                     ramp_base, ramp_t, integ, acc = p5, t, 0.0, 0.0
-                    # Rampin myotakytkenta (EXPRESSO-ESIUUTTO-PITO): 2 bar/s nousu tarvitsee laitteella
-                    # 0,36-0,43 dutya pidon ff:n paalle, ja pelkka P-termi jatti paineen ~0,6 bar rampin
-                    # alle ~1 s ajaksi. Iskun vahvistus G = 50 x iskukoko (bar/s dutya kohden) taman ajon
-                    # katkaisuhetken noususta taydella dutylla: rate = G - p/tau ja pidossa G*ff*tau = tavoite,
-                    # joten G = rate / (1 - p*ff/tavoite). Hitaasta noususta G:ta ei voi arvioida.
-                    ramp_ff = 0.0
+                    # Iskun vahvistus G = 50 x iskukoko (bar/s dutya kohden) taman ajon katkaisuhetken
+                    # noususta taydella dutylla: rate = G - p/tau, joten G = rate + p/tau. Siita:
+                    # - pidon myotakytkenta ff = tavoite / (G*tau) (EXPRESSO-ESIUUTTO-FF, TILAUS-G): edellisen
+                    #   ajon opittu ff oli kylmalla kuristimella 2x tarve (esiuutto-20260925-c: opittu 0,30,
+                    #   pidon duty 0,15, pidon alku +0,44 bar). Iskukoko ja vuoto muuttuvat kuristimen
+                    #   lampotilan mukana, nousunopeus nakee molemmat (lampin 3,9-4,7, kylma 6,9 bar/s).
+                    # - rampin myotakytkenta 2 bar/s / G (EXPRESSO-ESIUUTTO-PITO): pelkka P-termi jatti paineen
+                    #   ~0,6 bar rampin alle ~1 s ajaksi.
+                    # Hitaasta noususta G:ta ei voi arvioida: silloin opittu ff ja ei rampin myotakytkentaa.
+                    ramp_ff, g = 0.0, 0.0
                     if rate >= EU_RATE_MIN:
-                        g = rate / max(0.2, 1.0 - p5 * ff / target)
+                        g = rate + p5 / EU_TAU_S
+                        ff = min(0.9, max(0.05, target / (g * EU_TAU_S)))
+                        duty_avg = ff
                         ramp_ff = min(EU_RAMP_FF_MAX, EU_RAMP_BAR_PER_S / g)
                     brew_data.set_mode('pre-infusion final rise')
-                    out.append('EU_CUT t_ms=%d p=%.2f rate=%.2f coast_s=%.3f pred=%.2f' % (
-                        utime.ticks_diff(t, t0) // 1000, p5, rate, coast_s, p5 + rate * coast_s))
+                    out.append('EU_CUT t_ms=%d p=%.2f rate=%.2f coast_s=%.3f pred=%.2f g=%.2f ff=%.2f' % (
+                        utime.ticks_diff(t, t0) // 1000, p5, rate, coast_s, p5 + rate * coast_s, g, ff))
                 if phase == 2:
                     if hold_t is None:
                         sp = ramp_base + EU_RAMP_BAR_PER_S * utime.ticks_diff(t, ramp_t) / 1e6
@@ -313,9 +323,11 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                         if p5 < sp and sp < target - EU_RAMP_BAR_PER_S * EU_RAMP_LEAD_S:
                             uff += ramp_ff
                     u = uff + EU_KP * e + EU_KI * integ
-                    # Integraali vain pidossa tai lahella asetusarvoa: rampin viive kasasi sen c-ajossa
-                    # (1,1 bar vajetta 0,5 s) ja se purkautui yliampumana 3,6 bariin
-                    if (hold_t is not None or abs(e) < EU_INT_BAND_BAR) and \
+                    # Integraali vain pidossa, rampin paatyttya tai lahella asetusarvoa: rampin viive kasasi sen
+                    # c-ajossa (1,1 bar vajetta 0,5 s) ja se purkautui yliampumana 3,6 bariin. Rampin paatyttya
+                    # kaista ei rajaa: liian pienella ff:lla P-termi jatti paineen ~0,8 bar tavoitteen alle,
+                    # integraali ei kertynyt, pito ei alkanut eika ajo paattynyt (esiuutto_smoke 26.9.2026)
+                    if (hold_t is not None or sp >= target or abs(e) < EU_INT_BAND_BAR) and \
                             (0.0 < u < 1.0 or (u >= 1.0 and e < 0) or (u <= 0.0 and e > 0)):
                         integ = max(-1.5, min(1.5, integ + e * dt))
                     u = uff + EU_KP * e + EU_KI * integ
@@ -385,15 +397,20 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
         set_relay(False)
         RELAY_PUMP.value(0)
     for line in out: print(line)
+    # Pidon toteutunut duty ja katkaisun nousu antavat vuodon aikavakion jalkikateen: G*tau = tavoite/duty
+    # ja G = rate + p/tau -> tau = (tavoite/duty - p) / rate. Vain lokiin (EU_TAU_S:n tarkistus ajoista).
+    tau_obs = 0.0
     if hold_t is not None and utime.ticks_diff(utime.ticks_us(), hold_t) >= 2000000:
         brew_data.learned_ff_pre = min(0.9, max(0.05, duty_avg))
+        if rate_cut is not None and rate_cut >= EU_RATE_MIN and duty_avg > 0.0:
+            tau_obs = (target / duty_avg - p_cut) / rate_cut
     brew_data.eu_coast_s = coast_s
     mean = h_s / h_n if h_n else 0.0
     sd = math.sqrt(max(0.0, h_ss / h_n - mean * mean)) if h_n else 0.0
     now = utime.ticks_us()
-    print('EU_END reason=%s max=%.2f over=%.2f hold_n=%d hold_mean=%.3f hold_sd=%.3f strokes=%d rm=%d sk10=%d sk20=%d late=%d miss=%d windows=%d win_low=%d learned=%d T_us=%.3f hz=%.4f sd_us=%.0f learned_ff_pre=%.2f coast_s=%.3f' % (
+    print('EU_END reason=%s max=%.2f over=%.2f hold_n=%d hold_mean=%.3f hold_sd=%.3f strokes=%d rm=%d sk10=%d sk20=%d late=%d miss=%d windows=%d win_low=%d learned=%d T_us=%.3f hz=%.4f sd_us=%.0f learned_ff_pre=%.2f coast_s=%.3f tau_obs=%.2f' % (
         reason, p_max, rise_max - target, h_n, mean, sd, strokes, removed, skips10, skips20, late, miss, windows,
-        win_low, learned, clock.T, 1e6 / clock.T, clock.sd_us(now), brew_data.learned_ff_pre, coast_s))
+        win_low, learned, clock.T, 1e6 / clock.T, clock.sd_us(now), brew_data.learned_ff_pre, coast_s, tau_obs))
 
 
 def weight_flow_log(brew_data):
