@@ -147,8 +147,9 @@ EU_COAST_MIN_MS = 100        # ja vahintaan nain kauan (viive 40 ms + iskun nous
 EU_RATE_MIN = 0.5            # bar/s: hitaammasta noususta ei opita jalkinousua
 EU_RATE_FAST = 8.0           # bar/s: tata nopeampi nousu ei ole huuhtelu (katkaisun huuhtelusaanto, ks. vaihe 1)
 EU_FAST_G = 10.0             # bar/s: edellisen ajon G tasta yli -> nosto alkaa suoraan rampilla (vaihe 1 ohitetaan).
-                             # Taysi jarjestelma + lahes kiinni oleva kuristin: G 12,2-12,5, iskun viive ~100 ms, taydella
-                             # pumpulla lennossa ~1,25 bar (laite 26.9. o-q); muut tilat G 2,8-6,8. Kayttajan valinta 26.9.2026.
+                             # Taysi jarjestelma + lahes kiinni oleva kuristin: G 12,2-12,5 (1/4-katkaisulla mitattuna 8,9-9,7,
+                             # nousu kiihtyy viela), iskun viive ~100 ms, taydella pumpulla lennossa ~1,25 bar (laite 26.9. o-t);
+                             # muut tilat G 2,8-6,8. Kayttajan valinta 26.9.2026.
 EU_INFLIGHT_US = 100000      # nopea tila: iskun viive paineeseen (laite o-q: pumppu pois, paine nousi viela ~100 ms)
 EU_FAST_LAG_BAR = 0.5        # nopea alku: p5 nain paljon rampin alla -> G ei enaa pida, seuraava ajo mittaa sen
 EU_RAMP_BAR_PER_S = 2.0      # sama loppunoston ramppi kuin pre_infusion
@@ -398,6 +399,9 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                     if (hold_t is not None or sp >= target or abs(e) < EU_INT_BAND_BAR) and \
                             (-1.0 < u < 1.0 or (u >= 1.0 and e < 0) or (u <= -1.0 and e > 0)):
                         integ = max(-1.5, min(1.5, integ + e * dt * ki_x))
+                        # Hidas osa (ff + integraali) on pidon tarve eika voi olla negatiivinen: -1...1-delta-sigman kanssa
+                        # integraali valui ylityksessa syvalle (laite r 26.9.2026: pito 2,7 -> 1,44 bar, ka 2,01)
+                        if integ < -uff / EU_KI: integ = -uff / EU_KI
                     u = uff + kp * e + EU_KI * integ + dterm
                     # Delta-sigma saa myos negatiivisen tarpeen (-1..1, EXPRESSO-ESIUUTTO-ALKU 26.9.2026): pidon
                     # tarve 0,05 on lahella nollaa, ja jaksokohinan (sd 0,25 bar) P- ja D-termi heiluttavat u:ta
