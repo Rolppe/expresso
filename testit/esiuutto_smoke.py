@@ -93,6 +93,19 @@ sys.modules.setdefault('devsafe', types.SimpleNamespace(feed=lambda: None))
 import functions as F   # noqa: E402
 F.gc = GC
 
+IQ_CLOSE_US = [0]    # kellon ikkunan sulun hinta virtuaaliaikana; tapaus 14: laite ao/ap 10-11 ms naytteenotossa
+
+
+def _iq_close_cost(close):
+    def wrapped(self, t, learn=True):
+        U.us += IQ_CLOSE_US[0]
+        return close(self, t, learn)
+    return wrapped
+
+
+import verkkokello   # noqa: E402
+verkkokello.Verkkokello.iq_close = _iq_close_cost(verkkokello.Verkkokello.iq_close)
+
 F_MAINS = 50.01
 HALF_US = 1e6 / F_MAINS / 2
 # Mallin vareilyn vaihe: valittu niin, etta verkkokellon reuna + 8,5-18,7 ms on poistava lohko kuten
@@ -594,7 +607,9 @@ def main():
         if cf is not None: bd14.eu_coast_fast_s = cf
         bd14.eu_vv = vv
         GC.enable()
+        IQ_CLOSE_US[0] = 9000
         out14 = run(bd14, stall_p=0.008, seed=seed, stall_ms=(13, 28))
+        IQ_CLOSE_US[0] = 0
         auto = GC.auto
         GC.disable()
         open('/tmp/esiuutto_smoke_14_%d_vv%d.log' % (seed, vv), 'w').write(out14)

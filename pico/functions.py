@@ -192,6 +192,9 @@ EU_STALL_US = 10000          # EU_STALL-rivi, kun vuoro (y), jakson kasittely (k
 EU_GC_MS = 300               # hallittu keruu nain usein: 300 ms x 500 kt/s jattaa ~150 kt varaa ennen automaattista.
                              # Ei gc.mem_free():lla: se kay keon lapi 7,3 ms (laite an, chk_max_us)
 EU_GC_RISE_FRAC = 0.1        # vaiheessa 1 (rele paalla koko ajan) keruu vain, kun p5 < tama x tavoite: kaukana katkaisusta
+EU_IQ_CLOSE_US = 12000       # kellon ikkunan sulku (iq_close + VKELLO-rivi 10-11 ms, laite ao/ap) vain, kun seuraavaan
+                             # paatoskohtaan on vahintaan tama, jos rele on paalla tai seuraava jakso iskee: ap:n ainoa late
+                             # (661 ms) oli sulku juuri ennen taukoa. Ikkuna pitenee enintaan jakson, ja iq_close kayttaa todellista loppua
 EU_PRINT_GAP_MS = 20         # loppurivien vali: USB-CDC:n lahetysjono on 256 tavua ja ylikirjoittuu ilman DTR:aa (EU_END 278
                              # merkkia katkesi, laite ah-am), joten rivit <= 255 ja jono tyhjenee valissa
 
@@ -501,7 +504,8 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                 bar = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset
                 cyc_s += bar; cyc_n += 1
                 clock.iq_add(now, bar)
-                if clock.iq_ready(now):
+                if clock.iq_ready(now) and not (vv and phase == 2 and (relay[0] or pump_next or pend_on is not None) and
+                                                utime.ticks_diff(slot, now) < EU_IQ_CLOSE_US):
                     res = clock.iq_close(now, learn=(phase == 2))
                     clock.iq_start(now)
                     if res is None:
