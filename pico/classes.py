@@ -201,6 +201,15 @@ class BrewData:
         # Edellisen pidon vuodon tau (s) ff:n laskuun; 0 = ei tietoa -> G-suhde EU_TAU_S:lla (EXPRESSO-ESIUUTTO-AVOIN)
         self.eu_tau_pre         = 0.0
         self.learned_ff_brew    = 0.5
+        # Uuton tapa (bim:, RAM, EXPRESSO-UUTTO-8BAR): 0 = vanha uuttosilmukka, 1 = vaiheet 3-4 (TILAUS-K) esiuuton jatkona.
+        # Uuton opitut arvot erillaan esiuuton arvoista (settings.txt, eb_*): tarve uuttopaineessa, sen suhde saman ajon
+        # esiuuton tarpeeseen (0 = ei tietoa -> paineiden suhde), G ja tau katkaisusta, jalkinousu.
+        self.brew_method        = 0
+        self.eb_ff              = 0.0
+        self.eb_x               = 0.0
+        self.eb_g               = 0.0
+        self.eb_tau             = 0.0
+        self.eb_coast_s         = 0.2
         self.pressure_filtered  = 0.0
         # Drip-tray scale (18.9.2026). weight is grams from scale.Scale.update(), None when no
         # scale answered at boot; weight_limit 0 = off, > 0 aborts a test shot before the tray

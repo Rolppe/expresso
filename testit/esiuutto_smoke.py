@@ -55,7 +55,7 @@ class Gc:
     HEAP = 200 * 1024
 
     def __init__(self):
-        self.enabled, self.period, self.last, self.auto = False, None, 0, 0
+        self.enabled, self.period, self.last, self.auto, self.auto_t = False, None, 0, 0, []
 
     def enable(self, period_s=(0.5, 0.8), stall_ms=(15, 28)):
         self.enabled, self.period_s, self.stall_ms = True, period_s, stall_ms
@@ -65,7 +65,7 @@ class Gc:
 
     def start(self):
         if self.enabled:
-            self.auto, self.last = 0, U.us
+            self.auto, self.last, self.auto_t = 0, U.us, []
             self.period = random.uniform(*self.period_s) * 1e6
 
     def _stall(self):
@@ -83,6 +83,7 @@ class Gc:
     def tick(self):
         if U.us - self.last >= self.period:
             self.auto += 1
+            self.auto_t.append(U.us)
             self._stall()
 
 
@@ -136,8 +137,18 @@ class Plant:
     0,19 vastaa hidasta vuotoa; yksiosainen malli ei toistanut jaksoa eika hajontaa."""
 
     def __init__(self, pump, delta=0.2, tau=0.8, lag_us=40000, phi_us=0.0, noise=0.02, fill_us=0, cyc_sd=0.0,
-                 delta_f=0.0, tau_f=0.08, gas_bar=None):
+                 delta_f=0.0, tau_f=0.08, gas_bar=None, c0=None, tau_sched=None, leak_n=None, turns=None, arm_bar=5.0):
         self.pump, self.delta, self.tau, self.lag = pump, delta, tau, lag_us
+        # c0: 8 barin malli (EXPRESSO-UUTTO-8BAR, testit/uutto8_sovitus.py). Jousto C(p) = c0 + 1/(1 + p)^2 (vakio + kaasu/
+        # p_abs^2), kappa = C(p) / C(2,5): isku = delta / kappa ja vuodon aikavakio = tau x kappa, eli delta ja tau ovat
+        # 2,5 barin arvot ja pidon tarve p / (50 delta tau) (jousto supistuu pois). c0 = None: vanha malli ennallaan.
+        # tau_sched: [(aika us, tau), ...] kuristimen kaanto kesken ajon (TILAUS-C). leak_n: vuoto ~ p^n (None = 1, laminaari);
+        # tau on silloin 2,5 barin aikavakio ja pidon tarve p^n:n mukainen.
+        self.c0, self.tau_sched, self.leak_n = c0, list(tau_sched or []), leak_n
+        # turns: [(us, tau), ...] suhteessa hetkeen, jolloin paine ylittaa ensimmaisen kerran arm_bar (uuton nousu): sama
+        # kaannon hetki vanhalle ja uudelle uuttopolulle ilman erillista ajoa uuton alun selvittamiseksi
+        self.turns, self.arm_bar, self.turn_at = list(turns or []), arm_bar, []
+        self.probe, self.probe_t = [], 0     # todellinen paine (hidas + nopea osa) 1 ms valein: (us, bar)
         # gas_bar: iskun painevaikutus kaasujoustosta (ilma jarjestelmassa): delta on iskukoko tassa paineessa, ja se skaalautuu
         # absoluuttisen paineen nelioon (isoterminen kaasu: dp = p_abs^2 / (p0 V0) dV). Laite ao-as 27.9.2026: G katkaisussa
         # (~1,4 bar) 9-10 bar/s = isku ~0,2 bar, pidossa 2,5 barissa isku +0,35-0,45 bar; suhde (3,5 / 2,4)^2 = 2,1
@@ -171,11 +182,35 @@ class Plant:
             else:
                 self.pause_offs.append(U.us - start_passive)
 
+    def kappa(self, p):
+        return (self.c0 + 1.0 / (1.0 + max(-0.99, p)) ** 2) / (self.c0 + 1.0 / 3.5 ** 2)
+
     def _leak(self, dt_us):
-        self.p *= math.exp(-dt_us / 1e6 / self.tau)
+        if self.c0 is None:
+            self.p *= math.exp(-dt_us / 1e6 / self.tau)
+        else:
+            left = dt_us
+            while left > 0:           # tau riippuu paineesta: 2 ms askelin
+                h = min(left, 2000)
+                if self.leak_n is None:
+                    self.p *= math.exp(-h / 1e6 / (self.tau * self.kappa(self.p)))
+                elif self.p > 0.0:
+                    self.p = max(0.0, self.p - h / 1e6 * (2.5 / self.tau) * (self.p / 2.5) ** self.leak_n / self.kappa(self.p))
+                left -= h
         if self.delta_f: self.pf *= math.exp(-dt_us / 1e6 / self.tau_f)
 
     def advance(self, now):
+        if self.turns and self.p >= self.arm_bar:
+            self.turn_at = [(now + dt, tau) for dt, tau in self.turns]
+            self.tau_sched += self.turn_at
+            self.turns = []
+        while self.tau_sched and self.tau_sched[0][0] <= now:
+            self._apply(self.tau_sched[0][0])
+            self.tau = self.tau_sched.pop(0)[1]
+        if self.c0 is not None and now - self.probe_t >= 1000:
+            self._apply(now)
+            self.probe_t = now - now % 1000
+            self.probe.append((now, self.p + self.pf))
         while self.phi + (self.k + 1) * HALF_US <= now:
             t_zc = self.phi + (self.k + 1) * HALF_US
             self._apply(t_zc)
@@ -195,6 +230,7 @@ class Plant:
             ta, dp = self.pending.pop(0)
             self._leak(ta - self.last); self.last = ta
             if self.gas_bar is not None: dp *= ((1.0 + max(-0.99, self.p)) / (1.0 + self.gas_bar)) ** 2
+            if self.c0 is not None: dp /= self.kappa(self.p)
             self.p += dp
             self.pf += self.delta_f
         self._leak(t - self.last); self.last = t
@@ -217,6 +253,7 @@ class Adc:
 class Ratio:
     def set_pump_on(self): pass
     def set_pump_off(self): pass
+    def get_ratio(self): return 0.0
 
 
 class BrewData:
@@ -241,13 +278,35 @@ class BrewData:
     def get_pressure(self): return self.plant.bar(U.us)
     def get_weight(self): return None
     def get_flow(self): return None
+    # run_shot (EXPRESSO-UUTTO-8BAR): uutto 8 bar, vanha polku lukee paineen PressureSensor.sample_average:lla
+    brew_p, brew_method, pre_infusion_method, learned_ff_brew, weight_a, weight_b = 8.0, 0, 1, 0.5, 0.0, 0.0
+    def get_brew_pressure(self): return self.brew_p
+    def get_pre_infusion_mode(self): return True
+    def get_flow_mode(self): return False
+    def set_pump_ratio(self, r): self.pump_ratio = r
+    def get_boiler_temperature(self): return 93.0
+    def get_soft_pressure_release_arming_pressure(self): return 99.0
+    def get_pressure_soft_release_mode(self): return False
+    def get_pressure_average(self, utime):
+        self.pressure = self.pressure_sensor.sample_average(utime)
+        return self.pressure
 
 
 class Asyncio:
-    def __init__(self, stall_p=0.0, stall_ms=(5, 15)):
+    def __init__(self, stall_p=0.0, stall_ms=(5, 15), stall_hz=0.0):
         self.stall_p, self.stall_ms = stall_p, stall_ms
+        # stall_hz (uudet tapaukset 16-): varaus aikaan eika vuoroon sidottuna, jotta vanha uuttosilmukka (vuoro ~0,3 ms
+        # valein) ja pre_infusion_phased (vuoro vain tauoissa) saavat saman maaran varauksia sekunnissa
+        self.stall_hz, self.last = stall_hz, None
 
     async def sleep_ms(self, ms):
+        if self.stall_hz:
+            if self.last is None: self.last = U.us
+            if random.random() < 1.0 - math.exp(-self.stall_hz * (U.us - self.last) / 1e6):
+                U.us += random.randint(*self.stall_ms) * 1000
+            U.us += ms * 1000 if ms > 0 else 150
+            self.last = U.us
+            return
         U.us += ms * 1000 if ms > 0 else 150
         if self.stall_p and random.random() < self.stall_p:
             U.us += random.randint(*self.stall_ms) * 1000   # toinen tehtava (BLE, vaaka) varaa vuoron
@@ -265,6 +324,46 @@ def run(bd, until_s=None, stall_p=0.0, seed=1, stall_ms=(5, 15)):
     with redirect_stdout(out):
         asyncio.run(F.pre_infusion_phased(bd, U, Asyncio(stall_p, stall_ms), Ratio(), keep))
     return out.getvalue()
+
+
+class Stamp(io.StringIO):
+    """stdout, joka kirjaa jokaisen rivin virtuaaliajan (us) kirjoitushetkella: vanhan ja uuden uuttopolun rivit samalle
+    aika-akselille kuin Plant.probe."""
+    def __init__(self):
+        super().__init__()
+        self.at, self.buf = [], ''
+
+    def write(self, x):
+        if not self.buf: self.at.append(U.us)
+        self.buf += x
+        if self.buf.endswith('\n'): self.buf = ''
+        return super().write(x)
+
+
+def run_brew(bd, until_s, bim=1, seed=1, stall_hz=0.0, stall_ms=(5, 15), gc=False, iq_cost=0):
+    """run_shot (tshot-polku) virtuaalikellolla: pim:1-esiuutto ja bim:<bim>-uutto, kunnes aikaraja. Palauttaa (teksti,
+    [(us, rivi)])."""
+    import classes
+    random.seed(seed)
+    ps = classes.PressureSensor.__new__(classes.PressureSensor)
+    ps.pressure_sensor, ps.gain, ps.offset, ps.window_peak = bd.pressure_sensor.pressure_sensor, 1.0, -0.99, 0.0
+    bd.pressure_sensor = ps
+    bd.brew_method = bim
+    if gc: GC.enable()
+    GC.start()
+    IQ_CLOSE_US[0] = iq_cost
+    start = U.us
+    keep = lambda: U.us - start < until_s * 1e6
+    out = Stamp()
+    try:
+        with redirect_stdout(out):
+            asyncio.run(F.run_shot(bd, U, Asyncio(stall_ms=stall_ms, stall_hz=stall_hz), Ratio(), keep, 'TS', False))
+    finally:
+        IQ_CLOSE_US[0] = 0
+        bd.gc_auto, bd.gc_auto_t = GC.auto, list(GC.auto_t)
+        GC.disable()
+    text = out.getvalue()
+    return text, list(zip(out.at, text.splitlines()))
 
 
 def field(text, prefix, key):
@@ -308,6 +407,127 @@ def run9_dev(seed, carry, delta=0.12, tau=9.0):
     hold = num(out, 'EU_HOLD', 't_ms')
     ps = [float(l.split()[2]) for l in out.splitlines() if l.startswith('EU ') and hold <= int(l.split()[1]) < hold + 2000]
     return (sum(ps) / len(ps) - 2.5) if ps else 9.0, (bd.learned_ff_pre, bd.eu_g_pre, bd.eu_coast_s, bd.eu_tau_pre)
+
+
+# ---- uutto 8 bar (tapaukset 16-21, EXPRESSO-UUTTO-8BAR) ----
+# Malli testit/uutto8_sovitus.py: jousto c0 + 1/(1 + p)^2, vuoto ~ p^0,8, viive iskun puolijakson jalkeen 10 ms (= ~40 ms
+# kaskysta, TILAUS-I; 8 barin viivetta ei sovitettu), taytto 0,3 s kuten tapaus 15.
+M8 = dict(c0=0.03, leak_n=0.8, lag_us=10000, fill_us=300000)
+N8_PHASE = 6            # kohinattomat vaiheet
+N8_NOISE = 8            # kohinaiset siemenet
+
+
+def kappa8(p):
+    return (M8['c0'] + 1.0 / (1.0 + p) ** 2) / (M8['c0'] + 1.0 / 3.5 ** 2)
+
+
+def tau_for_need8(s25, need):
+    """tau25, jolla pidon tarve 8 barissa on need (tarve8 = tarve25 x (8/2,5)^0,8, tarve25 = 2,5 / (50 s25 tau25))."""
+    return (8.0 / 2.5) ** M8['leak_n'] * 2.5 / (50.0 * s25 * need)
+
+
+TURN8 = {n: tau_for_need8(0.27, n) for n in (0.3, 0.6, 0.2)}
+STATES8 = {'25b': (0.238, 0.77), '26b': (0.129, 3.74), 'kaanto': (0.27, TURN8[0.3])}
+
+
+def brew_bd(st, seed, noisy, turns=None):
+    s25, tau25 = STATES8[st]
+    bd = BrewData(hold_s=6.0, phi_us=(3100.0 * seed) % 20000, delta=s25, tau=tau25, noise=0.02 if noisy else 0.0,
+                  cyc_sd=0.25 if noisy else 0.0, turns=turns, **M8)
+    # Edellisen ajon esiuuton tiedot (kuten laitteella hyvaksynnan jalkeen): tarve = mallin tarve 2,5 barissa
+    bd.learned_ff_pre, bd.eu_g_pre, bd.eu_coast_s, bd.eu_tau_pre = 2.5 / (50.0 * s25 * tau25), 9.0, 0.1, 1.5
+    return bd
+
+
+def p100(probe):
+    """Plant.probe (1 ms) -> 100 ms liukuva keskiarvo 10 ms valein: [(us, bar)]."""
+    import bisect
+    ts, ps = [t for t, _ in probe], [p for _, p in probe]
+    cum = [0.0]
+    for p in ps: cum.append(cum[-1] + p)
+    out, t = [], ts[0] + 100000
+    while t <= ts[-1]:
+        a, b = bisect.bisect_left(ts, t - 100000), bisect.bisect_right(ts, t)
+        if b > a: out.append((t, (cum[b] - cum[a]) / (b - a)))
+        t += 10000
+    return out
+
+
+def brew_metrics(bd, txt, stamps, bim, target=8.0):
+    """Siirtyman suureet todellisesta paineesta (100 ms): ylitys uuton alusta pidon 1. s:n loppuun, pienin paine pidon
+    1. s:ssa, pidon 2-5 s keskiarvo (poikkeamina tavoitteesta), uuton alusta pitoon (s); uudelta polulta myos kello."""
+    pr = p100(bd.plant.probe)
+    tb = next(t for t, l in stamps if (l.startswith('EU_END ') if bim else l.startswith('TS ')))
+    th = next((t for t, l in stamps if l.startswith('EB_HOLD')), None) if bim else \
+        next((t for t, p in pr if t > tb and p >= target - 0.1), None)
+    m = dict(maxline=max(len(l) for l in txt.splitlines()), sd_hold=9e9, sd_pre=9e9, sk10_4=0, sk20_4=0)
+    if th is None:
+        tail = [p for t, p in pr if t > pr[-1][0] - 3e6]
+        m.update(over=max(p for t, p in pr if t >= tb) - target, drop=-9.0, m25=sum(tail) / len(tail) - target, t_hold=99.0)
+        return m
+    m.update(over=max(p for t, p in pr if tb <= t <= th + 1e6) - target,
+             drop=min(p for t, p in pr if th <= t <= th + 1e6) - target,
+             m25=sum(p for t, p in pr if th + 2e6 <= t < th + 5e6) / max(1, sum(1 for t, p in pr if th + 2e6 <= t < th + 5e6)) - target,
+             t_hold=(th - tb) / 1e6)
+    if bim:
+        hold_ms = int(field(txt, 'EB_HOLD', 't_ms'))
+        rows = [(int(l.split()[1]), float(re.search(r'sd_us=(\S+)', l).group(1)), int(re.search(r'sk10=(\d+)', l).group(1)),
+                 int(re.search(r'sk20=(\d+)', l).group(1))) for l in txt.splitlines()
+                if l.startswith('EU ') and l.split()[6] in ('3', '4')]
+        h = [r for r in rows if r[0] >= hold_ms]
+        m.update(sd_hold=h[0][1], sd_pre=num(txt, 'EU_END2', 'sd_us'), sk10_4=h[-1][2] - h[0][2], sk20_4=h[-1][3] - h[0][3])
+    return m
+
+
+def turn_metrics(pr, tt, target=8.0, band=0.3):
+    """Kuristimen kaanto hetkella tt: aika kaistalle target +- band niin, etta paine pysyy siella 0,5 s (s; 9,9 = ei
+    palannut), ja keskiarvo 1,5-3 s kaannosta - target."""
+    ts = [t for t, _ in pr if t >= tt]
+    back = next(((t - tt) / 1e6 for t in ts if all(abs(p - target) <= band for u, p in pr if t <= u <= t + 500000)), 9.9)
+    seg = [p for t, p in pr if tt + 1.5e6 <= t < tt + 3e6]
+    return back, (sum(seg) / len(seg) - target) if seg else 9.9
+
+
+def stat_ok(xs, hi, lo, share):
+    mean = sum(xs) / len(xs)
+    n_out = sum(1 for x in xs if x > hi or (lo is not None and x < lo))
+    return mean <= hi and (lo is None or mean >= lo) and n_out <= share * len(xs)
+
+
+class _Settings:
+    """save_settings/load_settings-testin brew_data: get_* palauttaa 1.0, set_* ei tee mitaan."""
+    def __init__(self):
+        self.learned_ff_pre, self.eu_g_pre, self.eu_tau_pre, self.eu_coast_s, self.eu_coast_fast_s = 0.3, 0.0, 0.0, 0.3, 0.2
+        self.eb_ff, self.eb_x, self.eb_g, self.eb_tau, self.eb_coast_s = 0.0, 0.0, 0.0, 0.0, F.EB_COAST_S0
+
+    def __getattr__(self, name):
+        if name.startswith('get_'): return lambda *a: 1.0
+        if name.startswith('set_'): return lambda *a: None
+        raise AttributeError(name)
+
+
+def settings_roundtrip():
+    import json
+    import tempfile
+    cwd = os.getcwd()
+    with tempfile.TemporaryDirectory() as d, redirect_stdout(io.StringIO()):
+        os.chdir(d)
+        try:
+            a = _Settings()
+            a.eb_ff, a.eb_x, a.eb_g, a.eb_tau, a.eb_coast_s = 0.61, 2.4, 23.5, 0.62, 0.137
+            F.save_settings(a, json)
+            b = _Settings()
+            F.load_settings(json, b)
+            ok = (b.eb_ff, b.eb_x, b.eb_g, b.eb_tau, b.eb_coast_s) == (0.61, 2.4, 23.5, 0.62, 0.137)
+            data = json.load(open('settings.txt'))
+            for k in ('eb_ff', 'eb_x', 'eb_g', 'eb_tau', 'eb_coast_s'): del data[k]
+            json.dump(data, open('settings.txt', 'w'))
+            c = _Settings()
+            F.load_settings(json, c)
+            ok = ok and (c.eb_ff, c.eb_x, c.eb_g, c.eb_tau, c.eb_coast_s) == (0.0, 0.0, 0.0, 0.0, F.EB_COAST_S0)
+        finally:
+            os.chdir(cwd)
+    return ok
 
 
 def main():
@@ -688,6 +908,168 @@ def main():
              share=NOISE_SHARE)
         stat(check, '15 rampin loppu ajo %d: huippu jälkinousun jälkeen ≤ yksi isku (0,45 bar)' % r, [x['tail'] for x in rs],
              0.45, share=NOISE_SHARE)
+
+    # ======================================================================================================================
+    # 16-21 uutto 8 bar vaiheseurannalla (EXPRESSO-UUTTO-8BAR, TILAUS-K vaiheet 3-4, bim:1) ja vanha uuttosilmukka (bim:0).
+    # Malli testit/uutto8_sovitus.py: jousto c0 + kaasu, vuoto ~ p^0,8 (M8). Tilat sovitettu laitteen ajoista: 25b (esiuutto-
+    # 20260925-b: isku 2,5 barissa 0,238, tau25 0,77 s, tarve 8 barissa 0,69) ja 26b (esiuutto-20260926-b: 0,129 / 3,74 s /
+    # 0,26). Vertailu mallin todellisesta paineesta (Plant.probe, 100 ms keskiarvo = p5 ilman mittauskohinaa), jotta
+    # vanha ja uusi polku mitataan samalla mittarilla: pito alkaa uudella EB_HOLDista, vanhalla ensimmaisesta hetkesta,
+    # jolloin paine >= tavoite - 0,1.
+    t16, old_fail = {}, {'over': [], 'drop': [], 'm25': []}
+    for st in ('25b', '26b'):
+        s25, tau25 = STATES8[st]
+        stroke = s25 / kappa8(8.0)
+        for noisy in (False, True):
+            seeds = range(160, 160 + N8_PHASE) if not noisy else range(260, 260 + N8_NOISE)
+            for bim in (1, 0):
+                rs = []
+                for seed in seeds:
+                    bd = brew_bd(st, seed, noisy)
+                    txt, stamps = run_brew(bd, 16.0, bim=bim, seed=seed, stall_hz=5.0 if noisy else 0.0)
+                    if seed == seeds[0]: open('/tmp/esiuutto_smoke_16_%s_%d_bim%d.log' % (st, noisy, bim), 'w').write(txt)
+                    rs.append(brew_metrics(bd, txt, stamps, bim))
+                t16[(st, noisy, bim)] = rs
+            new, old = t16[(st, noisy, 1)], t16[(st, noisy, 0)]
+            lab = '16 siirtymä %s %s' % (st, 'kohina' if noisy else 'kohinaton')
+            sh = NOISE_SHARE if noisy else STAT_SHARE
+            for key, name, hi, lo in (('over', 'vaiheen 3 ylitys < yksi 8 barin isku (%.2f bar)' % stroke, stroke, None),
+                                      ('drop', 'ei pudotusta pidon 1. s:ssa (p ≥ tavoite − 0,5)', None, -0.5),
+                                      ('m25', 'pidon 2–5 s keskiarvo 8 ± 0,15', 0.15, -0.15)):
+                xs, xo = [m[key] for m in new], [m[key] for m in old]
+                stat(check, '%s: %s' % (lab, name), xs, 99.0 if hi is None else hi, lo=lo, share=sh)
+                print('     vanha (bim:0): ka %+.3f, min %+.3f, max %+.3f; pitoon uusi %.2f s, vanha %.2f s' % (
+                    sum(xo) / len(xo), min(xo), max(xo), sum(m['t_hold'] for m in new) / len(new),
+                    sum(m['t_hold'] for m in old) / len(old)))
+            for k, hi, lo in (('over', stroke, None), ('drop', None, -0.5), ('m25', 0.15, -0.15)):
+                if not stat_ok([m[k] for m in old], 99.0 if hi is None else hi, lo, sh): old_fail[k].append(lab[3:])
+
+    # Tarkistus tunnistaa vian: vanha uuttosilmukka kaatuu ylitykseen (26b: isku 0,34 bar, vanha +0,74...+1,04) ja
+    # pudotukseen (25b kohina, vanha ka -0,57). Pidon keskiarvon vanha polku pitaa ~rajalla (ka -0,15...0), joten sen
+    # kaatumista ei vaadita (tulostetaan).
+    for k in ('over', 'drop'):
+        check('16 vanha uuttosilmukka (bim:0) kaatuu tarkistukseen %s' % k, bool(old_fail[k]), ', '.join(old_fail[k]))
+    print('     pidon keskiarvo: vanha kaatuu tiloissa %s' % (', '.join(old_fail['m25']) or '-'))
+
+    # 17 kuristimen kaanto kesken pidon (TILAUS-C): tarve 8 barissa 0,3 -> 0,6 -> 0,2 askeleena 4 ja 7 s uuton nousun
+    # jalkeen (Plant.turns, sama hetki molemmille poluille). Paine palaa kaistalle 8 +- 0,3 ~1 s:ssa eika lukkiudu:
+    # keskiarvo 1,5-3 s kaannosta 8 +- 0,15. Integraali ja ff sallivat tarpeen koko valilla 0...1.
+    r17 = {1: [], 0: []}
+    for bim in (1, 0):
+        for seed in range(170, 170 + N8_NOISE):
+            bd = brew_bd('kaanto', seed, True, turns=[(4000000, TURN8[0.6]), (7000000, TURN8[0.2])])
+            txt, stamps = run_brew(bd, 19.0, bim=bim, seed=seed, stall_hz=5.0)
+            if seed == 170: open('/tmp/esiuutto_smoke_17_bim%d.log' % bim, 'w').write(txt)
+            pr = p100(bd.plant.probe)
+            r17[bim].append([turn_metrics(pr, t) for t, _ in bd.plant.turn_at])
+    old17 = []
+    for i, name in ((0, '0,3 → 0,6'), (1, '0,6 → 0,2')):
+        xs, xo = [r[i][0] for r in r17[1]], [r[i][0] for r in r17[0]]
+        stat(check, '17 kuristimen kääntö %s: kaistalle 8 ± 0,3 ≤ 1,0 s' % name, xs, 1.0, share=NOISE_SHARE, fmt='%.2f')
+        print('     vanha (bim:0): ka %.2f s, max %.2f s' % (sum(xo) / len(xo), max(xo)))
+        check('17 kuristimen kääntö %s: vanha (bim:0) ei palaa kaistalle 1,0 s:ssa' % name,
+              not stat_ok(xo, 1.0, None, NOISE_SHARE), 'ka %.2f s' % (sum(xo) / len(xo)))
+        xs, xo = [r[i][1] for r in r17[1]], [r[i][1] for r in r17[0]]
+        stat(check, '17 kuristimen kääntö %s: ei lukkiutumista (ka 1,5–3 s käännöstä 8 ± 0,15)' % name, xs, 0.15, lo=-0.15,
+             share=NOISE_SHARE)
+        print('     vanha (bim:0): ka %+.3f, min %+.3f, max %+.3f' % (sum(xo) / len(xo), min(xo), max(xo)))
+        old17.append(not stat_ok(xo, 0.15, -0.15, NOISE_SHARE))
+    check('17 kuristimen kääntö: vanha (bim:0) kaatuu lukkiutumistarkistukseen vähintään toisessa käännössä', any(old17),
+          str(old17))
+
+    # 18 kello (kayttajan valinta a 27.9.2026): lukossa (2,5 sd < EU_PHASE_OK_US) viimeistaan vaiheen 4 alussa, ja
+    # vaiheessa 4 tauot ovat 10 ms. 26b:n esiuuton tarve 0,1 on pieni kuten laitteella ao-as: pidon vareily jaa AMP_MIN:n
+    # alle, kello on vapaa vaiheessa 2 ja lukittuu vasta vaiheen 3 hitaista ikkunoista (EB_CLK_RATE). Ilman niita
+    # (EB_CLK_RATE -inf: vaiheet 3-4 eivat opeta, kuten vanha learn=(phase == 2)) tarkistus kaatuu.
+    def clock18(rate):
+        keep, F.EB_CLK_RATE = F.EB_CLK_RATE, rate
+        rs = []
+        try:
+            for seed, noisy in [(x, False) for x in range(160, 160 + N8_PHASE)] + [(x, True) for x in range(260, 260 + N8_NOISE)]:
+                bd = brew_bd('26b', seed, noisy)
+                txt, stamps = run_brew(bd, 16.0, bim=1, seed=seed, stall_hz=5.0 if noisy else 0.0)
+                rs.append(brew_metrics(bd, txt, stamps, 1))
+        finally:
+            F.EB_CLK_RATE = keep
+        return rs
+    for st in ('25b', '26b'):
+        rs = [m for noisy in (False, True) for m in t16[(st, noisy, 1)]]
+        check('18 kello %s: lukossa pidon alussa (2,5 sd < %d us)' % (st, F.EU_PHASE_OK_US),
+              all(2.5 * m['sd_hold'] < F.EU_PHASE_OK_US for m in rs),
+              'sd_us max %.0f, esiuuton lopussa max %.0f' % (max(m['sd_hold'] for m in rs), max(m['sd_pre'] for m in rs)))
+        check('18 kello %s: vaiheen 4 tauoista ≥ 80 %% 10 ms' % st, all(m['sk10_4'] >= 0.8 * (m['sk10_4'] + m['sk20_4']) and
+                                                                     m['sk10_4'] > 0 for m in rs),
+              'sk10/sk20 %s' % ['%d/%d' % (m['sk10_4'], m['sk20_4']) for m in rs[-4:]])
+    # Kohinattomassa 26b:ssa kello on esiuuton lopussa vapaa (sd ~9 ms): pidon alun lukko tulee vaiheen 3 hitaista
+    # ikkunoista. Kohinaisissa se on lukossa jo vaiheessa 2, mutta ilman vaiheen 4 oppia tauot muuttuvat 20 ms:ksi.
+    rs = clock18(-1e9)
+    check('18 kello 26b ilman vaiheiden 3-4 oppia: kohinaton lukitsematta pidon alussa, kohinainen 20 ms tauot',
+          not all(2.5 * m['sd_hold'] < F.EU_PHASE_OK_US for m in rs[:N8_PHASE]) and
+          not all(m['sk10_4'] >= 0.8 * (m['sk10_4'] + m['sk20_4']) for m in rs[N8_PHASE:]),
+          'sd_us %s, sk10/sk20 %s' % (['%.0f' % m['sd_hold'] for m in rs[:N8_PHASE]],
+                                     ['%d/%d' % (m['sk10_4'], m['sk20_4']) for m in rs[N8_PHASE:]]))
+
+    # 19 vuoronvaraus vaiheissa 3-4: roskienkeruu (Gc kuten tapaus 14), toisen tehtavan varaukset 13-28 ms 5/s ja kellon
+    # ikkunan sulku 9 ms. vv=1: ei myohastyneita taukoja (late 0) releen ollessa paalla; vv=0 (euv:0): vahti laskee.
+    r19 = {0: [], 1: []}
+    for vv in (1, 0):
+        for seed in range(190, 190 + N8_NOISE):
+            bd = brew_bd('25b', seed, True)
+            bd.eu_vv = vv
+            txt, stamps = run_brew(bd, 16.0, bim=1, seed=seed, stall_hz=5.0, stall_ms=(13, 28), gc=True, iq_cost=9000)
+            # Automaattiset keruut vain vaiheista 3-4 (siirtyman jalkeen): vaiheessa 1 rele on paalla joka tapauksessa
+            tb = next(t for t, l in stamps if l.startswith('EU_END '))
+            r19[vv].append((int(num(txt, 'EB_END', 'late')), sum(1 for t in bd.gc_auto_t if t >= tb),
+                            int(num(txt, 'EB_VV', 'gc_n')), max(len(l) for l in txt.splitlines())))
+    check('19 vuoronvaraus vaiheet 3-4 vv=1: late 0, ei automaattista keruuta vaiheissa 3-4',
+          all(x[0] == 0 and x[1] == 0 for x in r19[1]),
+          'late %s, auto %s, hallittu %s' % ([x[0] for x in r19[1]], [x[1] for x in r19[1]], [x[2] for x in r19[1]]))
+    check('19 vuoronvaraus vaiheet 3-4 vv=0: vahti laskee myöhästymiset (late > 0)', all(x[0] > 0 for x in r19[0]),
+          'late %s' % [x[0] for x in r19[0]])
+
+    # 20 opitut uuttoarvot erillaan: uuton oppi ei muuta esiuuton arvoja (samat kuin samalla siemenella bim:0:lla, jossa
+    # uuttoa ei opita), eb_* talteen, ja 2. ajo kayttaa 1. ajon uuttoarvoja (EB_START). settings.txt: eb_*-avaimet
+    # tallentuvat ja latautuvat; vanha tiedosto ilman avaimia -> oletukset.
+    pre_keys = ('learned_ff_pre', 'eu_g_pre', 'eu_tau_pre', 'eu_coast_s', 'eu_coast_fast_s')
+    vals = {}
+    for bim in (1, 0):
+        bd = brew_bd('25b', 200, False)
+        txt, stamps = run_brew(bd, 16.0, bim=bim, seed=200)
+        vals[bim] = (bd, txt, [getattr(bd, k) for k in pre_keys], stamps)
+    bd1, txt1, pre1, stamps1 = vals[1]
+    check('20 uuton oppi ei muuta esiuuton arvoja (= bim:0 samalla siemenellä)', pre1 == vals[0][2],
+          'bim:1 %s, bim:0 %s' % (['%.3f' % v for v in pre1], ['%.3f' % v for v in vals[0][2]]))
+    eu_same = [l for l in txt1.splitlines() if l.startswith('EU_END ')] == \
+              [l for l in vals[0][1].splitlines() if l.startswith('EU_END ')]
+    check('20 esiuuton EU_END sama bim:1 ja bim:0', eu_same)
+    eb = {k: getattr(bd1, k, 0.0) for k in ('eb_ff', 'eb_x', 'eb_g', 'eb_tau', 'eb_coast_s')}
+    check('20 uuttoarvot opittu (eb_ff, eb_x, eb_g, eb_tau > 0)', all(eb[k] > 0 for k in ('eb_ff', 'eb_x', 'eb_g', 'eb_tau')),
+          ' '.join('%s=%.3f' % kv for kv in eb.items()))
+    bd1.plant.p, bd1.plant.pending = 0.0, []    # ajojen valissa paine purkautuu (kuten tapaus 2)
+    txt2, _ = run_brew(bd1, 16.0, bim=1, seed=201)
+    ex = lambda k: float(field(txt2, 'EB_START', k))
+    ok2 = abs(ex('x') - eb['eb_x']) < 0.006 and abs(ex('coast_s') - eb['eb_coast_s']) < 0.0006 and \
+        abs(ex('g') - eb['eb_g']) < 0.006 and abs(ex('tau') - eb['eb_tau']) < 0.006 and \
+        abs(ex('ff') - min(1.0, max(0.05, float(field(txt2, 'EB_START', 'ff_pre')) * eb['eb_x']))) < 0.006
+    check('20 2. ajo käyttää 1. ajon uuttoarvoja (EB_START x, coast_s, g, tau; ff = esiuuton tarve × x)', ok2,
+          [l for l in txt2.splitlines() if l.startswith('EB_START')][0][:160])
+    txt2b, _ = run_brew(brew_bd('25b', 201, False), 16.0, bim=1, seed=201)
+    check('20 ilman edellistä uuttoa x = (8 / 2,5)^%.1f' % F.EB_LEAK_N,
+          abs(float(field(txt2b, 'EB_START', 'x')) - (8.0 / 2.5) ** F.EB_LEAK_N) < 0.006, field(txt2b, 'EB_START', 'x'))
+    check('20 settings.txt: eb_* tallentuu ja latautuu, vanha tiedosto -> oletukset', settings_roundtrip(), '')
+
+    # 21 bim:0 ajaa vanhan uuttosilmukan (TS-rivit, ei EB-riveja, TS_END kerran), ja uuden polun siirtymarivit tulostuvat
+    # jonosta enintaan yksi jaksoa kohden (EU_END, EU_END2, EU_VV, EB_START >= 15 ms valein), rivit <= 255 merkkia.
+    txt0 = vals[0][1]
+    check('21 bim:0: vanha uuttosilmukka (TS-rivejä, ei EB-rivejä, TS_END kerran)',
+          sum(1 for l in txt0.splitlines() if l.startswith('TS ')) > 50 and 'EB_' not in txt0 and txt0.count('TS_END') == 1,
+          'TS %d, EB %d' % (sum(1 for l in txt0.splitlines() if l.startswith('TS ')), txt0.count('EB_')))
+    check('21 bim:1: TS_END kerran, ei TS-rivejä', txt1.count('TS_END') == 1 and '\nTS ' not in txt1, field(txt1, 'TS_END', 'loops'))
+    at = [t for t, l in stamps1 if l.startswith(('EU_END ', 'EU_END2', 'EU_VV', 'EB_START'))]
+    check('21 siirtymän loppurivit jonosta ≥ 15 ms välein', len(at) == 4 and all(b - a >= 15000 for a, b in zip(at, at[1:])),
+          'välit ms %s' % [round((b - a) / 1000) for a, b in zip(at, at[1:])])
+    ml = max(m['maxline'] for rs in t16.values() for m in rs)
+    check('21 rivit ≤ 255 merkkiä (USB-CDC:n jono)', max(ml, max(x[3] for x in r19[1])) <= 255, '%d' % ml)
 
     print('RESULT: %d failed' % len(failed))
     return 1 if failed else 0

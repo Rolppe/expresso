@@ -153,6 +153,12 @@ class Verkkokello:
         self.p_ref += GATE_ALPHA * (p - self.p_ref); self.p_run = 0
         return True
 
+    def gate_reset(self):
+        """Porttien viitteet alusta (EXPRESSO-UUTTO-8BAR): esiuutosta uuttoon siirryttaessa paineen taso muuttuu
+        pysyvasti 2,5 -> 8 bar ja vareilyn amplitudi sen mukana. Ilman nollausta amplitudiportti hylkaisi GATE_MAX
+        ikkunaa (~3 s) ennen viitteen siirtoa, ja kello lukittuisi vasta pidossa."""
+        self.amp_ref, self.gate_run, self.p_ref, self.p_run = None, 0, None, 0
+
     def accept(self, amp, p):
         """0 = ikkuna paivittaa kellon, 1 = amplitudiportti hylkasi, 2 = paineportti hylkasi."""
         if not self.gate(amp): return 1
