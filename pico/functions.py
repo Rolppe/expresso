@@ -205,8 +205,56 @@ EU_IQ_CLOSE_US = 12000       # kellon ikkunan sulku (iq_close + VKELLO-rivi 10-1
 EU_PRINT_GAP_MS = 20         # loppurivien vali: USB-CDC:n lahetysjono on 256 tavua ja ylikirjoittuu ilman DTR:aa (EU_END 278
                              # merkkia katkesi, laite ah-am), joten rivit <= 255 ja jono tyhjenee valissa
 
+# ============================================================================
+#  UUTTO VAIHESEURANNALLA (bim:1) - TILAUS-K vaiheet 3-4 (EXPRESSO-UUTTO-8BAR, 27.9.2026)
+# ============================================================================
+# VAATIMUS: TILAUS-K, TILAUS-L, TILAUS-I, TILAUS-J, TILAUS-B, TILAUS-C, TILAUS-F, TILAUS-G
+#
+# Esiuuton pidon lopusta (end_t) silmukka ei paaty, vaan jatkuu samana silmukkana (kello, delta-sigma, vuoronvaraus,
+# myohastymisvahti ja hallittu keruu katkeamatta):
+# Vaihe 3 (nousu uuttopaineeseen): taysi sykli, kunnes p5 + nousunopeus x opittu jalkinousu (eb_coast_s) >= tavoite -
+#   EB_CUT_MARGIN_BAR; sitten ramppi ja loppulahestyminen kuten vaiheessa 2 (TILAUS-K: "yliampumisen ehkaisy samoin").
+# Vaihe 4 (pito): delta-sigma ja PI(D) kuten vaihe 2, kunnes keep_running() on epatosi (kytkin, tshot, turvarajat).
+# Uuton ff, G, tau ja jalkinousu opitaan erillaan esiuuton arvoista (eb_ff, eb_x, eb_g, eb_tau, eb_coast_s, settings.txt).
+# Laitemalli (testit/uutto8_sovitus.py, 8 ajoa 24.-26.9.2026): jousto vakio + kaasu/p_abs^2 (c0 0,03), vuoto ~ p^0,8,
+# pumpun kayraa (pmax 15 bar) nousudata ei tue. Pidon tarve = vuoto / (50 x iskun tilavuus), jousto supistuu pois, joten
+# saman ajon esiuuton tarve x (uuttopaine / esiuuttopaine)^0,8 on uuton tarpeen paras ensiarvio (sama kuristin samassa
+# ajossa). Isku 8 barissa 0,34-0,93 bar, p/vuoto 8 barissa 0,18-1,8 s, tarve 8 barissa 0,26-1,01; vanha saadin mallissa
+# toistaa laitteen TS-pidon keskipaineen (rms 0,19 bar, 7 ajoa) ja ~1 barin pudotukset (min 6,1-6,6).
+EB_LEAK_N = 0.8              # vuodon eksponentti: ensiarvion kerroin (uuttopaine / esiuuttopaine)^tama, kunnes eb_x opittu
+EB_CUT_MARGIN_BAR = 0.3      # sama kuin EU_CUT_MARGIN_BAR
+EB_COAST_S0 = 0.2            # jalkinousun oletus: nousu 2,5 -> 8 on aina nopea (TS-rivit 7-21 bar/s), sama kuin EU_COAST_FAST_S0
+EB_RAMP_BAR_PER_S = 4.0      # loppunoston ramppi kuten vaiheessa 2, mutta 4 bar/s: vuoto 8 barissa on nopea (p/vuoto 0,2-1,8 s),
+                             # joten nousu jaksaa rampin. Malli (4 kuristintilaa, 6 siementa, kohina): katkaisusta pitoon
+                             # 1,6-1,8 -> 1,0-1,2 s, ylitys ja pidon alun notkahdus samat kuin 2 bar/s:lla
+EB_TAU_MIN, EB_TAU_MAX = 0.05, 30.0
+EB_KP, EB_KI_X = 0.2, 3.0    # P ja integraalin kerroin (EU_KI x tama) vaiheissa 3-4 (TILAUS-C: kuristimen kaanto). Malli (kaanto
+                             # tarve 0,3 -> 0,6 -> 0,2 askeleena, kohina, 6 siementa): kaistalle +-0,3 bar KI x 1: 1,5-1,6 s,
+                             # x 2: 0,8-0,9, x 3: 0,6, x 4: 0,5 s; pidon sd 0,095 / 0,093 / 0,105 / 0,110. KP 0,3-0,5 heiluttaa
+                             # (sd 0,16-0,20, notkahdus pidon alussa -0,9...-1,1): iskun vahvistus 8 barissa ~3 x 2,5 barin
+EB_GC_RISE_FRAC = 0.5        # vaiheen 3 taydella nousulla keruu vain nousun alkupuoliskolla (rele paalla joka tapauksessa,
+                             # kuten vaihe 1): kaukana katkaisusta, ettei pysahdys osu katkaisuun
+# Kello (kayttajan valinta a 27.9.2026: lukitus vaiheen 3 nousussa). Taydella pumpulla nousevan paineen vareilyn viive
+# poikkeaa nousunopeuden mukaan (testit/vkello_dpdt.py, 510 ikkunaa, 4 ajoa: 2-4 bar/s -613 us, 4-7 -961, 7-12 -1091;
+# ajojen valinen ero sd ~850 us), joten kiintea korjaus ei ole harhaton (vkello_rise_learn: noususta opetettu kello
+# -3,9 / +3,6 / -6,8 ms vaarassa lukituksi ilmoitettuna). Alle 2 bar/s nousevissa ikkunoissa poikkeama on +8 us (n 270,
+# -0,5...0,5 bar/s) ja +128 us (n 79, 0,5-2 bar/s), eli LOCK_US:n (1000) alla. Siksi vaiheissa 3-4 ikkuna opettaa vain,
+# kun sen keskipaine nousi edellisesta ikkunasta alle EB_CLK_RATE bar/s: vaiheen 3 taysi nousu ei opeta (gate=-1),
+# rampin loppu ja loppulahestyminen opettavat, joten kello lukittuu ennen pitoa.
+EB_CLK_RATE = 2.0            # bar/s
+EB_HEAT_OFF_MS, EB_HEAT_ON_MS = 100, 50   # lammittimen pulssitus kuten vanhassa uuttosilmukassa (pois 100 ms, paalla 50 ms)
+EB_RATIO_MS = 1000           # set_pump_ratio 1 s valein kuten vanhassa uuttosilmukassa
+# Vuoronvaraus vaiheissa 3-4 (vv=1): 8 barin tarve 0,3-0,9 tekee tauoista yksittaisia 10 ms taukoja (rele palaa kesken jakson),
+# joten vaiheen 2 saanto (vuoro ja keruu vain, kun rele on pois eika seuraava jakso iske) ei paastaisi vuoroa koskaan: keko
+# tayttyisi (automaattinen keruu 15-28 ms releen ollessa paalla -> late) ja muut tehtavat (vaaka, BLE) nalkiintyisivat.
+# Lisaksi sallitaan vuoro ja keruu, kun rele on paalla ja seuraavakin jakso iskee (ei pend_on): alle 2 jakson (40 ms)
+# pysahdys myohastyttaa vain seuraavan iskevan jakson kasittelyn, eika seuraavaa taukoa. Mitattu pisin pysahdys 28 ms
+# (laite an). Malli (smoke 19, keruu + 13-28 ms varaukset 5/s): ilman tata late 2-4 ja automaattisia keruita 11-13/ajo.
 
-async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, keep_running=None):
+
+async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, keep_running=None, brew=False):
+    # brew=True (bim:1, run_shot): esiuuton jalkeen vaiheet 3-4 samassa silmukassa; palauttaa (jaksot, pisin jakson
+    # vali ms) vaiheista 3-4 run_shotin <label>_END-riville. brew=False: esiuutto kuten ennen, palauttaa None.
     import math
     from verkkokello import Verkkokello
     RELAY_PUMP, RELAY_SOLENOID, RELAY_HEATER = brew_data.get_relays()
@@ -267,6 +315,15 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
     g_cut, ff_rate, ff_carry, dh_s, dh_n = 0.0, 0.0, 0.0, 0.0, 0
     kd, kd_h, l_s0, l_r0, coast_c = EU_KD, EU_KD, None, 0, coast_s
     stall_n = gc_n = gc_max = k_max = s_max = y_max = late_max = 0
+    # Vaiheet 3-4 (brew, EXPRESSO-UUTTO-8BAR): vaihe 1-2 -muuttujat alustetaan siirtymassa uudelleen uuton arvoilla.
+    # ds = delta-sigma kaytossa (vaihe 2, vaihe 3 katkaisun jalkeen, vaihe 4); vaiheessa 2 sama kuin phase == 2.
+    stage_b, ds, tgt_pre, ramp_r, tag = False, False, target, EU_RAMP_BAR_PER_S, 'EU'
+    kp_n, ki_n, kp_t, ki_t = EU_KP, 1.0, EU_KP_TAIL, EU_KI_TAIL_X     # P ja integraalin kerroin: normaali, loppulahestyminen
+    q, pre_ok, b_slots, b_gap, tb0, heat, ratio_t, p_wp, t_wp = [], False, 0, 0, None, None, None, None, None
+    eb_coast = getattr(brew_data, 'eb_coast_s', EB_COAST_S0)
+    eb_x = getattr(brew_data, 'eb_x', 0.0)
+    eb_g = getattr(brew_data, 'eb_g', 0.0)
+    eb_tau = getattr(brew_data, 'eb_tau', 0.0)
     try:
         while True:
             now = utime.ticks_us()
@@ -310,13 +367,51 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                 rate = ((p5 - sum(hist[:EU_AVG_N]) / EU_AVG_N) / (EU_AVG_N * 0.02)
                         if len(hist) == 2 * EU_AVG_N else 0.0)
                 dt = 0.02 if last_slot is None else min(0.1, utime.ticks_diff(t, last_slot) / 1e6)
+                if stage_b:
+                    b_slots += 1
+                    gap_ms = utime.ticks_diff(t, last_slot) // 1000
+                    if gap_ms > b_gap: b_gap = gap_ms
                 last_slot = t
                 n_slot += 1
                 if p > p_max: p_max = p
                 if (hold_t is None or utime.ticks_diff(t, hold_t) < EU_OVER_MS * 1000) and p5 > rise_max:
                     rise_max = p5
                 if end_t is not None and utime.ticks_diff(t, end_t) >= 0:
-                    reason = 'done'; break
+                    reason = 'done'
+                    if not brew: break
+                    # Siirtyma vaiheeseen 3 (EXPRESSO-UUTTO-8BAR): silmukka jatkuu. Esiuuton loppurivit ja oppi kuten
+                    # ajon lopussa (samat luvut: tama jakso ei viela ole laskuissa), rivit jonoon ja tulostus enintaan
+                    # yksi jaksoa kohden (USB-CDC:n 256 tavun jono). gc.mem_free() kay keon lapi 7,3 ms (laite an), joten
+                    # EU_VV fr_end=-1 siirtymassa.
+                    l1, l2, pre_ok = _eu_end(brew_data, clock, t, reason, target, hold_t, l_s0, l_r0, strokes, removed,
+                                             rate_cut, p_cut, g_cut, coast_s, coast_f, h_s, h_ss, h_n, dh_s, dh_n, p_max,
+                                             rise_max, skips10, skips20, late, miss, windows, win_low, learned, kd)
+                    q = [l1, l2, 'EU_VV vv=%d stall=%d gc_n=%d gc_max_us=%d fr0=%d fr_end=-1 k_max_us=%d s_max_us=%d '
+                         'y_max_us=%d late_max_us=%d' % (vv, stall_n, gc_n, gc_max, free0 // 1024, k_max, s_max, y_max,
+                                                          late_max)]
+                    stage_b, phase, tag, ramp_r, reason = True, 3, 'EB', EB_RAMP_BAR_PER_S, 'stop'
+                    kp_n, ki_n, kp_t, ki_t = EB_KP, EB_KI_X, max(EB_KP, EU_KP_TAIL), max(EB_KI_X, EU_KI_TAIL_X)
+                    target = brew_data.get_brew_pressure()
+                    # Uuton tarpeen ensiarvio taman ajon esiuuton tarpeesta (sama kuristin samassa ajossa): tarve ~ p^0,8
+                    # (testit/uutto8_sovitus.py, EB_LEAK_N). Edellisen uuton suhde uuton ja esiuuton tarpeen valilla (eb_x)
+                    # korvaa sen, kun se on opittu.
+                    x = eb_x if eb_x > 0.0 else (target / tgt_pre) ** EB_LEAK_N
+                    ff = min(1.0, max(0.05, brew_data.learned_ff_pre * x))
+                    coast_c, cut_t, p_cut, rate_cut, peak, coast_open = eb_coast, None, None, None, None, False
+                    ramp_base = ramp_t = hold_t = end_t = sp_t = None
+                    ramp_done = ramp_above = False
+                    sp, integ, acc, d, pump_next, ramp_ff, g_cut, kd, kd_h = target, 0.0, 0.0, 1.0, True, 0.0, 0.0, EU_KD, EU_KD
+                    strokes = removed = skips10 = skips20 = late = miss = windows = win_low = learned = 0
+                    p_max, rise_max, h_s, h_ss, h_n, duty_avg = 0.0, 0.0, 0.0, 0.0, 0, ff
+                    dh_s, dh_n, l_s0, l_r0 = 0.0, 0, None, 0
+                    stall_n = gc_n = gc_max = k_max = s_max = y_max = late_max = 0
+                    # Paineen tason muutos 2,5 -> 8 bar on pysyva, ei transientti: porttien viitteet alusta
+                    clock.gate_reset()
+                    tb0, ratio_t = t, t
+                    brew_data.set_mode('brew loop')
+                    q.append('EB_START t_ms=%d target=%.2f ff=%.2f x=%.2f ff_pre=%.2f pre_ok=%d coast_s=%.3f g=%.2f tau=%.2f' % (
+                        utime.ticks_diff(t, t0) // 1000, target, ff, x, brew_data.learned_ff_pre, 1 if pre_ok else 0,
+                        coast_c, eb_g, eb_tau))
                 if not keep_running():
                     reason = 'stop'; break
 
@@ -370,15 +465,32 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                     out.append('EU_CUT t_ms=%d p=%.2f rate=%.2f coast_s=%.3f pred=%.2f g=%.2f ff=%.2f ffr=%.2f ffc=%.2f tau=%.2f' % (
                         utime.ticks_diff(t, t0) // 1000, p5, rate, coast_c, p5 + rate * coast_c, g, ff, ff_rate,
                         ff_carry, tau_prev))
-                if phase == 2:
+                # Vaihe 3: katkaisu kuten vaiheessa 1 (ennuste p5 + nousunopeus x jalkinousu). ff on jo valittu siirtymassa;
+                # G = rate + p5/tau taman ajon noususta, tau siita, etta pidon tarve ff = tavoite / (G tau): tau = (tavoite/ff
+                # - p5) / rate (sama kuin EU_END tau_obs). Hitaasta noususta G:ta ei saa: edellisen uuton eb_g.
+                if phase == 3 and cut_t is None and len(hist) == 2 * EU_AVG_N and \
+                        p5 + rate * coast_c >= target - EB_CUT_MARGIN_BAR:
+                    cut_t, p_cut, rate_cut, peak, coast_open = t, p5, rate, p5, True
+                    ramp_base, ramp_t, integ, acc = p5, t, 0.0, 0.0
+                    tau_c, g = eb_tau, eb_g
+                    if rate >= EU_RATE_MIN and target / ff > p5:
+                        tau_c = min(EB_TAU_MAX, max(EB_TAU_MIN, (target / ff - p5) / rate))
+                        g = rate + p5 / tau_c
+                    ramp_ff = min(EU_RAMP_FF_MAX, ramp_r / g) if g > 0.0 else 0.0
+                    g_cut = g
+                    if g > 0.0: kd, kd_h = min(EU_KD, EU_KD_G / g), min(EU_KD, EU_KD_G_HOLD / g)
+                    out.append('EB_CUT t_ms=%d p=%.2f rate=%.2f coast_s=%.3f pred=%.2f g=%.2f ff=%.2f tau=%.2f' % (
+                        utime.ticks_diff(t, t0) // 1000, p5, rate, coast_c, p5 + rate * coast_c, g, ff, tau_c))
+                ds = phase == 2 or phase == 4 or (phase == 3 and cut_t is not None)
+                if ds:
                     if hold_t is None:
                         # Paine ehti tavoitteeseen ennen ramppia (jalkinousu): ramppi on tehty, eika paine putoa sen
                         # huipusta rampille (laite ao-as 27.9.2026). Vasta jalkinousun ikkunan jalkeen: sen nopea osa
                         # (uuttoasento, purku 0,08 s) nostaa p5:n hetkeksi tavoitteeseen, ja pito alkoi transientista
                         if not ramp_done and not coast_open and p5 >= target - EU_HOLD_TOL_BAR:
                             ramp_done = True
-                            out.append('EU_RAMP_DONE t_ms=%d p=%.2f sp=%.2f' % (utime.ticks_diff(t, t0) // 1000, p5, sp))
-                        sp = target if ramp_done else ramp_base + EU_RAMP_BAR_PER_S * utime.ticks_diff(t, ramp_t) / 1e6
+                            out.append('%s_RAMP_DONE t_ms=%d p=%.2f sp=%.2f' % (tag, utime.ticks_diff(t, t0) // 1000, p5, sp))
+                        sp = target if ramp_done else ramp_base + ramp_r * utime.ticks_diff(t, ramp_t) / 1e6
                         if sp >= target:
                             sp = target
                             if sp_t is None: sp_t = t
@@ -390,10 +502,13 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                                     p5 <= target + EU_HOLD_TOL_BAR or
                                     utime.ticks_diff(t, sp_t) >= EU_HOLD_WAIT_MS * 1000):
                                 hold_t = t
-                                end_t = utime.ticks_add(t, hold_us)
-                                brew_data.set_mode('pre-infusion main')
-                                out.append('EU_HOLD t_ms=%d p=%.2f wait_ms=%d' % (
-                                    utime.ticks_diff(t, t0) // 1000, p5, utime.ticks_diff(t, sp_t) // 1000))
+                                if stage_b:
+                                    phase = 4         # uuton pito jatkuu, kunnes keep_running() on epatosi
+                                else:
+                                    end_t = utime.ticks_add(t, hold_us)
+                                    brew_data.set_mode('pre-infusion main')
+                                out.append('%s_HOLD t_ms=%d p=%.2f wait_ms=%d' % (
+                                    tag, utime.ticks_diff(t, t0) // 1000, p5, utime.ticks_diff(t, sp_t) // 1000))
                     else:
                         sp = target
                         h_s += p; h_ss += p * p; h_n += 1
@@ -409,10 +524,11 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                             if learn:
                                 obs = (peak - p_cut) / rate_cut
                                 coast_c = max(EU_COAST_MIN, min(EU_COAST_MAX, coast_c + 0.5 * (obs - coast_c)))
-                                if rate_cut >= EU_RATE_FAST: coast_f = coast_c
+                                if stage_b: pass              # uuton jalkinousu erikseen (eb_coast_s), ei esiuuton arvoihin
+                                elif rate_cut >= EU_RATE_FAST: coast_f = coast_c
                                 else: coast_s = coast_c
-                            out.append('EU_COAST peak=%.2f rise=%.2f rate=%.2f coast_s=%.3f fast=%d learn=%d' % (
-                                peak, peak - p_cut, rate_cut, coast_c, 1 if rate_cut >= EU_RATE_FAST else 0,
+                            out.append('%s_COAST peak=%.2f rise=%.2f rate=%.2f coast_s=%.3f fast=%d learn=%d' % (
+                                tag, peak, peak - p_cut, rate_cut, coast_c, 1 if rate_cut >= EU_RATE_FAST else 0,
                                 1 if learn else 0))
                     e = sp - p
                     # Rampin aikana tasapainoduty skaalautuu paineen mukana (ff on mitattu tavoitteessa).
@@ -423,7 +539,7 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                     # myotakytkenta jatti paineen ~0,25 bar tavoitteen alle, ja loppu vei pelkalla P-termilla
                     # 0,4-0,6 s (sovitettu malli: katkaisusta pitoon 1,2-1,3 s -> 0,63-0,72 s).
                     uff = ff
-                    kp, ki_x = EU_KP, 1.0
+                    kp, ki_x = kp_n, ki_n
                     kd_r = kd
                     if hold_t is None:
                         if sp < target:
@@ -436,14 +552,14 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                         if p5 >= sp + EU_ABOVE_BAR: ramp_above = True
                         gx = ((EU_GAS_ABS + sp) / (EU_GAS_ABS + p_cut)) ** EU_GAS_EXP if ramp_above and sp > p_cut else 1.0
                         if g_cut > 0.0: kd_r = min(EU_KD, EU_KD_G / (g_cut * gx))
-                        if p5 < sp and p5 < target - EU_RAMP_BAR_PER_S * EU_RAMP_LEAD_S:
+                        if p5 < sp and p5 < target - ramp_r * EU_RAMP_LEAD_S:
                             uff += ramp_ff / gx
                     if (hold_t is None and sp >= target) or \
                             (hold_t is not None and utime.ticks_diff(t, hold_t) < EU_TAIL_HOLD_MS * 1000):
-                        kp, ki_x = EU_KP_TAIL, EU_KI_TAIL_X
+                        kp, ki_x = kp_t, ki_t
                     # D: virheen derivaatta = rampin nopeus - paineen nousunopeus (rate: 5 jakson keskiarvojen erotus,
                     # sama kuin katkaisussa). Rampilla sita seuraava paine antaa nollan.
-                    dterm = (kd_r if hold_t is None else kd_h) * ((EU_RAMP_BAR_PER_S if hold_t is None and sp < target else 0.0) - rate)
+                    dterm = (kd_r if hold_t is None else kd_h) * ((ramp_r if hold_t is None and sp < target else 0.0) - rate)
                     u = uff + kp * e + EU_KI * integ + dterm
                     # Integraali vain pidossa, rampin paatyttya tai lahella asetusarvoa: rampin viive kasasi sen
                     # c-ajossa (1,1 bar vajetta 0,5 s) ja se purkautui yliampumana 3,6 bariin. Rampin paatyttya
@@ -473,7 +589,7 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                             if l_s0 is None: l_s0, l_r0 = strokes, removed
 
                 # Seuraava jakso paatetaan nyt (delta-sigma); tama jakso toimi jo yllä.
-                if phase == 2:
+                if ds:
                     acc = max(-1.0, acc + us)
                     pump_next = acc >= 1.0
                     if pump_next: acc -= 1.0
@@ -505,6 +621,21 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                     out.append('EU %d %.2f %.2f %d %.2f %d p5=%.2f sd_us=%.0f rm=%d sk10=%d sk20=%d late=%d %s' % (
                         utime.ticks_diff(t, t0) // 1000, p, sp, 1 if relay[0] else 0, d, phase, p5,
                         clock.sd_us(t), removed, skips10, skips20, late, weight_flow_log(brew_data)))
+                if stage_b:
+                    # Uuton sivutoimet kuten vanhassa uuttosilmukassa: lammitin pois 100 ms / paalla 50 ms ja
+                    # set_pump_ratio 1 s valein. Kattilan lampotilaa (MAX31865 blokkaa >= 75 ms) ei lueta vaiheissa 3-4:
+                    # run_shot lukee sen kerran uuton jalkeen, kun pumppu on pois.
+                    hv = 0 if (utime.ticks_diff(t, tb0) // 1000) % (EB_HEAT_OFF_MS + EB_HEAT_ON_MS) < EB_HEAT_OFF_MS else 1
+                    if hv != heat:
+                        heat = hv
+                        RELAY_HEATER.value(hv)
+                    if utime.ticks_diff(t, ratio_t) >= EB_RATIO_MS * 1000:
+                        ratio_t = t
+                        brew_data.set_pump_ratio(pump_ratio_calculator.get_ratio())
+                    # Esiuuton loppurivit siirtymasta: enintaan yksi jaksoa kohden ja vain, jos jakson rivit mahtuvat
+                    # USB-CDC:n 256 tavun jonoon (EU_PRINT_GAP_MS), eika silmukka pysahdy releen ollessa paalla
+                    if q and sum(len(x) + 1 for x in out) + len(q[0]) < 256:
+                        out.append(q.pop(0))
                 for line in out: print(line)
                 out = []
                 k_us = utime.ticks_diff(utime.ticks_us(), t)
@@ -513,10 +644,13 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                     stall_n += 1
                     out.append('EU_STALL t_ms=%d sec=k us=%d rel=%d' % (
                         utime.ticks_diff(t, t0) // 1000, k_us, 1 if relay[0] else 0))
-                # Hallittu keruu: rele pois ja seuraava jakso tauko, joten keruun pysahdys vain pidentaa taukoa
+                # Hallittu keruu: rele pois ja seuraava jakso tauko, joten keruun pysahdys vain pidentaa taukoa.
+                # Vaiheissa 3-4 myos, kun rele on paalla ja seuraava jakso iskee (on_run, ks. vuoronvaraus EB_RATIO_MS:n alla)
+                on_run = stage_b and relay[0] and pump_next and pend_on is None
                 if vv and utime.ticks_diff(t, gc_t) >= EU_GC_MS * 1000 and \
                         ((phase == 1 and p5 < target * EU_GC_RISE_FRAC) or
-                         (phase == 2 and not (relay[0] or pump_next or pend_on is not None))):
+                         (phase == 3 and cut_t is None and p5 < tgt_pre + EB_GC_RISE_FRAC * (target - tgt_pre)) or
+                         (ds and (on_run or not (relay[0] or pump_next or pend_on is not None)))):
                     c0 = utime.ticks_us()
                     gc.collect()
                     gc_t = utime.ticks_us()
@@ -533,9 +667,16 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                 bar = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset
                 cyc_s += bar; cyc_n += 1
                 clock.iq_add(now, bar)
-                if clock.iq_ready(now) and not (vv and phase == 2 and (relay[0] or pump_next or pend_on is not None) and
+                if clock.iq_ready(now) and not (vv and ds and (relay[0] or pump_next or pend_on is not None) and
                                                 utime.ticks_diff(slot, now) < EU_IQ_CLOSE_US):
-                    res = clock.iq_close(now, learn=(phase == 2))
+                    lrn = phase == 2
+                    if stage_b:
+                        # Vaiheet 3-4: ikkuna opettaa vain, kun sen keskipaine nousi edellisesta alle EB_CLK_RATE bar/s
+                        # (ks. EB_CLK_RATE: nousunopeuden viiveharha). Vaiheen 3 taysi nousu jaa lokiin gate=-1.
+                        pw = clock.iq_sum / clock.iq_n if clock.iq_n else 0.0
+                        lrn = p_wp is not None and (pw - p_wp) * 1e6 < EB_CLK_RATE * utime.ticks_diff(now, t_wp)
+                        p_wp, t_wp = pw, now
+                    res = clock.iq_close(now, learn=lrn)
                     clock.iq_start(now)
                     if res is None:
                         win_low += 1          # amplitudi alle AMP_MIN: harvat iskut, ei kellopaivitysta
@@ -556,7 +697,9 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
             if pend_on is not None: wait = min(wait, utime.ticks_diff(pend_on, now))
             # vv=1: vaiheessa 2 vuoro vain, kun rele on pois eika seuraava jakso iske. Vuoron yli venyva toinen tehtava
             # vain pidentaa taukoa; ennen rele jai paalle ja isku meni lapi (late). Vaiheessa 1 rele on paalla joka tapauksessa.
-            if wait > EU_YIELD_US and (not vv or phase == 1 or not (relay[0] or pump_next or pend_on is not None)):
+            # Vaiheissa 3-4 myos, kun rele on paalla ja seuraavakin jakso iskee (ks. vuoronvaraus EB_RATIO_MS:n alla).
+            if wait > EU_YIELD_US and (not vv or not ds or not (relay[0] or pump_next or pend_on is not None) or
+                                       (stage_b and relay[0] and pump_next and pend_on is None)):
                 if tb is not None:
                     tb[0] = '-'
                     tb[1] = 0
@@ -572,9 +715,65 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
     finally:
         set_relay(False)
         RELAY_PUMP.value(0)
-    for line in out:
+        if stage_b: RELAY_HEATER.value(0)
+    if not stage_b:
+        for line in out:
+            print(line)
+            await asyncio.sleep_ms(EU_PRINT_GAP_MS)
+        now = utime.ticks_us()
+        l1, l2, _ = _eu_end(brew_data, clock, now, reason, target, hold_t, l_s0, l_r0, strokes, removed, rate_cut, p_cut,
+                            g_cut, coast_s, coast_f, h_s, h_ss, h_n, dh_s, dh_n, p_max, rise_max, skips10, skips20, late, miss,
+                            windows, win_low, learned, kd)
+        # Kolme rivia <= 255 merkkia (EU_PRINT_GAP_MS): yksi 278 merkin rivi katkesi siirrossa
+        print(l1)
+        await asyncio.sleep_ms(EU_PRINT_GAP_MS)
+        print(l2)
+        await asyncio.sleep_ms(EU_PRINT_GAP_MS)
+        print('EU_VV vv=%d stall=%d gc_n=%d gc_max_us=%d fr0=%d fr_end=%d k_max_us=%d s_max_us=%d y_max_us=%d late_max_us=%d' % (
+            vv, stall_n, gc_n, gc_max, free0 // 1024, gc.mem_free() // 1024, k_max, s_max, y_max, late_max))
+        return (0, 0) if brew else None
+    # Uuton loppu (vaiheet 3-4). Jonoon jaaneet esiuuton rivit ensin.
+    for line in q + out:
         print(line)
         await asyncio.sleep_ms(EU_PRINT_GAP_MS)
+    # Uuton tarve pidon 2 s:sta loppuun kuten esiuutossa (iskuosuus), omille avaimilleen (eb_*): esiuuton arvot pysyvat.
+    # eb_x = uuton tarve / saman ajon esiuuton tarve (vain, jos esiuutto oppi tassa ajossa): seuraavan ajon ff:n kerroin.
+    # tau = (tavoite / tarve - p_katkaisu) / nousunopeus kuten EU_END tau_obs; G katkaisusta.
+    u_mean = dh_s / dh_n if dh_n else 0.0
+    l_n = (strokes - l_s0) + (removed - l_r0) if l_s0 is not None else 0
+    need, tau_obs = 0.0, 0.0
+    if hold_t is not None and l_n >= 50:
+        need = (strokes - l_s0) / l_n
+        brew_data.eb_ff = min(1.0, max(0.05, need))
+        if pre_ok: brew_data.eb_x = brew_data.eb_ff / brew_data.learned_ff_pre
+        if g_cut > 0.0: brew_data.eb_g = g_cut
+        if rate_cut is not None and rate_cut >= EU_RATE_MIN:
+            tau_obs = (target / brew_data.eb_ff - p_cut) / rate_cut
+            brew_data.eb_tau = min(EB_TAU_MAX, max(EB_TAU_MIN, tau_obs))
+        brew_data.set_setting_changed()
+    brew_data.eb_coast_s = coast_c
+    mean = h_s / h_n if h_n else 0.0
+    sd = math.sqrt(max(0.0, h_ss / h_n - mean * mean)) if h_n else 0.0
+    now = utime.ticks_us()
+    print('EB_END reason=%s max=%.2f over=%.2f hold_n=%d hold_mean=%.3f hold_sd=%.3f strokes=%d rm=%d sk10=%d sk20=%d late=%d miss=%d' % (
+        reason, p_max, rise_max - target, h_n, mean, sd, strokes, removed, skips10, skips20, late, miss))
+    await asyncio.sleep_ms(EU_PRINT_GAP_MS)
+    print('EB_END2 windows=%d win_low=%d learned=%d T_us=%.3f hz=%.4f sd_us=%.0f eb_ff=%.2f eb_x=%.2f eb_g=%.2f eb_tau=%.2f coast_s=%.3f need=%.3f u_mean=%.2f kd=%.3f' % (
+        windows, win_low, learned, clock.T, 1e6 / clock.T, clock.sd_us(now), getattr(brew_data, 'eb_ff', 0.0),
+        getattr(brew_data, 'eb_x', 0.0), getattr(brew_data, 'eb_g', 0.0), getattr(brew_data, 'eb_tau', 0.0), coast_c, need,
+        u_mean, kd))
+    await asyncio.sleep_ms(EU_PRINT_GAP_MS)
+    print('EB_VV vv=%d stall=%d gc_n=%d gc_max_us=%d fr_end=%d k_max_us=%d s_max_us=%d y_max_us=%d late_max_us=%d' % (
+        vv, stall_n, gc_n, gc_max, gc.mem_free() // 1024, k_max, s_max, y_max, late_max))
+    return (b_slots, b_gap)
+
+
+def _eu_end(brew_data, clock, now, reason, target, hold_t, l_s0, l_r0, strokes, removed, rate_cut, p_cut, g_cut, coast_s,
+            coast_f, h_s, h_ss, h_n, dh_s, dh_n, p_max, rise_max, skips10, skips20, late, miss, windows, win_low, learned, kd):
+    """Esiuuton oppi ja EU_END/EU_END2-rivit: ajon lopussa (pim:1) tai siirtymassa uuttoon (bim:1). Palauttaa
+    (EU_END, EU_END2, opittiinko pidon tarve). Erillinen funktio eika sulkeuma: sulkeuman kaappaamat muuttujat olisivat
+    silmukassa solumuuttujia (hitaampi haku joka jaksossa)."""
+    import math
     # Pidon toteutunut duty ja katkaisun nousu antavat vuodon aikavakion jalkikateen: G*tau = tavoite/duty
     # ja G = rate + p/tau -> tau = (tavoite/duty - p) / rate. Vain lokiin (EU_TAU_S:n tarkistus ajoista).
     # Pidon tarve asettuneesta pidosta (>= 1 s EU_LEARN_SKIP_MS:n jalkeen): 5 s:n liukuva duty_avg jai ff:n
@@ -585,7 +784,8 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
     # iskut 0,19 / 0,14) ja seuraavan ajon ff ja tau vinoon. Tasaisessa pidossa ne ovat samat (ab 0,65 / 0,65).
     tau_obs, u_mean = 0.0, (dh_s / dh_n if dh_n else 0.0)
     l_n = (strokes - l_s0) + (removed - l_r0) if l_s0 is not None else 0
-    if hold_t is not None and l_n >= 50:
+    ok = hold_t is not None and l_n >= 50
+    if ok:
         need = (strokes - l_s0) / l_n
         brew_data.learned_ff_pre = min(0.9, max(0.05, need))
         brew_data.eu_g_pre = g_cut
@@ -601,17 +801,12 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
     brew_data.eu_coast_fast_s = coast_f
     mean = h_s / h_n if h_n else 0.0
     sd = math.sqrt(max(0.0, h_ss / h_n - mean * mean)) if h_n else 0.0
-    now = utime.ticks_us()
-    # Kolme rivia <= 255 merkkia (EU_PRINT_GAP_MS): yksi 278 merkin rivi katkesi siirrossa
-    print('EU_END reason=%s max=%.2f over=%.2f hold_n=%d hold_mean=%.3f hold_sd=%.3f strokes=%d rm=%d sk10=%d sk20=%d late=%d miss=%d' % (
-        reason, p_max, rise_max - target, h_n, mean, sd, strokes, removed, skips10, skips20, late, miss))
-    await asyncio.sleep_ms(EU_PRINT_GAP_MS)
-    print('EU_END2 windows=%d win_low=%d learned=%d T_us=%.3f hz=%.4f sd_us=%.0f learned_ff_pre=%.2f coast_s=%.3f coast_f=%.3f tau_obs=%.2f u_mean=%.2f kd=%.3f' % (
+    l1 = 'EU_END reason=%s max=%.2f over=%.2f hold_n=%d hold_mean=%.3f hold_sd=%.3f strokes=%d rm=%d sk10=%d sk20=%d late=%d miss=%d' % (
+        reason, p_max, rise_max - target, h_n, mean, sd, strokes, removed, skips10, skips20, late, miss)
+    l2 = 'EU_END2 windows=%d win_low=%d learned=%d T_us=%.3f hz=%.4f sd_us=%.0f learned_ff_pre=%.2f coast_s=%.3f coast_f=%.3f tau_obs=%.2f u_mean=%.2f kd=%.3f' % (
         windows, win_low, learned, clock.T, 1e6 / clock.T, clock.sd_us(now), brew_data.learned_ff_pre, coast_s, coast_f,
-        tau_obs, u_mean, kd))
-    await asyncio.sleep_ms(EU_PRINT_GAP_MS)
-    print('EU_VV vv=%d stall=%d gc_n=%d gc_max_us=%d fr0=%d fr_end=%d k_max_us=%d s_max_us=%d y_max_us=%d late_max_us=%d' % (
-        vv, stall_n, gc_n, gc_max, free0 // 1024, gc.mem_free() // 1024, k_max, s_max, y_max, late_max))
+        tau_obs, u_mean, kd)
+    return l1, l2, ok
 
 
 def weight_flow_log(brew_data):
@@ -687,94 +882,109 @@ async def run_shot(brew_data, utime, asyncio, pump_ratio_calculator, keep_runnin
 
     try:
         # ===== PRE-INFUSION ===== #
+        # bim:1 (EXPRESSO-UUTTO-8BAR) = vaiheet 3-4 esiuuton jatkona samassa silmukassa: vain pim:1:n, paalla olevan
+        # esiuuton ja painetilan (virtaustila pois) kanssa. Muuten vanha uuttosilmukka tavulleen ennallaan (bim:0 +
+        # pim:1 = hyvaksytty esiuutto ja vanha uutto, A/B-vertailu).
+        phased_brew = False
         if brew_data.get_pre_infusion_mode():
             # pim:1 = vaiheseurattu esiuutto (TILAUS-K 1-2); oletus 0 kunnes todennettu laitteella
             if getattr(brew_data, 'pre_infusion_method', 0) == 1:
-                await pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, running)
+                phased_brew = getattr(brew_data, 'brew_method', 0) == 1 and not brew_data.get_flow_mode()
+                st = await pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, running,
+                                               brew=phased_brew)
             else:
                 await pre_infusion(brew_data, utime, asyncio, pump_ratio_calculator, running)
 
-        # ===== BREW LOOP ===== #
-        brew_data.set_mode('brew loop initialization')
-        last_pump_ratio_time = utime.ticks_ms()
-        RELAY_SOLENOID.value(1)
-        brew_data.set_mode('brew loop')
+        if phased_brew:
+            # Uutto ajettiin pre_infusion_phased:ssa (vaiheet 3-4). Sama <label>_END-rivi kuin vanhalla polulla
+            # (pico_dev.py shot pysahtyy siihen): loops = jaksot, max_loop_ms = pisin jaksovali. learned_ff_brew on
+            # vanhan saatimen arvo, tama polku ei muuta sita. Kattilan lampotila luetaan kerran nyt, pumppu pois
+            # (MAX31865 blokkaa >= 75 ms, joten sita ei lueta vaiheissa 3-4).
+            brew_data.get_boiler_temperature()
+            print('%s_END loops=%d max_loop_ms=%d reason=%s learned_ff_brew=%.2f' % (
+                label, st[0], st[1], abort_reason or 'stopped', brew_data.learned_ff_brew))
+        else:
+            # ===== BREW LOOP ===== #
+            brew_data.set_mode('brew loop initialization')
+            last_pump_ratio_time = utime.ticks_ms()
+            RELAY_SOLENOID.value(1)
+            brew_data.set_mode('brew loop')
 
-        # Fast loop (~20-25 ms): pump decided every iteration by PumpPressureController;
-        # boiler temperature (MAX31865 blocks >= 75 ms) only every 2 s for telemetry.
-        brew_data.pressure_sensor.reset_average()
-        pressure_controller = PumpPressureController(RELAY_PUMP, pump_ratio_calculator, utime,
-                                                     ff=brew_data.learned_ff_brew)
-        flow_controller = None
-        if brew_data.get_flow_mode() and brew_data.get_flow() is not None:
-            flow_controller = FlowController(utime, brew_data.get_flow_target(),
-                                             brew_data.learned_ff_brew)
-        brew_start = utime.ticks_ms()
-        last_temperature_read = utime.ticks_ms()
-        last_log = 0
-        last_loop = utime.ticks_ms()
-        max_loop_ms = 0
-        loops = 0
-        while running():
-            now = utime.ticks_ms()
-            elapsed_ms = utime.ticks_diff(now, start_time)
-            loop_ms = utime.ticks_diff(now, last_loop)
-            last_loop = now
-            loops += 1
-            if loops > 1 and loop_ms > max_loop_ms:
-                max_loop_ms = loop_ms
+            # Fast loop (~20-25 ms): pump decided every iteration by PumpPressureController;
+            # boiler temperature (MAX31865 blocks >= 75 ms) only every 2 s for telemetry.
+            brew_data.pressure_sensor.reset_average()
+            pressure_controller = PumpPressureController(RELAY_PUMP, pump_ratio_calculator, utime,
+                                                         ff=brew_data.learned_ff_brew)
+            flow_controller = None
+            if brew_data.get_flow_mode() and brew_data.get_flow() is not None:
+                flow_controller = FlowController(utime, brew_data.get_flow_target(),
+                                                 brew_data.learned_ff_brew)
+            brew_start = utime.ticks_ms()
+            last_temperature_read = utime.ticks_ms()
+            last_log = 0
+            last_loop = utime.ticks_ms()
+            max_loop_ms = 0
+            loops = 0
+            while running():
+                now = utime.ticks_ms()
+                elapsed_ms = utime.ticks_diff(now, start_time)
+                loop_ms = utime.ticks_diff(now, last_loop)
+                last_loop = now
+                loops += 1
+                if loops > 1 and loop_ms > max_loop_ms:
+                    max_loop_ms = loop_ms
 
-            # ===== HEATER: off 0.1 s, on 0.05 s ===== #
-            if (elapsed_ms % 150) < 100:
-                RELAY_HEATER.value(0)
-            else:
-                RELAY_HEATER.value(1)
-
-            if utime.ticks_diff(now, last_temperature_read) >= 2000:
-                brew_data.get_boiler_temperature()
-                last_temperature_read = utime.ticks_ms()
-
-            # ===== PRESSURE + PUMP ===== #
-            pressure = brew_data.get_pressure_average(utime)
-            brew_pressure = brew_data.get_brew_pressure()
-            target = brew_pressure
-            if flow_controller is not None:
-                flow_controller.set_target(brew_data.get_flow_target())
-                duty = flow_controller.update(brew_data.get_flow(), pressure)
-                if duty is None:
-                    print('%s_FLOW_OFF reason=scale silent' % label)
-                    flow_controller = None
-                    pressure_controller.update(pressure, target)
+                # ===== HEATER: off 0.1 s, on 0.05 s ===== #
+                if (elapsed_ms % 150) < 100:
+                    RELAY_HEATER.value(0)
                 else:
-                    pressure_controller.apply_duty(duty, pressure)
-            else:
-                pressure_controller.update(pressure, target)
-            brew_data.pressure_filtered = pressure_controller.filtered
+                    RELAY_HEATER.value(1)
 
-            if utime.ticks_diff(now, last_pump_ratio_time) >= 1000:
-                brew_data.set_pump_ratio(pump_ratio_calculator.get_ratio())
-                last_pump_ratio_time = now
+                if utime.ticks_diff(now, last_temperature_read) >= 2000:
+                    brew_data.get_boiler_temperature()
+                    last_temperature_read = utime.ticks_ms()
 
-            if utime.ticks_diff(now, last_log) >= 100:
-                last_log = now
-                fsp = brew_data.get_flow_target() if flow_controller is not None else 0.0
-                fsat = (1 if flow_controller.saturated else 0) if flow_controller is not None else 0
-                print('%s %d %.1f %.1f %d %.2f %.1f %.1f %.1f %s fsp=%.2f fsat=%d' % (
-                                                        label, elapsed_ms, pressure, brew_pressure,
-                                                        pressure_controller.on, pressure_controller.duty,
-                                                        brew_data.pressure_sensor.window_peak,
-                                                        brew_data.weight_a, brew_data.weight_b,
-                                                        weight_flow_log(brew_data), fsp, fsat))
+                # ===== PRESSURE + PUMP ===== #
+                pressure = brew_data.get_pressure_average(utime)
+                brew_pressure = brew_data.get_brew_pressure()
+                target = brew_pressure
+                if flow_controller is not None:
+                    flow_controller.set_target(brew_data.get_flow_target())
+                    duty = flow_controller.update(brew_data.get_flow(), pressure)
+                    if duty is None:
+                        print('%s_FLOW_OFF reason=scale silent' % label)
+                        flow_controller = None
+                        pressure_controller.update(pressure, target)
+                    else:
+                        pressure_controller.apply_duty(duty, pressure)
+                else:
+                    pressure_controller.update(pressure, target)
+                brew_data.pressure_filtered = pressure_controller.filtered
 
-            # Yield to BLE without adding delay
-            await asyncio.sleep_ms(0)
+                if utime.ticks_diff(now, last_pump_ratio_time) >= 1000:
+                    brew_data.set_pump_ratio(pump_ratio_calculator.get_ratio())
+                    last_pump_ratio_time = now
 
-        pressure_controller.stop()
-        RELAY_HEATER.value(0)
-        if utime.ticks_diff(utime.ticks_ms(), brew_start) >= 8000:
-            brew_data.learned_ff_brew = min(0.9, max(0.05, pressure_controller.duty_avg))
-        print('%s_END loops=%d max_loop_ms=%d reason=%s learned_ff_brew=%.2f' % (
-            label, loops, max_loop_ms, abort_reason or 'stopped', brew_data.learned_ff_brew))
+                if utime.ticks_diff(now, last_log) >= 100:
+                    last_log = now
+                    fsp = brew_data.get_flow_target() if flow_controller is not None else 0.0
+                    fsat = (1 if flow_controller.saturated else 0) if flow_controller is not None else 0
+                    print('%s %d %.1f %.1f %d %.2f %.1f %.1f %.1f %s fsp=%.2f fsat=%d' % (
+                                                            label, elapsed_ms, pressure, brew_pressure,
+                                                            pressure_controller.on, pressure_controller.duty,
+                                                            brew_data.pressure_sensor.window_peak,
+                                                            brew_data.weight_a, brew_data.weight_b,
+                                                            weight_flow_log(brew_data), fsp, fsat))
+
+                # Yield to BLE without adding delay
+                await asyncio.sleep_ms(0)
+
+            pressure_controller.stop()
+            RELAY_HEATER.value(0)
+            if utime.ticks_diff(utime.ticks_ms(), brew_start) >= 8000:
+                brew_data.learned_ff_brew = min(0.9, max(0.05, pressure_controller.duty_avg))
+            print('%s_END loops=%d max_loop_ms=%d reason=%s learned_ff_brew=%.2f' % (
+                label, loops, max_loop_ms, abort_reason or 'stopped', brew_data.learned_ff_brew))
 
         # ===== PRESSURE SOFT RELEASE ===== #
         RELAY_PUMP.value(0)
@@ -2703,7 +2913,13 @@ def save_settings(brew_data, json_module):
         'eu_g_pre'                  : brew_data.eu_g_pre,
         'eu_tau_pre'                : brew_data.eu_tau_pre,
         'eu_coast_s'                : brew_data.eu_coast_s,
-        'eu_coast_fast_s'           : brew_data.eu_coast_fast_s
+        'eu_coast_fast_s'           : brew_data.eu_coast_fast_s,
+        # Uuton opitut arvot omilla avaimillaan (EXPRESSO-UUTTO-8BAR 27.9.2026), eivat koske esiuuton arvoihin
+        'eb_ff'                     : getattr(brew_data, 'eb_ff', 0.0),
+        'eb_x'                      : getattr(brew_data, 'eb_x', 0.0),
+        'eb_g'                      : getattr(brew_data, 'eb_g', 0.0),
+        'eb_tau'                    : getattr(brew_data, 'eb_tau', 0.0),
+        'eb_coast_s'                : getattr(brew_data, 'eb_coast_s', EB_COAST_S0)
     }
     
     # Save data to file in json format
@@ -2762,6 +2978,10 @@ def load_settings(json_module, brew_data):
             brew_data.eu_coast_s = data.get('eu_coast_s')
         if data.get('eu_coast_fast_s') is not None:
             brew_data.eu_coast_fast_s = data.get('eu_coast_fast_s')
+        # Uuton opitut arvot 27.9.2026 (EXPRESSO-UUTTO-8BAR): sama saanto, vanha tiedosto -> oletukset
+        for key in ('eb_ff', 'eb_x', 'eb_g', 'eb_tau', 'eb_coast_s'):
+            if data.get(key) is not None:
+                setattr(brew_data, key, data.get(key))
         
         print('Loaded settings: brew_temperature, steam_temperature, pre_infusion_time, pressure_soft_release_time, pre_infusion_mode, pressure_soft_release_mode, fast_heatup_mode')
         return True

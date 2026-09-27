@@ -307,6 +307,16 @@ def handle_command(brew_data, command):
         except Exception:
             pass
 
+    elif command.startswith('bim:'):
+        # Uuton tapa (EXPRESSO-UUTTO-8BAR, 27.9.2026): 1 = vaiheet 3-4 esiuuton jatkona (TILAUS-K 3-4), vain pim:1:n,
+        # paalla olevan esiuuton ja painetilan kanssa; 0 = vanha uuttosilmukka. RAM only kuten pim, oletus 0; TS_START
+        # tulostaa bim=.
+        try:
+            brew_data.brew_method = 1 if int(_float_arg(command)) == 1 else 0
+            updated = True
+        except Exception:
+            pass
+
     elif command.startswith('euv:'):
         # Vuoronvarauksen korjaus pim:1:ssa (EXPRESSO-ESIUUTTO-VUORONVARAUS, 26.9.2026): 1 = pidossa asyncio-vuoro ja
         # roskienkeruu vain releen ollessa pois, 0 = vanha, jotta varaava tehtava voidaan mitata. RAM only, oletus 1.
