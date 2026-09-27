@@ -186,8 +186,11 @@ EU_OVER_MS = 1000            # yliampuma = huippu nousussa ja pidon ensimmaisen 
 # vv=1 (oletus, euv:0 = vanha mittausta varten): vaiheessa 2 asyncio-vuoro ja roskienkeruu vain, kun rele on pois eika
 # seuraava jakso iske; automaattinen keruu estetaan keraamalla ennen kuin keko tayttyy. EU_STALL- ja EU_GC-rivit kertovat,
 # mika silmukan osa pysahdyksen vei.
-EU_STALL_US = 5000           # EU_STALL-rivi, kun vuoro (y), jakson kasittely (k), naytteenotto (s) tai myohastyminen (l) ylittaa
-EU_GC_FRAC = 0.5             # hallittu keruu, kun vapaata on alle taman osuuden alun vapaasta (tarkistus joka EU_LOG_SLOTS jakso)
+EU_STALL_US = 10000          # EU_STALL-rivi, kun vuoro (y), jakson kasittely (k), naytteenotto (s) tai myohastyminen (l) ylittaa.
+                             # Laite an (euv:0): automaattinen keruu 0,5-0,8 s valein 15-28 ms (keko 307 kt, kulutus ~500 kt/s;
+                             # myos vaa'an 17 ms kierrokset olivat keruita). Vakiot alle rajan: kellon ikkuna (s) ~7 ms, jakso (k) ~5 ms
+EU_GC_MS = 300               # hallittu keruu nain usein: 300 ms x 500 kt/s jattaa ~150 kt varaa ennen automaattista.
+                             # Ei gc.mem_free():lla: se kay keon lapi 7,3 ms (laite an, chk_max_us)
 EU_GC_RISE_FRAC = 0.1        # vaiheessa 1 (rele paalla koko ajan) keruu vain, kun p5 < tama x tavoite: kaukana katkaisusta
 EU_PRINT_GAP_MS = 20         # loppurivien vali: USB-CDC:n lahetysjono on 256 tavua ja ylikirjoittuu ilman DTR:aa (EU_END 278
                              # merkkia katkesi, laite ah-am), joten rivit <= 255 ja jono tyhjenee valissa
@@ -220,8 +223,9 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
         await asyncio.sleep_ms(20)
 
     brew_data.set_mode('pre-infusion pressure build-up')
-    gc.collect()                  # pumppu pois: tyhja keko alkuun, kulutus mitataan ajossa (EU-rivin fr)
+    gc.collect()                  # pumppu pois: tyhja keko alkuun
     free0 = gc.mem_free()
+    gc_t = utime.ticks_us()
     print('EU_START target=%.2f hold_s=%.1f coast_s=%.3f coast_f=%.3f ff=%.2f off_us=%d vv=%d fr0=%d' % (
         target, hold_us / 1e6, coast_s, coast_f, ff, EU_OFF_US, vv, free0 // 1024))
     t0 = utime.ticks_us()
@@ -251,8 +255,7 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
     ramp_ff = 0.0
     g_cut, ff_rate, ff_carry, dh_s, dh_n = 0.0, 0.0, 0.0, 0.0, 0
     kd, kd_h, l_s0, l_r0, coast_c = EU_KD, EU_KD, None, 0, coast_s
-    stall_n = gc_n = gc_max = chk_max = k_max = s_max = y_max = late_max = 0
-    free_min, gc_due = free0, False
+    stall_n = gc_n = gc_max = k_max = s_max = y_max = late_max = 0
     try:
         while True:
             now = utime.ticks_us()
@@ -467,17 +470,9 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                 slot = nxt
 
                 if n_slot % EU_LOG_SLOTS == 0:
-                    # Vapaa muisti (gc.mem_free kay keon lapi, siksi vain lokijaksoissa): fr:n nousu ilman EU_GC-rivia
-                    # on automaattinen keruu
-                    c0 = utime.ticks_us()
-                    free = gc.mem_free()
-                    c0 = utime.ticks_diff(utime.ticks_us(), c0)
-                    if c0 > chk_max: chk_max = c0
-                    if free < free_min: free_min = free
-                    if free < free0 * EU_GC_FRAC: gc_due = True
-                    out.append('EU %d %.2f %.2f %d %.2f %d p5=%.2f sd_us=%.0f rm=%d sk10=%d sk20=%d late=%d fr=%d %s' % (
+                    out.append('EU %d %.2f %.2f %d %.2f %d p5=%.2f sd_us=%.0f rm=%d sk10=%d sk20=%d late=%d %s' % (
                         utime.ticks_diff(t, t0) // 1000, p, sp, 1 if relay[0] else 0, d, phase, p5,
-                        clock.sd_us(t), removed, skips10, skips20, late, free // 1024, weight_flow_log(brew_data)))
+                        clock.sd_us(t), removed, skips10, skips20, late, weight_flow_log(brew_data)))
                 for line in out: print(line)
                 out = []
                 k_us = utime.ticks_diff(utime.ticks_us(), t)
@@ -487,16 +482,16 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                     out.append('EU_STALL t_ms=%d sec=k us=%d rel=%d' % (
                         utime.ticks_diff(t, t0) // 1000, k_us, 1 if relay[0] else 0))
                 # Hallittu keruu: rele pois ja seuraava jakso tauko, joten keruun pysahdys vain pidentaa taukoa
-                if vv and gc_due and ((phase == 1 and p5 < target * EU_GC_RISE_FRAC) or
-                                      (phase == 2 and not (relay[0] or pump_next or pend_on is not None))):
+                if vv and utime.ticks_diff(t, gc_t) >= EU_GC_MS * 1000 and \
+                        ((phase == 1 and p5 < target * EU_GC_RISE_FRAC) or
+                         (phase == 2 and not (relay[0] or pump_next or pend_on is not None))):
                     c0 = utime.ticks_us()
                     gc.collect()
-                    c1 = utime.ticks_diff(utime.ticks_us(), c0)
+                    gc_t = utime.ticks_us()
+                    c1 = utime.ticks_diff(gc_t, c0)
                     gc_n += 1
-                    gc_due = False
                     if c1 > gc_max: gc_max = c1
-                    out.append('EU_GC t_ms=%d us=%d rel=%d fr=%d' % (
-                        utime.ticks_diff(c0, t0) // 1000, c1, 1 if relay[0] else 0, gc.mem_free() // 1024))
+                    out.append('EU_GC t_ms=%d us=%d rel=%d' % (utime.ticks_diff(c0, t0) // 1000, c1, 1 if relay[0] else 0))
                 now = utime.ticks_us()
 
             if utime.ticks_diff(now, next_s) >= 0:
@@ -582,8 +577,8 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
         windows, win_low, learned, clock.T, 1e6 / clock.T, clock.sd_us(now), brew_data.learned_ff_pre, coast_s, coast_f,
         tau_obs, u_mean, kd))
     await asyncio.sleep_ms(EU_PRINT_GAP_MS)
-    print('EU_VV vv=%d stall=%d gc_n=%d gc_max_us=%d fr0=%d fr_min=%d chk_max_us=%d k_max_us=%d s_max_us=%d y_max_us=%d late_max_us=%d' % (
-        vv, stall_n, gc_n, gc_max, free0 // 1024, free_min // 1024, chk_max, k_max, s_max, y_max, late_max))
+    print('EU_VV vv=%d stall=%d gc_n=%d gc_max_us=%d fr0=%d fr_end=%d k_max_us=%d s_max_us=%d y_max_us=%d late_max_us=%d' % (
+        vv, stall_n, gc_n, gc_max, free0 // 1024, gc.mem_free() // 1024, k_max, s_max, y_max, late_max))
 
 
 def weight_flow_log(brew_data):
