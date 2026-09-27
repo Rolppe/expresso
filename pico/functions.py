@@ -152,6 +152,11 @@ EU_RATE_MIN = 0.5            # bar/s: hitaammasta noususta ei opita jalkinousua
 EU_RATE_FAST = 8.0           # bar/s: tata nopeampi nousu ei ole huuhtelu (katkaisun huuhtelusaanto, ks. vaihe 1)
 EU_RAMP_BAR_PER_S = 2.0      # sama loppunoston ramppi kuin pre_infusion
 EU_RAMP_FF_MAX = 0.5         # rampin oman myotakytkennan yläraja (duty)
+EU_GAS_ABS = 1.0             # bar: ilmanpaine, absoluuttinen = mitattu + tama
+EU_GAS_EXP = 2.0             # rampin vahvistus G_katkaisu x ((abs sp) / (abs katkaisu))^tama; 0 = ei kaasujoustoa
+EU_ABOVE_BAR = 0.3           # kaasujousto vain, kun jalkinousu vei p5:n nain paljon rampin ylle (paine putoaa rampille).
+                             # Alhaalta nouseva ramppi ennallaan: vakiojoustoinen malli (smoke 8, 9 lampin) hidastui muuten
+                             # (katkaisusta pitoon 1,16-1,18 s, raja 1,1; paine 0,64 bar rampin alla, raja 0,5)
 EU_RAMP_LEAD_S = 0.1         # rampin myotakytkenta loppuu, kun p5 on nain monen rampin sekunnin paassa tavoitteesta
                              # (iskun + p5:n viive)
 EU_TAU_S = 1.8               # kuristimen vuodon aikavakio pidon ff:n laskuun (laite 25.9.2026: lampin 1,4-1,8,
@@ -177,7 +182,9 @@ EU_KI_TAIL_X = 3.0           # P ja integraalin kerroin. Katkaisun ff:n virhe (v
 EU_TAIL_HOLD_MS = 1000       # -> -0,04; nousunopeuden kohina sd ~0,05) korjautuu nain ennen pitoa eika sen aikana
 EU_LOG_SLOTS = 5             # EU-rivi joka 5. jakso (100 ms)
 EU_AVG_N = 5                 # paatosten keskiarvo 5 jaksoa (100 ms); nousunopeus kahdesta perakkaisesta
-EU_HOLD_TOL_BAR = 0.1        # pito alkaa, kun ramppi on tavoitteessa ja p5 >= tavoite - tama
+EU_HOLD_TOL_BAR = 0.1        # pito alkaa, kun ramppi on tavoitteessa ja p5 on tavoite +- tama
+EU_HOLD_WAIT_MS = 2000       # ylityksesta pito alkaa viimeistaan nain kauan asetusarvon tavoitteeseen paasysta: laitteella
+                             # ylitys 0,6-1,2 bar purkautui kaistalle 0,4-0,8 s:ssa (ao-as), tau_obs 14 s:lla ~2 s
 EU_INT_BAND_BAR = 0.3        # ennen pitoa integraali kertyy vain, kun |virhe| < tama
 EU_OVER_MS = 1000            # yliampuma = huippu nousussa ja pidon ensimmaisen sekunnin; sen jalkeen on
                              # pidon heittelya (hold_sd). Sama ikkuna kuin esiuutto_analyysi.py
@@ -251,7 +258,8 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
     sp, last_slot, n_slot = target, None, 0
     cut_t = p_cut = rate_cut = peak = None
     coast_open = False
-    ramp_base = ramp_t = hold_t = end_t = None
+    ramp_base = ramp_t = hold_t = end_t = sp_t = None
+    ramp_done = ramp_above = False
     strokes = removed = skips10 = skips20 = late = miss = windows = win_low = learned = 0
     p_max, rise_max, h_s, h_ss, h_n, duty_avg = 0.0, 0.0, 0.0, 0.0, 0, ff
     out = []
@@ -364,16 +372,28 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                         ff_carry, tau_prev))
                 if phase == 2:
                     if hold_t is None:
-                        sp = ramp_base + EU_RAMP_BAR_PER_S * utime.ticks_diff(t, ramp_t) / 1e6
+                        # Paine ehti tavoitteeseen ennen ramppia (jalkinousu): ramppi on tehty, eika paine putoa sen
+                        # huipusta rampille (laite ao-as 27.9.2026). Vasta jalkinousun ikkunan jalkeen: sen nopea osa
+                        # (uuttoasento, purku 0,08 s) nostaa p5:n hetkeksi tavoitteeseen, ja pito alkoi transientista
+                        if not ramp_done and not coast_open and p5 >= target - EU_HOLD_TOL_BAR:
+                            ramp_done = True
+                            out.append('EU_RAMP_DONE t_ms=%d p=%.2f sp=%.2f' % (utime.ticks_diff(t, t0) // 1000, p5, sp))
+                        sp = target if ramp_done else ramp_base + EU_RAMP_BAR_PER_S * utime.ticks_diff(t, ramp_t) / 1e6
                         if sp >= target:
                             sp = target
+                            if sp_t is None: sp_t = t
                             # Menetelmaohje: laskuri alkaa vasta, kun paine on saavutettu - ei silloin, kun
-                            # ramppi on (esiuutto-20260924-b/c: pito alkoi paineessa 1,34 / 1,09 bar)
-                            if p5 >= target - EU_HOLD_TOL_BAR:
+                            # ramppi on (esiuutto-20260924-b/c: pito alkoi paineessa 1,34 / 1,09 bar), eika
+                            # yliampumasta ("jos sita tapahtuu niin se ei aloita laskuria"; laite ao: pito alkoi 3,45:ssa).
+                            # Varalla EU_HOLD_WAIT_MS: kuristin ilman vuotoa ei purkaisi ylitysta koskaan
+                            if p5 >= target - EU_HOLD_TOL_BAR and (
+                                    p5 <= target + EU_HOLD_TOL_BAR or
+                                    utime.ticks_diff(t, sp_t) >= EU_HOLD_WAIT_MS * 1000):
                                 hold_t = t
                                 end_t = utime.ticks_add(t, hold_us)
                                 brew_data.set_mode('pre-infusion main')
-                                out.append('EU_HOLD t_ms=%d p=%.2f' % (utime.ticks_diff(t, t0) // 1000, p5))
+                                out.append('EU_HOLD t_ms=%d p=%.2f wait_ms=%d' % (
+                                    utime.ticks_diff(t, t0) // 1000, p5, utime.ticks_diff(t, sp_t) // 1000))
                     else:
                         sp = target
                         h_s += p; h_ss += p * p; h_n += 1
@@ -404,17 +424,26 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                     # 0,4-0,6 s (sovitettu malli: katkaisusta pitoon 1,2-1,3 s -> 0,63-0,72 s).
                     uff = ff
                     kp, ki_x = EU_KP, 1.0
+                    kd_r = kd
                     if hold_t is None:
                         if sp < target:
                             uff = ff * sp / target
+                        # Kaasujousto (EXPRESSO-ESIUUTTO-RAMPIN-LOPPU): iskun vaikutus kasvaa absoluuttisen paineen
+                        # nelion mukaan, joten katkaisun G aliarvioi vahvistuksen rampin paassa. Laite ao-as: G 9-10
+                        # katkaisussa (~1,4 bar) = isku ~0,2 bar, pidossa isku +0,35-0,45 bar. Jalkinousu vei paineen
+                        # rampin ylle, paine putosi rampille 2,0-2,3 bariin, ja 2 bar/s / G + D antoivat 2-3 iskun ryopyn
+                        # (ylitys 0,36-1,32). Malli (esiuutto_smoke-Plant gas_bar) toistaa laitteen vain kaasujoustolla.
+                        if p5 >= sp + EU_ABOVE_BAR: ramp_above = True
+                        gx = ((EU_GAS_ABS + sp) / (EU_GAS_ABS + p_cut)) ** EU_GAS_EXP if ramp_above and sp > p_cut else 1.0
+                        if g_cut > 0.0: kd_r = min(EU_KD, EU_KD_G / (g_cut * gx))
                         if p5 < sp and p5 < target - EU_RAMP_BAR_PER_S * EU_RAMP_LEAD_S:
-                            uff += ramp_ff
+                            uff += ramp_ff / gx
                     if (hold_t is None and sp >= target) or \
                             (hold_t is not None and utime.ticks_diff(t, hold_t) < EU_TAIL_HOLD_MS * 1000):
                         kp, ki_x = EU_KP_TAIL, EU_KI_TAIL_X
                     # D: virheen derivaatta = rampin nopeus - paineen nousunopeus (rate: 5 jakson keskiarvojen erotus,
                     # sama kuin katkaisussa). Rampilla sita seuraava paine antaa nollan.
-                    dterm = (kd if hold_t is None else kd_h) * ((EU_RAMP_BAR_PER_S if hold_t is None and sp < target else 0.0) - rate)
+                    dterm = (kd_r if hold_t is None else kd_h) * ((EU_RAMP_BAR_PER_S if hold_t is None and sp < target else 0.0) - rate)
                     u = uff + kp * e + EU_KI * integ + dterm
                     # Integraali vain pidossa, rampin paatyttya tai lahella asetusarvoa: rampin viive kasasi sen
                     # c-ajossa (1,1 bar vajetta 0,5 s) ja se purkautui yliampumana 3,6 bariin. Rampin paatyttya

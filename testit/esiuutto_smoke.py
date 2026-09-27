@@ -136,8 +136,12 @@ class Plant:
     0,19 vastaa hidasta vuotoa; yksiosainen malli ei toistanut jaksoa eika hajontaa."""
 
     def __init__(self, pump, delta=0.2, tau=0.8, lag_us=40000, phi_us=0.0, noise=0.02, fill_us=0, cyc_sd=0.0,
-                 delta_f=0.0, tau_f=0.08):
+                 delta_f=0.0, tau_f=0.08, gas_bar=None):
         self.pump, self.delta, self.tau, self.lag = pump, delta, tau, lag_us
+        # gas_bar: iskun painevaikutus kaasujoustosta (ilma jarjestelmassa): delta on iskukoko tassa paineessa, ja se skaalautuu
+        # absoluuttisen paineen nelioon (isoterminen kaasu: dp = p_abs^2 / (p0 V0) dV). Laite ao-as 27.9.2026: G katkaisussa
+        # (~1,4 bar) 9-10 bar/s = isku ~0,2 bar, pidossa 2,5 barissa isku +0,35-0,45 bar; suhde (3,5 / 2,4)^2 = 2,1
+        self.gas_bar = gas_bar
         self.delta_f, self.tau_f, self.pf = delta_f, tau_f, 0.0
         # Tayttovaihe (iskut eivat nosta painetta) ja puolijaksoittainen kohina: laitteella yksittaisen
         # jakson keskiarvo heilui taytossa +-0,5 bar (esiuutto-20260924-b/c)
@@ -190,6 +194,7 @@ class Plant:
         while self.pending and self.pending[0][0] <= t:
             ta, dp = self.pending.pop(0)
             self._leak(ta - self.last); self.last = ta
+            if self.gas_bar is not None: dp *= ((1.0 + max(-0.99, self.p)) / (1.0 + self.gas_bar)) ** 2
             self.p += dp
             self.pf += self.delta_f
         self._leak(t - self.last); self.last = t
@@ -645,6 +650,44 @@ def main():
         stat(check, '14 vuoronvaraus ajo %d: vv=1 pidon p5 sd ≤ 0,3 bar' % r, [x['sd'] for x in rs1], 0.3, share=NOISE_SHARE)
         stat(check, '14 vuoronvaraus ajo %d: vv=1 pidon 2-5 s p5 ka 2,5 ± 0,1' % r, [x['h25'] for x in rs1], 0.1, lo=-0.1)
     check('14 vuoronvaraus: rivit ≤ 255 merkkiä (USB-CDC:n jono)', r14_len[0] <= 255, '%d' % r14_len[0])
+
+    # 15 rampin loppu (EXPRESSO-ESIUUTTO-RAMPIN-LOPPU, laite ao-as 27.9.2026: kylma, lahes kiinni oleva kuristin, tarve 0,05,
+    # G katkaisussa 9-10, isku pidossa +0,35-0,45 bar). Jalkinousu vei paineen rampin ylle (huippu 2,55-2,93), paine putosi
+    # rampille 2,0-2,3 bariin, ja rampin myotakytkenta + D antoivat 2-3 iskun ryopyn: ylitys 0,36-1,32, huippu jalkinousun
+    # jalkeen +0,32-1,18, ao:n pito alkoi 3,45:ssa. Malli: kaasujousto (isku 0,45 bar 2,5 barissa, ~0,2 katkaisussa), vuoto
+    # tau 2,5 s, viive 10 ms, taytto 0,3 s; satunnaishaku laitteen keskiarvoihin, vanha koodi: ylitys 0,53 / 0,65 (laite 0,69),
+    # huippu jalkinousun jalkeen 0,49 / 0,58 (0,61), pito alkoi ka 2,72. 1. ajo ao-as:n opituilla arvoilla, 2. ajo edellisesta.
+    def run15(seed, carry, cf):
+        bd15 = BrewData(hold_s=6.0, phi_us=(3100.0 * seed) % 20000, delta=0.45, tau=2.5, lag_us=10000, fill_us=300000,
+                        gas_bar=2.5, noise=0.02, cyc_sd=0.25)
+        bd15.learned_ff_pre, bd15.eu_g_pre, bd15.eu_coast_s, bd15.eu_tau_pre = carry
+        bd15.eu_coast_fast_s = cf
+        out15 = run(bd15, stall_p=0.008, seed=seed)
+        open('/tmp/esiuutto_smoke_15_%d.log' % seed, 'w').write(out15)
+        cut15, hold15 = num(out15, 'EU_CUT', 't_ms'), num(out15, 'EU_HOLD', 't_ms')
+        rows = [(int(l.split()[1]), float(re.search(r'p5=(\S+)', l).group(1))) for l in out15.splitlines() if l.startswith('EU ')]
+        # Rampin lopun huippu: jalkinousun ikkunan (EU_COAST_MS) jalkeen pidon 1. sekunnin loppuun
+        tail = [p for t, p in rows if cut15 + F.EU_COAST_MS <= t <= hold15 + F.EU_OVER_MS]
+        wait = num(out15, 'EU_HOLD', 'wait_ms')
+        return dict(over=num(out15, 'EU_END', 'over'), tail=(max(tail) if tail else 9.0) - 2.5, hold_p=num(out15, 'EU_HOLD', 'p'),
+                    wait=0.0 if wait != wait else wait), \
+            (bd15.learned_ff_pre, bd15.eu_g_pre, bd15.eu_coast_s, bd15.eu_tau_pre), bd15.eu_coast_fast_s
+    r15 = {1: [], 2: []}
+    for seed in range(150, 150 + N_PHASE):
+        carry, cf = (0.05, 9.8, 0.401, 5.2), 0.14
+        for r in (1, 2):
+            res, carry, cf = run15(seed + 50 * (r - 1), carry, cf)
+            r15[r].append(res)
+    for r in (1, 2):
+        rs = r15[r]
+        # Menetelmaohje: yliampuma ei aloita laskuria. Varalla EU_HOLD_WAIT_MS (kuristin ilman vuotoa)
+        check('15 rampin loppu ajo %d: pito alkaa tavoitteessa (p5 2,5 ± %s)' % (r, ('%.1f' % F.EU_HOLD_TOL_BAR).replace('.', ',')),
+              all(abs(x['hold_p'] - 2.5) <= F.EU_HOLD_TOL_BAR + 1e-9 or x['wait'] >= F.EU_HOLD_WAIT_MS for x in rs),
+              'p5 %.2f…%.2f' % (min(x['hold_p'] for x in rs), max(x['hold_p'] for x in rs)))
+        stat(check, '15 rampin loppu ajo %d: yliampuma ≤ yksi isku (0,45 bar)' % r, [x['over'] for x in rs], 0.45,
+             share=NOISE_SHARE)
+        stat(check, '15 rampin loppu ajo %d: huippu jälkinousun jälkeen ≤ yksi isku (0,45 bar)' % r, [x['tail'] for x in rs],
+             0.45, share=NOISE_SHARE)
 
     print('RESULT: %d failed' % len(failed))
     return 1 if failed else 0
