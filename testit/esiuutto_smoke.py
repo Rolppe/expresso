@@ -49,15 +49,15 @@ class Utime:
 
 class Gc:
     """MicroPythonin roskienkeruu virtuaalikellolla (EXPRESSO-ESIUUTTO-VUORONVARAUS). Oletuksena pois: tapaukset 1-13 eivat
-    kuluta kekoa. enable(): keko kuluu tasaisesti, ja kun se loppuu, automaattinen keruu pysayttaa silmukan 13-28 ms missa
-    kohdassa tahansa (laite ah-am 26.9.2026: pysahdys 0,4-1,2 s valein). collect() pysayttaa yhta kauan, mutta firmwaren
-    valitsemassa kohdassa. Jakso arvotaan run():ssa siemenen jalkeen."""
+    kuluta kekoa. enable(): keko kuluu tasaisesti, ja kun se loppuu, automaattinen keruu pysayttaa silmukan 15-28 ms missa
+    kohdassa tahansa (laite an 26.9.2026, euv:0: keko 307 kt taynna 0,5-0,8 s:ssa, keruu 15-28 ms). collect() pysayttaa yhta
+    kauan, mutta firmwaren valitsemassa kohdassa. Jakso arvotaan run():ssa siemenen jalkeen."""
     HEAP = 200 * 1024
 
     def __init__(self):
         self.enabled, self.period, self.last, self.auto = False, None, 0, 0
 
-    def enable(self, period_s=(0.4, 1.2), stall_ms=(13, 28)):
+    def enable(self, period_s=(0.5, 0.8), stall_ms=(15, 28)):
         self.enabled, self.period_s, self.stall_ms = True, period_s, stall_ms
 
     def disable(self):
@@ -554,14 +554,17 @@ def main():
         h = [r for r in rows if 500 <= r[0] < 5000]
         ps = [r[1] for r in h]
         m = sum(ps) / len(ps)
-        ac3 = sum((ps[i] - m) * (ps[i + 3] - m) for i in range(len(ps) - 3)) / sum((x - m) ** 2 for x in ps)
+        # 300 ms rajasyklin voimakkuus: p:n autokovarianssi 3 x 100 ms viiveella. Normalisoitu autokorrelaatio mittasi
+        # kohinaa, kun vuoronvarauksen korjaus puolitti pidon hajonnan (sd 0,37 -> 0,17, korrelaatio 3/8 yli 0,3:n);
+        # kayttajan paatos 27.9.2026: raja = entisten rajojen tulo 0,3 x 0,45^2 (laite af 0,62 x 0,61^2 = 0,23)
+        cov3 = sum((ps[i] - m) * (ps[i + 3] - m) for i in range(len(ps) - 3)) / (len(ps) - 3)
         p5 = [r[2] for r in h]
         m5 = sum(p5) / len(p5)
         h25 = [r[2] for r in rows if 2000 <= r[0] < 5000]
         # Iskuosuus poistolaskurista pidon 2 s:sta loppuun, sama ikkuna kuin oppimisessa (EU_LEARN_SKIP_MS)
         l2 = [r for r in rows if r[0] >= F.EU_LEARN_SKIP_MS]
         sfrac = 1 - (l2[-1][3] - l2[0][3]) / ((l2[-1][0] - l2[0][0]) / 20.0)
-        return dict(ac3=ac3, sd5=math.sqrt(sum((x - m5) ** 2 for x in p5) / len(p5)), h25=sum(h25) / len(h25) - 2.5,
+        return dict(cov3=cov3, sd5=math.sqrt(sum((x - m5) ** 2 for x in p5) / len(p5)), h25=sum(h25) / len(h25) - 2.5,
                     learn=bd13.learned_ff_pre - sfrac), \
             (bd13.learned_ff_pre, bd13.eu_g_pre, bd13.eu_coast_s, bd13.eu_tau_pre), getattr(bd13, 'eu_coast_fast_s', None)
     r13 = {1: [], 2: []}
@@ -572,16 +575,17 @@ def main():
             r13[r].append(res)
     for r in (1, 2):
         rs = r13[r]
-        stat(check, '13 uuttoasento ajo %d: ei 300 ms rajasykliä (p:n autokorrelaatio 3 × 100 ms ≤ 0,3)' % r,
-             [x['ac3'] for x in rs], 0.3, share=NOISE_SHARE)
+        stat(check, '13 uuttoasento ajo %d: ei 300 ms rajasykliä (p:n autokovarianssi 3 × 100 ms ≤ 0,3 × 0,45² bar²)' % r,
+             [x['cov3'] for x in rs], 0.3 * 0.45 ** 2, share=NOISE_SHARE)
         stat(check, '13 uuttoasento ajo %d: pidon p5 sd ≤ 0,45 bar' % r, [x['sd5'] for x in rs], 0.45, share=NOISE_SHARE)
         stat(check, '13 uuttoasento ajo %d: pidon 2-5 s p5 ka 2,5 ± 0,1' % r, [x['h25'] for x in rs], 0.1, lo=-0.1)
         check('13 uuttoasento ajo %d: opittu tarve = iskuosuus (±0,03)' % r, all(abs(x['learn']) <= 0.03 for x in rs),
               'max |%.3f|' % max(abs(x['learn']) for x in rs))
 
     # 14 vuoronvaraus (EXPRESSO-ESIUUTTO-VUORONVARAUS, laite ah-am 26.9.2026): silmukka pysahtyi 13-28 ms 0,4-1,2 s valein,
-    # ja kun rele oli paalla, tauko jai tekematta (late) ja pidon p5 nousi 3,2-3,6 bariin. Uuttoasennon malli (tapaus 13),
-    # automaattinen roskienkeruu (Gc) ja toisen tehtavan varaukset (0,8 % vuoroista, 13-28 ms), 8 siementa x 2 ajoa.
+    # ja kun rele oli paalla, tauko jai tekematta (late) ja pidon p5 nousi 3,2-3,6 bariin. Laite an (euv:0): syy on
+    # automaattinen roskienkeruu. Uuttoasennon malli (tapaus 13), keruu (Gc) ja toisen tehtavan varaukset (0,8 % vuoroista,
+    # 13-28 ms), 8 siementa x 2 ajoa.
     # vv=0 (euv:0) on vanha: rele paalla vuoron ja keruun ajan. vv=1: vuoro ja keruu vain releen ollessa pois.
     def run14(seed, carry, cf, vv):
         bd14 = BrewData(hold_s=6.0, phi_us=(3100.0 * seed) % 20000, delta=0.25, tau=0.8, delta_f=0.6, tau_f=0.08,
