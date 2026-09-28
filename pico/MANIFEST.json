@@ -31,8 +31,8 @@
   },
   {
     "name": "/commands.py",
-    "sha256": "ad8dde8eb603bf26c14bad51755e15bfa57040a2409680f2826648c3c7c7a12f",
-    "size": 18100
+    "sha256": "14ca620a31239586dfe3107bc1a2c82b5a5be2e4212675a5f9abff3e1b479740",
+    "size": 18129
   },
   {
     "name": "/devsafe.py",
@@ -41,8 +41,8 @@
   },
   {
     "name": "/functions.py",
-    "sha256": "a3acccae2bfcffe6294c8fadd46f3878e970c0a14821706fa8dbcd2753b270e0",
-    "size": 180000
+    "sha256": "bd6bb2281ce51137993238910dd7e263f216b63013d78fb6927a588a89222f17",
+    "size": 180701
   },
   {
     "name": "/lib/adafruit_max31865.py",
