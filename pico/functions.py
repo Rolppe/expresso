@@ -138,10 +138,6 @@ EU_PHASE_OK_US = 4000        # 2,5 sd alle taman -> 10 ms tauot; marginaali lohk
 EU_LATE_MAX_US = 300         # = VSWEEP_LATE_MAX_US
 EU_MIN_SLOT_US = 15000       # paatoskohtien vali vahintaan (kellon korjaus ei tuplaa paatosta)
 EU_YIELD_US = 3000           # asyncio-vuoro vain, kun seuraavaan tapahtumaan on tata enemman
-# Kattilan lampotila askelittain (EXPRESSO-TEMPSTALE-JA-OLETUS 28.9.2026, classes.TemperatureSensor.step): askel vain, kun
-# seuraavaan tapahtumaan on tata enemman. Askel on 2-4 SPI-siirtoa 50 kHz:lla (~0,5 ms kukin), eli arviolta <= 2,5 ms;
-# laitteen pisin askel EU_VV/EB_VV-rivin t_max_us:ssa.
-EU_TEMP_ROOM_US = 5000
 EU_CUT_MARGIN_BAR = 0.3      # ennustettu huippu jaa nain paljon tavoitteen alle
 EU_COAST_S0 = 0.3            # jalkinousun oletus (s), varovainen: ensimmainen ajo katkaisee matalalta
                              # (pumpun ja anturin viive 60-80 ms + hydrauliikka), seuraavat oppivat
@@ -328,11 +324,6 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
     eb_x = getattr(brew_data, 'eb_x', 0.0)
     eb_g = getattr(brew_data, 'eb_g', 0.0)
     eb_tau = getattr(brew_data, 'eb_tau', 0.0)
-    # Kattilan lampotila askelittain vaiheissa 1-4: ilman sita rele-vahti esti lammittimen 10 s:n jalkeen (GUARD_TRIP
-    # heater reason=tempstale, 28.9.2026 kaikissa bim:1-ajoissa). t_n = valmiit lukemat, t_max = pisin askel (us).
-    tsens = getattr(brew_data, 'temperature_sensor', None)
-    if tsens is not None: tsens.step_reset()
-    t_n = t_max = 0
     try:
         while True:
             now = utime.ticks_us()
@@ -396,8 +387,8 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                                              rate_cut, p_cut, g_cut, coast_s, coast_f, h_s, h_ss, h_n, dh_s, dh_n, p_max,
                                              rise_max, skips10, skips20, late, miss, windows, win_low, learned, kd)
                     q = [l1, l2, 'EU_VV vv=%d stall=%d gc_n=%d gc_max_us=%d fr0=%d fr_end=-1 k_max_us=%d s_max_us=%d '
-                         'y_max_us=%d late_max_us=%d t_n=%d t_max_us=%d' % (vv, stall_n, gc_n, gc_max, free0 // 1024, k_max,
-                                                                            s_max, y_max, late_max, t_n, t_max)]
+                         'y_max_us=%d late_max_us=%d' % (vv, stall_n, gc_n, gc_max, free0 // 1024, k_max, s_max, y_max,
+                                                          late_max)]
                     stage_b, phase, tag, ramp_r, reason = True, 3, 'EB', EB_RAMP_BAR_PER_S, 'stop'
                     kp_n, ki_n, kp_t, ki_t = EB_KP, EB_KI_X, max(EB_KP, EU_KP_TAIL), max(EB_KI_X, EU_KI_TAIL_X)
                     target = brew_data.get_brew_pressure()
@@ -413,7 +404,7 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                     strokes = removed = skips10 = skips20 = late = miss = windows = win_low = learned = 0
                     p_max, rise_max, h_s, h_ss, h_n, duty_avg = 0.0, 0.0, 0.0, 0.0, 0, ff
                     dh_s, dh_n, l_s0, l_r0 = 0.0, 0, None, 0
-                    stall_n = gc_n = gc_max = k_max = s_max = y_max = late_max = t_n = t_max = 0
+                    stall_n = gc_n = gc_max = k_max = s_max = y_max = late_max = 0
                     # Paineen tason muutos 2,5 -> 8 bar on pysyva, ei transientti: porttien viitteet alusta
                     clock.gate_reset()
                     tb0, ratio_t = t, t
@@ -632,8 +623,8 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                         clock.sd_us(t), removed, skips10, skips20, late, weight_flow_log(brew_data)))
                 if stage_b:
                     # Uuton sivutoimet kuten vanhassa uuttosilmukassa: lammitin pois 100 ms / paalla 50 ms ja
-                    # set_pump_ratio 1 s valein. Kattilan lampotila luetaan askelittain (EU_TEMP_ROOM_US, silmukan lopussa),
-                    # koska MAX31865:n kokonainen luku blokkaa >= 75 ms.
+                    # set_pump_ratio 1 s valein. Kattilan lampotilaa (MAX31865 blokkaa >= 75 ms) ei lueta vaiheissa 3-4:
+                    # run_shot lukee sen kerran uuton jalkeen, kun pumppu on pois.
                     hv = 0 if (utime.ticks_diff(t, tb0) // 1000) % (EB_HEAT_OFF_MS + EB_HEAT_ON_MS) < EB_HEAT_OFF_MS else 1
                     if hv != heat:
                         heat = hv
@@ -704,18 +695,6 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                         utime.ticks_diff(now, t0) // 1000, s0, 1 if relay[0] else 0))
             wait = utime.ticks_diff(slot, now)
             if pend_on is not None: wait = min(wait, utime.ticks_diff(pend_on, now))
-            if tsens is not None and wait > EU_TEMP_ROOM_US and tsens.step_due(utime, utime.ticks_ms()):
-                c0 = utime.ticks_us()
-                if brew_data.step_boiler_temperature(utime.ticks_ms()): t_n += 1
-                now = utime.ticks_us()
-                c1 = utime.ticks_diff(now, c0)
-                if c1 > t_max: t_max = c1
-                if c1 > EU_STALL_US:
-                    stall_n += 1
-                    out.append('EU_STALL t_ms=%d sec=t us=%d rel=%d' % (
-                        utime.ticks_diff(c0, t0) // 1000, c1, 1 if relay[0] else 0))
-                wait = utime.ticks_diff(slot, now)
-                if pend_on is not None: wait = min(wait, utime.ticks_diff(pend_on, now))
             # vv=1: vaiheessa 2 vuoro vain, kun rele on pois eika seuraava jakso iske. Vuoron yli venyva toinen tehtava
             # vain pidentaa taukoa; ennen rele jai paalle ja isku meni lapi (late). Vaiheessa 1 rele on paalla joka tapauksessa.
             # Vaiheissa 3-4 myos, kun rele on paalla ja seuraavakin jakso iskee (ks. vuoronvaraus EB_RATIO_MS:n alla).
@@ -750,9 +729,8 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
         await asyncio.sleep_ms(EU_PRINT_GAP_MS)
         print(l2)
         await asyncio.sleep_ms(EU_PRINT_GAP_MS)
-        print('EU_VV vv=%d stall=%d gc_n=%d gc_max_us=%d fr0=%d fr_end=%d k_max_us=%d s_max_us=%d y_max_us=%d late_max_us=%d '
-              't_n=%d t_max_us=%d' % (vv, stall_n, gc_n, gc_max, free0 // 1024, gc.mem_free() // 1024, k_max, s_max, y_max,
-                                     late_max, t_n, t_max))
+        print('EU_VV vv=%d stall=%d gc_n=%d gc_max_us=%d fr0=%d fr_end=%d k_max_us=%d s_max_us=%d y_max_us=%d late_max_us=%d' % (
+            vv, stall_n, gc_n, gc_max, free0 // 1024, gc.mem_free() // 1024, k_max, s_max, y_max, late_max))
         return (0, 0) if brew else None
     # Uuton loppu (vaiheet 3-4). Jonoon jaaneet esiuuton rivit ensin.
     for line in q + out:
@@ -787,8 +765,8 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
         getattr(brew_data, 'eb_x', 0.0), getattr(brew_data, 'eb_g', 0.0), getattr(brew_data, 'eb_tau', 0.0), coast_c, need,
         u_mean, kd))
     await asyncio.sleep_ms(EU_PRINT_GAP_MS)
-    print('EB_VV vv=%d stall=%d gc_n=%d gc_max_us=%d fr_end=%d k_max_us=%d s_max_us=%d y_max_us=%d late_max_us=%d t_n=%d '
-          't_max_us=%d' % (vv, stall_n, gc_n, gc_max, gc.mem_free() // 1024, k_max, s_max, y_max, late_max, t_n, t_max))
+    print('EB_VV vv=%d stall=%d gc_n=%d gc_max_us=%d fr_end=%d k_max_us=%d s_max_us=%d y_max_us=%d late_max_us=%d' % (
+        vv, stall_n, gc_n, gc_max, gc.mem_free() // 1024, k_max, s_max, y_max, late_max))
     return (b_slots, b_gap)
 
 
@@ -906,6 +884,11 @@ async def run_shot(brew_data, utime, asyncio, pump_ratio_calculator, keep_runnin
                     return False
         return keep_running()
 
+    # Kattilan lampotila lukee uuton ajan toinen ydin (EXPRESSO-TEMPSTALE-JA-OLETUS, classes.TemperatureSensor.c1_*):
+    # uuttosilmukat eivat voi pysahtya MAX31865:n >= 75 ms:n lukuun, ja ilman lukemaa rele-vahti esti lammittimen
+    # 10 s:n jalkeen (GUARD_TRIP heater reason=tempstale, 28.9.2026). Palautus finallyssa, ennen paasilmukan lukua.
+    tsens = brew_data.temperature_sensor
+    tsens.c1_on()
     try:
         # ===== PRE-INFUSION ===== #
         # bim:1 (EXPRESSO-UUTTO-8BAR) = vaiheet 3-4 esiuuton jatkona samassa silmukassa: vain pim:1:n, paalla olevan
@@ -924,11 +907,11 @@ async def run_shot(brew_data, utime, asyncio, pump_ratio_calculator, keep_runnin
         if phased_brew:
             # Uutto ajettiin pre_infusion_phased:ssa (vaiheet 3-4). Sama <label>_END-rivi kuin vanhalla polulla
             # (pico_dev.py shot pysahtyy siihen): loops = jaksot, max_loop_ms = pisin jaksovali. learned_ff_brew on
-            # vanhan saatimen arvo, tama polku ei muuta sita. Kattilan lampotila luetaan kokonaisena nyt, pumppu pois
-            # (vaiheissa 3-4 askelittain, MAX31865:n kokonainen luku blokkaa >= 75 ms).
+            # vanhan saatimen arvo, tama polku ei muuta sita. Kattilan lampotila luetaan kerran nyt, pumppu pois
+            # (MAX31865 blokkaa >= 75 ms, joten sita ei lueta vaiheissa 3-4).
             brew_data.get_boiler_temperature()
-            print('%s_END loops=%d max_loop_ms=%d reason=%s learned_ff_brew=%.2f' % (
-                label, st[0], st[1], abort_reason or 'stopped', brew_data.learned_ff_brew))
+            print('%s_END loops=%d max_loop_ms=%d reason=%s learned_ff_brew=%.2f %s' % (
+                label, st[0], st[1], abort_reason or 'stopped', brew_data.learned_ff_brew, tsens.c1_log()))
         else:
             # ===== BREW LOOP ===== #
             brew_data.set_mode('brew loop initialization')
@@ -946,12 +929,6 @@ async def run_shot(brew_data, utime, asyncio, pump_ratio_calculator, keep_runnin
                 flow_controller = FlowController(utime, brew_data.get_flow_target(),
                                                  brew_data.learned_ff_brew)
             brew_start = utime.ticks_ms()
-            # Lampotila tuoreeksi ennen ensimmaista lammitinpulssia (EXPRESSO-TEMPSTALE-JA-OLETUS): pim:0-esiuutto ei lue
-            # sita, ja yli 10 s vanha lukema esti lammittimen (GUARD_TRIP tempstale, 28.9.2026 c2) ensimmaiseen 2 s:n
-            # lukuun asti. pim:1 lukee sen vaiheissa 1-2 askelittain, joten silloin tama ei lue (A/B-vertailu ennallaan).
-            t_ms = getattr(brew_data, 'boiler_temperature_ms', None)
-            if t_ms is None or utime.ticks_diff(utime.ticks_ms(), t_ms) >= 2000:
-                brew_data.get_boiler_temperature()
             last_temperature_read = utime.ticks_ms()
             last_log = 0
             last_loop = utime.ticks_ms()
@@ -1015,8 +992,8 @@ async def run_shot(brew_data, utime, asyncio, pump_ratio_calculator, keep_runnin
             RELAY_HEATER.value(0)
             if utime.ticks_diff(utime.ticks_ms(), brew_start) >= 8000:
                 brew_data.learned_ff_brew = min(0.9, max(0.05, pressure_controller.duty_avg))
-            print('%s_END loops=%d max_loop_ms=%d reason=%s learned_ff_brew=%.2f' % (
-                label, loops, max_loop_ms, abort_reason or 'stopped', brew_data.learned_ff_brew))
+            print('%s_END loops=%d max_loop_ms=%d reason=%s learned_ff_brew=%.2f %s' % (
+                label, loops, max_loop_ms, abort_reason or 'stopped', brew_data.learned_ff_brew, tsens.c1_log()))
 
         # ===== PRESSURE SOFT RELEASE ===== #
         RELAY_PUMP.value(0)
@@ -1043,6 +1020,7 @@ async def run_shot(brew_data, utime, asyncio, pump_ratio_calculator, keep_runnin
         RELAY_PUMP.value(0)
         RELAY_HEATER.value(0)
         RELAY_SOLENOID.value(0)
+        tsens.c1_off()
     return abort_reason
 
 

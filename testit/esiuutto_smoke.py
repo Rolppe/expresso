@@ -250,31 +250,30 @@ class Adc:
         return int((self.plant.bar(U.us) + 0.99 - F.PCAP_RAW_B) / F.PCAP_RAW_A)
 
 
-class Max31865:
-    """MAX31865-ajurin askelittainen luku (EXPRESSO-TEMPSTALE-JA-OLETUS): jokainen askel vie virtuaaliaikaa kuten SPI-siirrot
-    50 kHz:lla laitteella (~0,5 ms/siirto; rtd_start 4, rtd_convert 2, rtd_result 1 pidempi). Arvio, ei mitattu: laitteen
-    pisin askel EU_VV/EB_VV t_max_us:ssa."""
-    COST_US = {'start': 2000, 'convert': 1000, 'result': 700}
+class C1Model:
+    """Toinen ydin (EXPRESSO-TEMPSTALE-JA-OLETUS, classes.TemperatureSensor.c1_*): lukema valmis 80 ms c1_on:n jalkeen ja
+    sitten TEMP_C1_EVERY_MS valein virtuaaliajassa. Ei vie paasilmukan aikaa eika kutsu kelloa (U.us luetaan suoraan)."""
+    EVERY_MS, FIRST_MS = 250, 80
 
     def __init__(self):
-        self.steps = []           # (us, askel)
+        self.t_on, self.n_on = None, 0
 
-    def _spend(self, k):
-        self.steps.append((U.us, k))
-        U.us += self.COST_US[k]
+    def c1_active(self): return self.t_on is not None
+    def c1_on(self): self.t_on, self.n_on = U.us // 1000, self.n_on + 1; return True
+    def c1_off(self): self.t_on = None
 
-    def rtd_start(self): self._spend('start')
-    def rtd_convert(self): self._spend('convert')
-    def rtd_result(self): self._spend('result'); return 0
-    def temperature_from_rtd(self, rtd): return 93.0
+    def c1_ms(self):
+        if self.t_on is None: return None
+        d = U.us // 1000 - self.t_on - self.FIRST_MS
+        return None if d < 0 else self.t_on + self.FIRST_MS + d - d % self.EVERY_MS
+
+    def c1_temperature(self): return None if self.c1_ms() is None else 93.0
+    def c1_log(self): return 'c1_n=%d' % (-1 if self.t_on is None else 0)
+    def read_temperature(self): return 93.0
 
 
 def temp_sensor():
-    import classes
-    ts = classes.TemperatureSensor.__new__(classes.TemperatureSensor)
-    ts.temperature_sensor, ts.temps, ts.temps_i = Max31865(), [0] * 7, 0
-    ts.step_reset()
-    return ts
+    return C1Model()
 
 
 class Ratio:
@@ -295,13 +294,18 @@ class BrewData:
         self.learned_ff_pre, self.eu_coast_s, self.eu_g_pre, self.eu_tau_pre = 0.3, F.EU_COAST_S0, 0.0, 0.0
         self.saved = 0
         self.mode, self.pressure, self.pressure_filtered = None, 0.0, 0.0
-        # Kattilan lampotila (EXPRESSO-TEMPSTALE-JA-OLETUS): askelittainen luku classes.TemperatureSensorilla ja
-        # anturimallilla; lammittimen jokaisen paallekytkennan hetkella lukeman ika (ms) heat_age:en kuten rele-vahti sen nakee
+        # Kattilan lampotila (EXPRESSO-TEMPSTALE-JA-OLETUS): toisen ytimen malli; lammittimen jokaisen paallekytkennan
+        # hetkella lukeman ika (ms) heat_age:en kuten rele-vahti sen nakee (classes.BrewData.boiler_temperature_ms)
         self.temperature_sensor = temp_sensor()
         self.relay_guard = types.SimpleNamespace(utime=U)
         self.boiler_temperature, self.boiler_temperature_ms, self.heat_age = 93.0, None, []
-        self.heater.hook = lambda x: self.heat_age.append(
-            None if self.boiler_temperature_ms is None else U.us // 1000 - self.boiler_temperature_ms) if x else None
+
+        def heat_age(x):
+            if not x: return
+            ms = self.temperature_sensor.c1_ms()
+            if ms is None: ms = self.boiler_temperature_ms
+            self.heat_age.append(None if ms is None else U.us // 1000 - ms)
+        self.heater.hook = heat_age
 
     def get_relays(self): return self.pump, self.solenoid, self.heater
     def get_switch_brew(self): return self.brew

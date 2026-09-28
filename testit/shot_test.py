@@ -65,6 +65,13 @@ class Sensor:
         self._avg_buf = []
 class Temp:
     def read_temperature(self): plant(0.080); return 93.0
+    # Ilman toista ydinta (classes.TemperatureSensor.c1_*): uutto lukee kuten ennen
+    def c1_active(self): return False
+    def c1_on(self): return False
+    def c1_off(self): pass
+    def c1_temperature(self): return None
+    def c1_ms(self): return None
+    def c1_log(self): return 'c1_n=-1'
 
 def make_brew_data():
     bd = BrewData.__new__(BrewData)

@@ -35,6 +35,8 @@ wlan.active(False)
 
 # INITIALIZE PT100 TEMPERATURE SENSOR WITH MAX31865
 temperature_sensor = TemperatureSensor(max31865, PINS, MAX31865_CONFIG)
+# Core 1 reads it while a shot runs (EXPRESSO-TEMPSTALE-JA-OLETUS); idle until run_shot's c1_on
+temperature_sensor.c1_start(utime)
 
 # INITIALIZE PRESSURE SENSOR HANDLER
 pressure_sensor = PressureSensor(utime, asyncio, Pin, PINS, ADC)

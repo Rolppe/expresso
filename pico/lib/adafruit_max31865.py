@@ -78,6 +78,8 @@ class MAX31865:
         self.rtd_nominal = rtd_nominal
         self.ref_resistor = ref_resistor
         self._device = spi_device.SPIDevice(spi, cs)# Set wire config register based on the number of wires specified.
+        # rtd_start/rtd_convert/rtd_result buffers: the reads run on core 1 with the heap locked (classes.TemperatureSensor)
+        self._na, self._nw, self._nr1, self._nr2 = bytearray(1), bytearray(2), bytearray(1), bytearray(2)
         if wires not in (2, 3, 4):
             raise ValueError('Wires must be a value of 2, 3, or 4!')
         config = self._read_u8(_MAX31865_CONFIG_REG)
@@ -188,22 +190,45 @@ class MAX31865:
         rtd >>= 1
         return rtd
 
-    # The same reading in three short steps without time.sleep (EXPRESSO-TEMPSTALE-JA-OLETUS, 28.9.2026): read_rtd
-    # blocks >= 75 ms, which the 20 ms shot loop cannot take. The caller keeps the gaps: bias on >= 10 ms before
-    # rtd_convert, and the conversion >= 65 ms before rtd_result.
+    # The same reading as read_rtd in three steps without time.sleep and without allocating (EXPRESSO-TEMPSTALE-JA-OLETUS,
+    # 28.9.2026): core 1 runs them with the heap locked while a shot runs (classes.TemperatureSensor.c1_*), so every SPI
+    # transfer uses the buffers made in __init__. The caller keeps the gaps: bias on >= 10 ms before rtd_convert, and the
+    # conversion >= 65 ms before rtd_result.
+    def _n_read_u8(self, address):
+        dev, a, r = self._device, self._na, self._nr1
+        a[0] = address & 0x7F
+        dev.chip_select.value(0)
+        dev.spi.write(a)
+        dev.spi.readinto(r)
+        dev.chip_select.value(1)
+        return r[0]
+    def _n_write_u8(self, address, val):
+        dev, w = self._device, self._nw
+        w[0] = (address | 0x80) & 0xFF
+        w[1] = val & 0xFF
+        dev.chip_select.value(0)
+        dev.spi.write(w)
+        dev.chip_select.value(1)
     def rtd_start(self):
-        self.clear_faults()
-        self.set_bias(True)
-
+        # clear_faults, then set_bias(True)
+        config = self._n_read_u8(_MAX31865_CONFIG_REG)
+        config &= ~0x2C
+        config |= _MAX31865_CONFIG_FAULTSTAT
+        self._n_write_u8(_MAX31865_CONFIG_REG, config)
+        config = self._n_read_u8(_MAX31865_CONFIG_REG)
+        self._n_write_u8(_MAX31865_CONFIG_REG, config | _MAX31865_CONFIG_BIAS)
     def rtd_convert(self):
-        config = self._read_u8(_MAX31865_CONFIG_REG)
-        config |= _MAX31865_CONFIG_1SHOT
-        self._write_u8(_MAX31865_CONFIG_REG, config)
-
+        config = self._n_read_u8(_MAX31865_CONFIG_REG)
+        self._n_write_u8(_MAX31865_CONFIG_REG, config | _MAX31865_CONFIG_1SHOT)
     def rtd_result(self):
+        dev, a, r = self._device, self._na, self._nr2
+        a[0] = _MAX31865_RTDMSB_REG
+        dev.chip_select.value(0)
+        dev.spi.write(a)
+        dev.spi.readinto(r)
+        dev.chip_select.value(1)
         # Remove fault bit.
-        return self._read_u16(_MAX31865_RTDMSB_REG) >> 1
-
+        return ((r[0] << 8) | r[1]) >> 1
     @property
     def resistance(self):
         """Read the resistance of the RTD and return its value in Ohms."""
