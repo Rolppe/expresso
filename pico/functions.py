@@ -896,7 +896,7 @@ async def run_shot(brew_data, utime, asyncio, pump_ratio_calculator, keep_runnin
         # pim:1 = hyvaksytty esiuutto ja vanha uutto, A/B-vertailu).
         phased_brew = False
         if brew_data.get_pre_infusion_mode():
-            # pim:1 = vaiheseurattu esiuutto (TILAUS-K 1-2); oletus 0 kunnes todennettu laitteella
+            # pim:1 = vaiheseurattu esiuutto (TILAUS-K 1-2); oletus 1 (EXPRESSO-TEMPSTALE-JA-OLETUS)
             if getattr(brew_data, 'pre_infusion_method', 0) == 1:
                 phased_brew = getattr(brew_data, 'brew_method', 0) == 1 and not brew_data.get_flow_mode()
                 st = await pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, running,

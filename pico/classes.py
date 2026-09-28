@@ -191,8 +191,9 @@ class BrewData:
         # Learned pump feed-forward per phase (RAM, from the previous shot's average duty)
         self.learned_ff_pre     = 0.3
         # Esiuuton tapa (pim:, RAM): 0 = PI 17 ms ikkunalla, 1 = vaiheseurattu (TILAUS-K 1-2,
-        # 24.9.2026). eu_coast_s = opittu jalkinousu (s) vaiheen 1 katkaisun jalkeen.
-        self.pre_infusion_method = 0
+        # 24.9.2026); oletus 1 (EXPRESSO-TEMPSTALE-JA-OLETUS, 28.9.2026: kayttoonottoketjun kohta 3).
+        # eu_coast_s = opittu jalkinousu (s) vaiheen 1 katkaisun jalkeen.
+        self.pre_infusion_method = 1
         self.eu_coast_s         = 0.3
         # Nopean nousun (>= 8 bar/s) jalkinousu erikseen (EXPRESSO-ESIUUTTO-UUTTOASENTO, = EU_COAST_FAST_S0)
         self.eu_coast_fast_s    = 0.2
@@ -202,10 +203,11 @@ class BrewData:
         # Edellisen pidon vuodon tau (s) ff:n laskuun; 0 = ei tietoa -> G-suhde EU_TAU_S:lla (EXPRESSO-ESIUUTTO-AVOIN)
         self.eu_tau_pre         = 0.0
         self.learned_ff_brew    = 0.5
-        # Uuton tapa (bim:, RAM, EXPRESSO-UUTTO-8BAR): 0 = vanha uuttosilmukka, 1 = vaiheet 3-4 (TILAUS-K) esiuuton jatkona.
+        # Uuton tapa (bim:, RAM, EXPRESSO-UUTTO-8BAR): 0 = vanha uuttosilmukka, 1 = vaiheet 3-4 (TILAUS-K) esiuuton jatkona;
+        # oletus 1 kuten pim (EXPRESSO-TEMPSTALE-JA-OLETUS).
         # Uuton opitut arvot erillaan esiuuton arvoista (settings.txt, eb_*): tarve uuttopaineessa, sen suhde saman ajon
         # esiuuton tarpeeseen (0 = ei tietoa -> paineiden suhde), G ja tau katkaisusta, jalkinousu.
-        self.brew_method        = 0
+        self.brew_method        = 1
         self.eb_ff              = 0.0
         self.eb_x               = 0.0
         self.eb_g               = 0.0
