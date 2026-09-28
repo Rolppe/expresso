@@ -1114,6 +1114,29 @@ def main():
     ml = max(m['maxline'] for rs in t16.values() for m in rs)
     check('21 rivit ≤ 255 merkkiä (USB-CDC:n jono)', max(ml, max(x[3] for x in r19[1])) <= 255, '%d' % ml)
 
+    # 22 kattilan lukeman ika lammittimen jokaisessa paallekytkennassa (EXPRESSO-TEMPSTALE-JA-OLETUS): toinen ydin
+    # (C1Model) pitaa sen alle 1 s:n bim:1:lla ja bim:0:lla, ja run_shot palauttaa anturin ytimelle 0 (c1_off).
+    # Ilman ytimen 1 lukua bim:1 toistaa 28.9.2026:n vian: vaiheissa 3-4 ei lueta, ika ylittaa rele-vahdin rajan.
+    import relayguard
+    for bim in (1, 0):
+        bd = brew_bd('25b', 220, False)
+        run_brew(bd, 16.0, bim=bim, seed=220)
+        ages, ts = bd.heat_age, bd.temperature_sensor
+        check('22 bim:%d: lämmitin päällä vain tuoreella lukemalla (ikä ≤ 1 s)' % bim,
+              len(ages) > 10 and None not in ages and max(ages) <= 1000,
+              'n %d, max %s ms' % (len(ages), max(ages) if ages and None not in ages else ages[:3]))
+        check('22 bim:%d: c1_on kerran, c1_off lopussa' % bim, ts.n_on == 1 and not ts.c1_active(),
+              'n_on %d, active %s' % (ts.n_on, ts.c1_active()))
+
+    class NoC1(C1Model):
+        def c1_on(self): return False
+    bd = brew_bd('25b', 220, False)
+    bd.temperature_sensor, bd.boiler_temperature_ms = NoC1(), 0    # paasilmukka luki juuri ennen uuttoa
+    run_brew(bd, 16.0, bim=1, seed=220)
+    ages = [a for a in bd.heat_age if a is not None]
+    check('22 ilman ytimen 1 lukua bim:1 toistaa vian (ikä > %d ms)' % relayguard.HEATER_TEMP_STALE_MS,
+          ages and max(ages) > relayguard.HEATER_TEMP_STALE_MS, 'max %s ms' % (max(ages) if ages else None))
+
     print('RESULT: %d failed' % len(failed))
     return 1 if failed else 0
 

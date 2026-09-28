@@ -300,7 +300,8 @@ def handle_command(brew_data, command):
 
     elif command.startswith('pim:'):
         # Pre-infusion method (24.9.2026): 0 = PI with 17 ms window, 1 = phase-tracked (TILAUS-K 1-2).
-        # RAM only like the weight limits: every restart and flash returns to 0; TS_START prints it.
+        # RAM only like the weight limits: every restart and flash returns to 1 (default since
+        # EXPRESSO-TEMPSTALE-JA-OLETUS, 28.9.2026; pim:0 = old path for A/B); TS_START prints it.
         try:
             brew_data.pre_infusion_method = 1 if int(_float_arg(command)) == 1 else 0
             updated = True
@@ -309,7 +310,7 @@ def handle_command(brew_data, command):
 
     elif command.startswith('bim:'):
         # Uuton tapa (EXPRESSO-UUTTO-8BAR, 27.9.2026): 1 = vaiheet 3-4 esiuuton jatkona (TILAUS-K 3-4), vain pim:1:n,
-        # paalla olevan esiuuton ja painetilan kanssa; 0 = vanha uuttosilmukka. RAM only kuten pim, oletus 0; TS_START
+        # paalla olevan esiuuton ja painetilan kanssa; 0 = vanha uuttosilmukka. RAM only kuten pim, oletus 1; TS_START
         # tulostaa bim=.
         try:
             brew_data.brew_method = 1 if int(_float_arg(command)) == 1 else 0
