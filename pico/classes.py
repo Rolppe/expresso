@@ -102,6 +102,7 @@ class BrewData:
         self.heating_speed_calculator = heating_speed_calculator
         self.temperature_sensor       = temperature_sensor
         self.pressure_sensor          = pressure_sensor
+        self._boiler_temperature_ms   = None   # ticks_ms of the last read; the heater guard needs it fresh
         self.SWITCH_BREW      = Pin(PINS['SWITCH_BREW'], Pin.IN, Pin.PULL_DOWN)
         self.SWITCH_STEAM     = Pin(PINS['SWITCH_STEAM'], Pin.IN, Pin.PULL_DOWN)
         self.SWITCH_WATER     = Pin(PINS['SWITCH_WATER'], Pin.IN, Pin.PULL_DOWN)
@@ -754,21 +755,33 @@ class BrewData:
 
 
     def get_boiler_temperature(self):
-        self.boiler_temperature = self.temperature_sensor.read_temperature()
-        self.boiler_temperature_ms = self.relay_guard.utime.ticks_ms()
+        # During a shot core 1 reads (TemperatureSensor.c1_on): the properties below give its reading and time
+        if not self.temperature_sensor.c1_active():
+            self.boiler_temperature = self.temperature_sensor.read_temperature()
+            self.boiler_temperature_ms = self.relay_guard.utime.ticks_ms()
         boiler_temperature = self.boiler_temperature
         
         return boiler_temperature
 
-    def step_boiler_temperature(self, now_ms):
-        """One short step of the stepwise boiler reading (TemperatureSensor.step). Sets the temperature and its time
-        like get_boiler_temperature when the reading completes; returns True then."""
-        t = self.temperature_sensor.step(self.relay_guard.utime, now_ms)
-        if t is None:
-            return False
-        self.boiler_temperature = t
-        self.boiler_temperature_ms = now_ms
-        return True
+    # Boiler temperature and the ticks_ms of its reading (EXPRESSO-TEMPSTALE-JA-OLETUS): while core 1 reads during a
+    # shot, its latest reading, so the relay guard sees it fresh without the shot loop reading anything
+    @property
+    def boiler_temperature(self):
+        t = self.temperature_sensor.c1_temperature()
+        return self._boiler_temperature if t is None else t
+
+    @boiler_temperature.setter
+    def boiler_temperature(self, t):
+        self._boiler_temperature = t
+
+    @property
+    def boiler_temperature_ms(self):
+        ms = self.temperature_sensor.c1_ms()
+        return self._boiler_temperature_ms if ms is None else ms
+
+    @boiler_temperature_ms.setter
+    def boiler_temperature_ms(self, ms):
+        self._boiler_temperature_ms = ms
     
 
     def get_heating_speed(self):
@@ -1456,12 +1469,25 @@ class HeatingSpeedCalculator:
 # TEMPERATURE SENSOR
 # ============================================================================
 
-# Stepwise read (TemperatureSensor.step): gaps from the driver's read_rtd (bias 10 ms, conversion 65 ms) with margin,
-# and a new reading every 2 s like the old brew loop; the relay guard blocks the heater at 10 s.
-TEMP_STEP_BIAS_MS  = 12
-TEMP_STEP_CONV_MS  = 70
-TEMP_STEP_EVERY_MS = 2000
-TEMP_STEP_LOST_MS  = 1000     # a step this old belongs to a loop that ended: the reading starts over
+# Boiler temperature on core 1 while a shot runs (EXPRESSO-TEMPSTALE-JA-OLETUS, 28.9.2026). A whole MAX31865 reading
+# blocks >= 75 ms, which the shot loops cannot take, and without a reading the relay guard blocks the heater after 10 s
+# (GUARD_TRIP heater reason=tempstale in every bim:1 run, 28.9.2026). Reading it in short steps inside the shot loop
+# cost the smoke's pump control (case 10 hold mean +0.029 -> +0.067 bar), so core 1 reads it instead: run_shot hands it
+# the sensor (c1_on) and takes it back (c1_off); outside a shot core 0 reads as before. Core 1 runs with the heap locked
+# (an allocation there could start a GC in the middle of a pump loop) and only integers: the 7-reading average is in
+# 0.01 C, converted with a table built on core 0 from the driver's own formula (interpolation error < 0.01 C).
+TEMP_C1_BIAS_MS  = 10         # the driver's read_rtd gaps
+TEMP_C1_CONV_MS  = 65
+TEMP_C1_EVERY_MS = 250        # a reading this often; the relay guard's limit is 10 s
+TEMP_C1_STOP_MS  = 300        # c1_off waits this long for a reading in progress to end
+TEMP_C1_RAW_LO   = 4096       # conversion table: raw 4096..16384 in steps of 256 (about -85..+330 C)
+TEMP_C1_RAW_N    = 48
+TEMP_C1_MIN_CDEG = 200        # read_temperature's 2..200 C
+TEMP_C1_MAX_CDEG = 20000
+# c1 state (array 'i'), shared by the cores: every field one word, written by one core only (WANT, T0 core 0; the rest
+# core 1, RI and GAP also core 0 while core 1 is idle)
+C1_WANT, C1_IDLE, C1_SEQ, C1_CDEG, C1_MS, C1_BAD, C1_GAP, C1_ERR, C1_RI, C1_RUN, C1_T0 = range(11)
+
 
 #### Class for reading pt100 sensor temperature with max31865 ####
 class TemperatureSensor:
@@ -1479,15 +1505,20 @@ class TemperatureSensor:
             )
         self.temps = [0, 0, 0, 0, 0 ,0 ,0]
         self.temps_i = 0
-        self.step_reset()
+        self.c1 = None
 
 
     # Function to get temperature from sensor
     def read_temperature(self):
         
-        # A blocking read leaves the stepwise one's conversion undefined: start it over
-        self.step_reset()
+        # During a shot core 1 owns the sensor: its latest average, or the last one of core 0 until core 1 has one
+        if self.c1_active():
+            t = self.c1_temperature()
+            return t if t is not None else round(sum(self.temps) / len(self.temps), 2)
 
+        # Create value for sifting bias of the temperature
+        temperature_bias = 0
+        
         # Get 7 temperature samples to list and calculate average to avoid the noise
         fault_counter = 0
         temp = self.temperature_sensor.temperature
@@ -1500,56 +1531,6 @@ class TemperatureSensor:
             if fault_counter > 5:
                 print("Permanent sensor error")
                 return 200            
-        
-        return self._average(temp)
-
-    # ----- stepwise read (EXPRESSO-TEMPSTALE-JA-OLETUS, 28.9.2026) -----
-    # The shot loops of pre_infusion_phased (phases 1-4) cannot stop for read_temperature's >= 75 ms, and without a
-    # reading the relay guard blocks the heater after 10 s (GUARD_TRIP heater reason=tempstale, 28.9.2026 in every
-    # bim:1 run). The same reading in three short SPI steps (driver rtd_start, rtd_convert, rtd_result), each run by
-    # the loop only when its next event is further away than the step takes. step_due() says whether a step's gap
-    # has passed; step() runs it and returns the temperature after the last step, else None.
-    def step_reset(self):
-        self.step_st, self.step_t, self.step_next, self.step_bad = 0, 0, None, 0
-
-    def step_due(self, utime, now_ms):
-        if self.step_st == 0:
-            return self.step_next is None or utime.ticks_diff(now_ms, self.step_next) >= 0
-        age = utime.ticks_diff(now_ms, self.step_t)
-        if age > TEMP_STEP_LOST_MS:
-            # A conversion left from an earlier loop: its result is old, start over
-            self.step_st = 0
-            return True
-        return age >= (TEMP_STEP_BIAS_MS if self.step_st == 1 else TEMP_STEP_CONV_MS)
-
-    def step(self, utime, now_ms):
-        drv = self.temperature_sensor
-        if self.step_st == 0:
-            drv.rtd_start()
-            self.step_st, self.step_t = 1, now_ms
-            return None
-        if self.step_st == 1:
-            drv.rtd_convert()
-            self.step_st, self.step_t = 2, now_ms
-            return None
-        temp = drv.temperature_from_rtd(drv.rtd_result())
-        self.step_st = 0
-        if temp < 2 or temp > 200:
-            # As read_temperature: retry at once, and the sixth bad reading in a row reads 200 (heater guard: overtemp)
-            self.step_bad += 1
-            self.step_next = None
-            if self.step_bad > 5:
-                self.step_bad = 0
-                return 200
-            return None
-        self.step_bad = 0
-        self.step_next = utime.ticks_add(now_ms, TEMP_STEP_EVERY_MS)
-        return self._average(temp)
-
-    def _average(self, temp):
-        
-        # Create value for sifting bias of the temperature
-        temperature_bias = 0
         
         self.temps[self.temps_i] = temp
         
@@ -1565,4 +1546,153 @@ class TemperatureSensor:
         temperature = temperature + temperature_bias
         
         return temperature
+
+    # ----- core 1 (EXPRESSO-TEMPSTALE-JA-OLETUS) -----
+    def c1_start(self, utime):
+        """Starts the core 1 reader once at boot; it idles until c1_on. Without _thread the sensor stays core 0's."""
+        from array import array
+        drv = self.temperature_sensor
+        self.c1_utime = utime
+        self.c1_ring = array('i', [0] * 7)
+        self.c1_tab = array('i', [int(drv.temperature_from_rtd(TEMP_C1_RAW_LO + (k << 8)) * 100 + 0.5)
+                                  for k in range(TEMP_C1_RAW_N + 1)])
+        self.c1_seq0 = 0
+        st = array('i', [0] * 11)
+        st[C1_IDLE] = st[C1_RUN] = 1
+        self.c1 = st
+        try:
+            import _thread
+            _thread.stack_size(6144)
+            _thread.start_new_thread(self._c1_main, ())
+            print('TEMP_C1 ready')
+        except Exception as e:
+            self.c1 = None
+            print('TEMP_C1 none: %s' % e)
+
+    def c1_active(self):
+        st = self.c1
+        return st is not None and st[C1_WANT] == 1 and st[C1_RUN] == 1
+
+    def c1_on(self):
+        """Hands the sensor to core 1 (run_shot start). Its average goes on from core 0's readings."""
+        st = self.c1
+        if st is None or st[C1_RUN] == 0:
+            return False
+        ring = self.c1_ring
+        for k in range(7):
+            ring[k] = int(self.temps[k] * 100 + 0.5)
+        st[C1_RI], st[C1_GAP], st[C1_BAD] = self.temps_i, 0, 0
+        st[C1_T0] = self.c1_utime.ticks_ms()
+        self.c1_seq0 = st[C1_SEQ]
+        st[C1_WANT] = 1
+        return True
+
+    def c1_off(self):
+        """Takes the sensor back (run_shot end): waits for a reading in progress, then core 0 goes on from core 1's
+        average."""
+        st = self.c1
+        if st is None or st[C1_WANT] != 1:
+            return
+        utime = self.c1_utime
+        st[C1_WANT] = 0
+        t0 = utime.ticks_ms()
+        # Core 1 sets IDLE to 0 before it looks at WANT, and touches the SPI bus only after seeing WANT 1, so IDLE 1
+        # seen here after WANT 0 means the bus is free
+        while st[C1_IDLE] == 0 and st[C1_RUN] == 1:
+            if utime.ticks_diff(utime.ticks_ms(), t0) > TEMP_C1_STOP_MS:
+                print('TEMP_C1 stuck: idle not seen in %d ms' % TEMP_C1_STOP_MS)
+                break
+        ring = self.c1_ring
+        for k in range(7):
+            self.temps[k] = ring[k] / 100
+        self.temps_i = st[C1_RI]
+
+    def c1_temperature(self):
+        """Core 1's latest average (C) since c1_on, else None."""
+        st = self.c1
+        if st is None or st[C1_WANT] != 1 or st[C1_SEQ] == self.c1_seq0:
+            return None
+        return st[C1_CDEG] / 100
+
+    def c1_ms(self):
+        """ticks_ms of core 1's latest reading since c1_on, else None."""
+        st = self.c1
+        if st is None or st[C1_WANT] != 1 or st[C1_SEQ] == self.c1_seq0:
+            return None
+        return st[C1_MS]
+
+    def c1_log(self):
+        """Fields for the shot's _END line: readings since c1_on, longest gap between them (ms), bad readings, 1 if
+        core 1 stopped on an error; n=-1 without core 1."""
+        st = self.c1
+        if st is None:
+            return 'c1_n=-1'
+        return 'c1_n=%d c1_gap_ms=%d c1_bad=%d c1_err=%d' % (
+            st[C1_SEQ] - self.c1_seq0, st[C1_GAP], st[C1_BAD], st[C1_ERR])
+
+    def _c1_main(self):
+        import micropython
+        st = self.c1
+        micropython.heap_lock()
+        try:
+            self._c1_loop(st, self.c1_ring, self.c1_tab, self.temperature_sensor, self.c1_utime)
+        except BaseException:
+            # An allocation (heap locked) or an SPI error: stop, and core 0 reads the sensor again. During a shot the
+            # relay guard then blocks the heater after 10 s (tempstale), as before this reader.
+            st[C1_ERR] = 1
+        micropython.heap_unlock()
+        st[C1_IDLE] = 1
+        st[C1_RUN] = 0
+
+    def _c1_loop(self, st, ring, tab, drv, utime):
+        bad = last = 0
+        while st[C1_WANT] >= 0:
+            st[C1_IDLE] = 0
+            if st[C1_WANT] == 0:
+                st[C1_IDLE] = 1
+                bad = last = 0
+                utime.sleep_ms(2)
+                continue
+            t0 = utime.ticks_ms()
+            drv.rtd_start()
+            utime.sleep_ms(TEMP_C1_BIAS_MS)
+            drv.rtd_convert()
+            utime.sleep_ms(TEMP_C1_CONV_MS)
+            raw = drv.rtd_result()
+            now = utime.ticks_ms()
+            c = -1
+            if TEMP_C1_RAW_LO <= raw < TEMP_C1_RAW_LO + (TEMP_C1_RAW_N << 8):
+                j = (raw - TEMP_C1_RAW_LO) >> 8
+                a = tab[j]
+                c = a + (((tab[j + 1] - a) * (raw - TEMP_C1_RAW_LO - (j << 8)) + 128) >> 8)
+            if c < TEMP_C1_MIN_CDEG or c > TEMP_C1_MAX_CDEG:
+                # As read_temperature: retry at once, and the sixth bad reading in a row reads 200 C (heater guard:
+                # overtemp)
+                st[C1_BAD] += 1
+                bad += 1
+                if bad > 5:
+                    bad = 0
+                    st[C1_CDEG], st[C1_MS] = TEMP_C1_MAX_CDEG, now
+                    st[C1_SEQ] += 1
+                continue
+            bad = 0
+            i = st[C1_RI]
+            ring[i] = c
+            i += 1
+            if i >= 7:
+                i = 0
+            st[C1_RI] = i
+            s = 0
+            for k in range(7):
+                s += ring[k]
+            gap = utime.ticks_diff(now, last if last else st[C1_T0])
+            if gap > st[C1_GAP]:
+                st[C1_GAP] = gap
+            last = now
+            st[C1_CDEG], st[C1_MS] = (s + 3) // 7, now
+            st[C1_SEQ] += 1
+            wait = TEMP_C1_EVERY_MS - utime.ticks_diff(utime.ticks_ms(), t0)
+            while wait > 0 and st[C1_WANT] == 1:
+                utime.sleep_ms(wait if wait < 10 else 10)
+                wait = TEMP_C1_EVERY_MS - utime.ticks_diff(utime.ticks_ms(), t0)
 

@@ -61,7 +61,8 @@ def make_bd(clock):
     ps = types.SimpleNamespace(gain=1.0, offset=0.0,
                                pressure_sensor=types.SimpleNamespace(read_u16=lambda: 0))
     bd = classes.BrewData(Pin, None, preset.PINS, preset.TARGET_TEMPERATURES, preset.FEATURES,
-                          None, types.SimpleNamespace(read_temperature=lambda: 95.0), ps,
+                          None, types.SimpleNamespace(read_temperature=lambda: 95.0, c1_active=lambda: False,
+                                                      c1_temperature=lambda: None, c1_ms=lambda: None), ps,
                           utime=Utime(clock))
     # test sets the pressure directly; raw (uncalibrated) follows it unless set
     bd.relay_guard.read_pressure = lambda: (bd._p, bd._p if bd._raw is None else bd._raw)
