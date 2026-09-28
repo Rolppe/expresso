@@ -70,7 +70,7 @@ def main():
     out, seen = run(bd, 6.0)
     end = [l for l in out.splitlines() if l.startswith('KURI_END')]
     lines = [l for l in out.splitlines() if l.startswith('KURI t=')]
-    check('1 KURI_START', 'KURI_START wmax=720' in out, out.splitlines()[:1])
+    check('1 KURI_START rate=25 T_us=20000.0', 'KURI_START rate=25 T_us=20000.0 wmax=720' in out, out.splitlines()[:1])
     check('1 venttiili paalla, lammitin pois', seen.get('sol') == 1 and seen.get('heater') == 0, seen)
     check('1 pumpun paalla-osuus ~0,5 (joka toinen jakso)', seen.get('on_frac') is not None
           and 0.4 < seen['on_frac'] < 0.6, seen.get('on_frac'))
@@ -115,10 +115,25 @@ def main():
             pass
 
     b = Bd()
-    C.handle_command(b, 'kuri:1')
-    on = b.throttle_set
-    C.handle_command(b, 'kuri:0')
-    check('5 kuri:1 -> 1, kuri:0 -> 0', on == 1 and b.throttle_set == 0 and b.command_known, (on, b.throttle_set))
+    got = []
+    for cmd in ('kuri:24', 'kuri:99', 'kuri:0'):
+        C.handle_command(b, cmd)
+        got.append(b.throttle_set)
+    check('5 kuri:24 -> 24, kuri:99 -> 50, kuri:0 -> 0', got == [24, 50, 0] and b.command_known, got)
+
+    # 6. kuri:24 opitulla jaksolla: ~24 iskua/s, ei kahta perakkaista paalla-jaksoa
+    bd = K.BrewData(p_full=lambda t: 9.0)
+    bd.throttle_set = 24
+    bd.mains_T_us = 19984.4
+    out, seen = run(bd, 4.0)
+    end = [l for l in out.splitlines() if l.startswith('KURI_END')]
+    n = int(K.field(end[0], 'n')) if end else 0
+    check('6 KURI_START rate=24 T_us=19984.4', 'KURI_START rate=24 T_us=19984.4' in out, out.splitlines()[:1])
+    check('6 iskuja ~24/s (4 s -> ~96)', 92 <= n <= 98, n)
+    check('6 paalla-osuus ~0,48', seen.get('on_frac') is not None and 0.38 < seen['on_frac'] < 0.58, seen.get('on_frac'))
+    pat = [(k + 1) * 24 // 50 > k * 24 // 50 for k in range(50)]
+    check('6 kuvio: 24/50, ei perakkaisia iskuja', sum(pat) == 24 and not any(pat[k] and pat[(k + 1) % 50] for k in range(50)),
+          ''.join('1' if x else '0' for x in pat))
 
     print('RESULT: %d failed' % len(fails))
     return 1 if fails else 0

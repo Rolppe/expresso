@@ -318,11 +318,11 @@ def handle_command(brew_data, command):
             pass
 
     elif command.startswith('kuri:'):
-        # Kuristimen saatotila (kayttaja 28.9.2026, TILAUS-M): 1 = uuttonappi ajaa pumppua joka toisella jaksolla (25 iskua/s)
-        # ilman paineensaatoa, jotta kayttaja saataa kuristimen annettuun paineeseen; 0 = normaali uutto. RAM only,
-        # oletus 0: uudelleenkaynnistys ja flash palauttavat normaalin uuton.
+        # Kuristimen saatotila (kayttaja 28.9.2026, TILAUS-M): kuri:<n> = uuttonappi ajaa pumppua n iskua sekunnissa
+        # (1-50, tasaisesti) ilman paineensaatoa, jotta kayttaja saataa kuristimen annettuun paineeseen (8 barille 24);
+        # kuri:0 = normaali uutto. RAM only, oletus 0: uudelleenkaynnistys ja flash palauttavat normaalin uuton.
         try:
-            brew_data.throttle_set = 1 if int(_float_arg(command)) == 1 else 0
+            brew_data.throttle_set = min(50, max(0, int(_float_arg(command))))
             updated = True
         except Exception:
             pass

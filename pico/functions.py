@@ -758,6 +758,8 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
     print('EB_END reason=%s max=%.2f over=%.2f hold_n=%d hold_mean=%.3f hold_sd=%.3f strokes=%d rm=%d sk10=%d sk20=%d late=%d miss=%d' % (
         reason, p_max, rise_max - target, h_n, mean, sd, strokes, removed, skips10, skips20, late, miss))
     await asyncio.sleep_ms(EU_PRINT_GAP_MS)
+    if learned:
+        brew_data.mains_T_us = clock.T      # kuri-kuvion jakso (TILAUS-M): viimeisin opittu verkkojakso
     print('EB_END2 windows=%d win_low=%d learned=%d T_us=%.3f hz=%.4f sd_us=%.0f eb_ff=%.2f eb_x=%.2f eb_g=%.2f eb_tau=%.2f coast_s=%.3f need=%.3f u_mean=%.2f kd=%.3f' % (
         windows, win_low, learned, clock.T, 1e6 / clock.T, clock.sd_us(now), getattr(brew_data, 'eb_ff', 0.0),
         getattr(brew_data, 'eb_x', 0.0), getattr(brew_data, 'eb_g', 0.0), getattr(brew_data, 'eb_tau', 0.0), coast_c, need,
@@ -803,6 +805,8 @@ def _eu_end(brew_data, clock, now, reason, target, hold_t, l_s0, l_r0, strokes, 
     sd = math.sqrt(max(0.0, h_ss / h_n - mean * mean)) if h_n else 0.0
     l1 = 'EU_END reason=%s max=%.2f over=%.2f hold_n=%d hold_mean=%.3f hold_sd=%.3f strokes=%d rm=%d sk10=%d sk20=%d late=%d miss=%d' % (
         reason, p_max, rise_max - target, h_n, mean, sd, strokes, removed, skips10, skips20, late, miss)
+    if learned:
+        brew_data.mains_T_us = clock.T      # kuri-kuvion jakso (TILAUS-M): viimeisin opittu verkkojakso
     l2 = 'EU_END2 windows=%d win_low=%d learned=%d T_us=%.3f hz=%.4f sd_us=%.0f learned_ff_pre=%.2f coast_s=%.3f coast_f=%.3f tau_obs=%.2f u_mean=%.2f kd=%.3f' % (
         windows, win_low, learned, clock.T, 1e6 / clock.T, clock.sd_us(now), brew_data.learned_ff_pre, coast_s, coast_f,
         tau_obs, u_mean, kd)
@@ -2788,14 +2792,16 @@ async def throttle_warmup_run(brew_data, utime, asyncio, pump_ratio_calculator, 
 
 KURI_PRINT_MS = 200
 KURI_FILT_TAU = 1.0          # s: mittarin kaltainen keskiarvo kayttajan tavoitteelle (raaka sd ~1,6 bar)
-KURI_CYCLE_US = 20000        # yksi 50 Hz:n verkkojakso = yksi pumpun isku; paalla 1 jakso, pois 1 jakso
+KURI_CYCLE_US = 20000        # yksi 50 Hz:n verkkojakso = yksi pumpun isku, kun opittua jaksoa ei ole
+KURI_CYCLES = 50             # iskut jaetaan tasaisesti 50 jakson (1 s) kehykseen
 
 
 async def throttle_set_run(brew_data, utime, asyncio, pump_ratio_calculator, switch_on):
     """Kuristimen saatotila (kayttaja 28.9.2026, KAYTTAJAN-TIEDOT TILAUS-M): kun kuri:1 on paalla, uuttonappi
-    ajaa pumppua joka toisella verkkojaksolla (25 iskua/s, teho 0,5) ilman paineensaatoa niin kauan kuin nappi
-    on paalla, ja kayttaja kaantaa kuristimen annettuun paineeseen. Kuvio ei ole lukittu verkon vaiheeseen:
-    se liukuu hitaasti, mutta paalla-aika on aina puolet (asyncio-pysahdys voi siirtaa yksittaista iskua). Rajat samat kuin klampissa: kaukalovahti (wmax), raaka paine
+    ajaa pumppua kuri:<n>:n mukaan n iskua sekunnissa (1-50, tasaisesti 50 jaksolle; kayttaja: 8 barille 24)
+    ilman paineensaatoa niin kauan kuin nappi on paalla, ja kayttaja kaantaa kuristimen annettuun paineeseen.
+    Jakso on viimeisin opittu verkkojakso (brew_data.mains_T_us, uuton EU/EB_END2), muuten 20 000 us: kuvio
+    ei ole lukittu vaiheeseen, mutta ei myoskaan liu'u 16 us/jakso (asyncio-pysahdys voi siirtaa yksittaista iskua). Rajat samat kuin klampissa: kaukalovahti (wmax), raaka paine
     PCAP_OVER_BAR ja dev_safe; releen vartio toimii kuten aina. Lammitin pois kuten dev_run: termostaatti ei
     aja taman silmukan aikana."""
     RELAY_PUMP, RELAY_SOLENOID, RELAY_HEATER = brew_data.get_relays()
@@ -2806,13 +2812,16 @@ async def throttle_set_run(brew_data, utime, asyncio, pump_ratio_calculator, swi
     reason = 'switch'
     p_filt = p_max = raw_max = 0.0
     strokes = 0
+    cyc = getattr(brew_data, 'mains_T_us', None) or KURI_CYCLE_US
+    rate = min(KURI_CYCLES, max(1, int(getattr(brew_data, 'throttle_set', 25))))
     start = utime.ticks_ms()
     tray_state, tray_reason = tray_guard_start(brew_data, utime)
     if tray_reason:
         reason = tray_reason
     else:
         brew_data.set_mode('KURI')
-        print('KURI_START wmax=%.0f w=%.1f' % (brew_data.get_weight_limit(), brew_data.get_weight()))
+        print('KURI_START rate=%d T_us=%.1f wmax=%.0f w=%.1f' % (
+            rate, cyc, brew_data.get_weight_limit(), brew_data.get_weight()))
         try:
             # Venttiili ennen pumppua kuten klamp: paine nousee vain kuristimen kautta.
             RELAY_SOLENOID.value(1)
@@ -2833,7 +2842,8 @@ async def throttle_set_run(brew_data, utime, asyncio, pump_ratio_calculator, swi
                     raw_max = bar
                 if bar > PCAP_OVER_BAR:
                     reason = 'overpressure'; break
-                on = (utime.ticks_diff(utime.ticks_us(), t0_us) // KURI_CYCLE_US) % 2 == 0
+                k = int(utime.ticks_diff(utime.ticks_us(), t0_us) / cyc) % KURI_CYCLES
+                on = (k + 1) * rate // KURI_CYCLES > k * rate // KURI_CYCLES
                 if on != pump_on:
                     pump_on = on
                     RELAY_PUMP.value(1 if on else 0)
