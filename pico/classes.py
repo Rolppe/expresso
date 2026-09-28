@@ -1230,26 +1230,20 @@ class PressureSensor:
         
         pressure_sensor = self.pressure_sensor
         utime = self.utime
-        pressure = 0
-        pressure_measurements_values = []
-        
+        # Running sum, no list: the list grew to ~2000 samples (8 kB) per call and a fragmented heap
+        # could not allocate it -> MemoryError killed main (28.9.2026, kuri2; vika 14).
+        total = 0
+
         start = utime.ticks_us()
         end = utime.ticks_add(start, 16667) # one 60 Hz mains cycle (pump stroke), as in the original
         cycle_counter = 0
         # Make timed cycle for collecting sensor values
         while utime.ticks_diff(end, utime.ticks_us()) > 0:
-            
-            # Read value of the sensor
-            pressure_sensor_value = pressure_sensor.read_u16()
-            
-            # Add value to lisr
-            pressure_measurements_values.append(pressure_sensor_value)
-            
-            #increment cycle counter
+            total += pressure_sensor.read_u16()
             cycle_counter += 1
-        
+
         # Calculate average for one cycle
-        cycle_average = round(sum(pressure_measurements_values) / cycle_counter)
+        cycle_average = round(total / cycle_counter)
             
         # Convert pressure to bar (factory formula), then apply calibration
         raw_bar = cycle_average * 0.000314936 - 3.522929

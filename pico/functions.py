@@ -2783,6 +2783,93 @@ async def throttle_warmup_run(brew_data, utime, asyncio, pump_ratio_calculator, 
 
 
 # ============================================================================
+# KURISTIMEN SAATOTILA (kuri:1)
+# ============================================================================
+
+KURI_PRINT_MS = 200
+KURI_FILT_TAU = 1.0          # s: mittarin kaltainen keskiarvo kayttajan tavoitteelle (raaka sd ~1,6 bar)
+KURI_CYCLE_US = 20000        # yksi 50 Hz:n verkkojakso = yksi pumpun isku; paalla 1 jakso, pois 1 jakso
+
+
+async def throttle_set_run(brew_data, utime, asyncio, pump_ratio_calculator, switch_on):
+    """Kuristimen saatotila (kayttaja 28.9.2026, KAYTTAJAN-TIEDOT TILAUS-M): kun kuri:1 on paalla, uuttonappi
+    ajaa pumppua joka toisella verkkojaksolla (25 iskua/s, teho 0,5) ilman paineensaatoa niin kauan kuin nappi
+    on paalla, ja kayttaja kaantaa kuristimen annettuun paineeseen. Kuvio ei ole lukittu verkon vaiheeseen:
+    se liukuu hitaasti, mutta paalla-aika on aina puolet (asyncio-pysahdys voi siirtaa yksittaista iskua). Rajat samat kuin klampissa: kaukalovahti (wmax), raaka paine
+    PCAP_OVER_BAR ja dev_safe; releen vartio toimii kuten aina. Lammitin pois kuten dev_run: termostaatti ei
+    aja taman silmukan aikana."""
+    RELAY_PUMP, RELAY_SOLENOID, RELAY_HEATER = brew_data.get_relays()
+    sensor = brew_data.pressure_sensor.pressure_sensor
+    gain = brew_data.pressure_sensor.gain
+    offset = brew_data.pressure_sensor.offset
+    RELAY_HEATER.value(0)
+    reason = 'switch'
+    p_filt = p_max = raw_max = 0.0
+    strokes = 0
+    start = utime.ticks_ms()
+    tray_state, tray_reason = tray_guard_start(brew_data, utime)
+    if tray_reason:
+        reason = tray_reason
+    else:
+        brew_data.set_mode('KURI')
+        print('KURI_START wmax=%.0f w=%.1f' % (brew_data.get_weight_limit(), brew_data.get_weight()))
+        try:
+            # Venttiili ennen pumppua kuten klamp: paine nousee vain kuristimen kautta.
+            RELAY_SOLENOID.value(1)
+            brew_data.pressure_sensor.reset_average()
+            p_filt = brew_data.get_pressure_average(utime)
+            last_t = last_print = start
+            t0_us = utime.ticks_us()
+            pump_on = None
+            strokes = 0
+            while switch_on():
+                if brew_data.dev_safe:
+                    reason = 'devsafe'; break
+                tray_reason = tray_guard_check(brew_data, utime, tray_state)
+                if tray_reason:
+                    reason = tray_reason; break
+                bar = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset
+                if bar > raw_max:
+                    raw_max = bar
+                if bar > PCAP_OVER_BAR:
+                    reason = 'overpressure'; break
+                on = (utime.ticks_diff(utime.ticks_us(), t0_us) // KURI_CYCLE_US) % 2 == 0
+                if on != pump_on:
+                    pump_on = on
+                    RELAY_PUMP.value(1 if on else 0)
+                    if on:
+                        strokes += 1
+                        pump_ratio_calculator.set_pump_on()
+                    else:
+                        pump_ratio_calculator.set_pump_off()
+                now = utime.ticks_ms()
+                dt = utime.ticks_diff(now, last_t) / 1000.0
+                last_t = now
+                pressure = brew_data.get_pressure_average(utime)
+                p_filt += (pressure - p_filt) * min(1.0, dt / KURI_FILT_TAU)
+                if p_filt > p_max:
+                    p_max = p_filt
+                brew_data.pressure_filtered = p_filt
+                if utime.ticks_diff(now, last_print) >= KURI_PRINT_MS:
+                    last_print = now
+                    print('KURI t=%d bar=%.2f filt=%.2f w=%.1f n=%d' % (
+                        utime.ticks_diff(now, start), pressure, p_filt, brew_data.get_weight() or 0.0, strokes))
+                await asyncio.sleep_ms(2)
+        except Exception:
+            reason = 'error'
+        finally:
+            RELAY_PUMP.value(0)
+            RELAY_SOLENOID.value(0)
+            pump_ratio_calculator.set_pump_off()
+    print('KURI_END reason=%s filt=%.2f filt_max=%.2f raw_max=%.2f n=%d ms=%d' % (
+        reason, p_filt, p_max, raw_max, strokes, utime.ticks_diff(utime.ticks_ms(), start)))
+    # Raja laukesi napin ollessa yha paalla: odota vapautusta, ettei uuttopolku kaynnisty heti peraan.
+    while switch_on():
+        await asyncio.sleep_ms(50)
+    brew_data.set_mode('IDLE')
+
+
+# ============================================================================
 # FAST HEATUP
 # ============================================================================
 
