@@ -188,6 +188,22 @@ class MAX31865:
         rtd >>= 1
         return rtd
 
+    # The same reading in three short steps without time.sleep (EXPRESSO-TEMPSTALE-JA-OLETUS, 28.9.2026): read_rtd
+    # blocks >= 75 ms, which the 20 ms shot loop cannot take. The caller keeps the gaps: bias on >= 10 ms before
+    # rtd_convert, and the conversion >= 65 ms before rtd_result.
+    def rtd_start(self):
+        self.clear_faults()
+        self.set_bias(True)
+
+    def rtd_convert(self):
+        config = self._read_u8(_MAX31865_CONFIG_REG)
+        config |= _MAX31865_CONFIG_1SHOT
+        self._write_u8(_MAX31865_CONFIG_REG, config)
+
+    def rtd_result(self):
+        # Remove fault bit.
+        return self._read_u16(_MAX31865_RTDMSB_REG) >> 1
+
     @property
     def resistance(self):
         """Read the resistance of the RTD and return its value in Ohms."""
@@ -205,8 +221,12 @@ class MAX31865:
         # http://www.analog.com/media/en/technical-documentation/application-notes/AN709_0.pdf
         # To match the naming from the app note we tell lint to ignore the Z1-4
         # naming.
+        return self.temperature_from_rtd(self.read_rtd())
+
+    def temperature_from_rtd(self, rtd):
+        """Temperature (C) of a raw 15-bit reading from read_rtd or rtd_result."""
         # pylint: disable=invalid-name
-        raw_reading = self.resistance
+        raw_reading = rtd / 32768 * self.ref_resistor
         Z1 = -_RTD_A
         Z2 = _RTD_A * _RTD_A - (4 * _RTD_B)
         Z3 = (4 * _RTD_B) / self.rtd_nominal

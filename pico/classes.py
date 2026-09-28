@@ -759,6 +759,16 @@ class BrewData:
         boiler_temperature = self.boiler_temperature
         
         return boiler_temperature
+
+    def step_boiler_temperature(self, now_ms):
+        """One short step of the stepwise boiler reading (TemperatureSensor.step). Sets the temperature and its time
+        like get_boiler_temperature when the reading completes; returns True then."""
+        t = self.temperature_sensor.step(self.relay_guard.utime, now_ms)
+        if t is None:
+            return False
+        self.boiler_temperature = t
+        self.boiler_temperature_ms = now_ms
+        return True
     
 
     def get_heating_speed(self):
@@ -1446,6 +1456,13 @@ class HeatingSpeedCalculator:
 # TEMPERATURE SENSOR
 # ============================================================================
 
+# Stepwise read (TemperatureSensor.step): gaps from the driver's read_rtd (bias 10 ms, conversion 65 ms) with margin,
+# and a new reading every 2 s like the old brew loop; the relay guard blocks the heater at 10 s.
+TEMP_STEP_BIAS_MS  = 12
+TEMP_STEP_CONV_MS  = 70
+TEMP_STEP_EVERY_MS = 2000
+TEMP_STEP_LOST_MS  = 1000     # a step this old belongs to a loop that ended: the reading starts over
+
 #### Class for reading pt100 sensor temperature with max31865 ####
 class TemperatureSensor:
     def __init__(self, max31865, PINS, MAX31865_CONFIG):
@@ -1462,14 +1479,15 @@ class TemperatureSensor:
             )
         self.temps = [0, 0, 0, 0, 0 ,0 ,0]
         self.temps_i = 0
+        self.step_reset()
 
 
     # Function to get temperature from sensor
     def read_temperature(self):
         
-        # Create value for sifting bias of the temperature
-        temperature_bias = 0
-        
+        # A blocking read leaves the stepwise one's conversion undefined: start it over
+        self.step_reset()
+
         # Get 7 temperature samples to list and calculate average to avoid the noise
         fault_counter = 0
         temp = self.temperature_sensor.temperature
@@ -1482,6 +1500,56 @@ class TemperatureSensor:
             if fault_counter > 5:
                 print("Permanent sensor error")
                 return 200            
+        
+        return self._average(temp)
+
+    # ----- stepwise read (EXPRESSO-TEMPSTALE-JA-OLETUS, 28.9.2026) -----
+    # The shot loops of pre_infusion_phased (phases 1-4) cannot stop for read_temperature's >= 75 ms, and without a
+    # reading the relay guard blocks the heater after 10 s (GUARD_TRIP heater reason=tempstale, 28.9.2026 in every
+    # bim:1 run). The same reading in three short SPI steps (driver rtd_start, rtd_convert, rtd_result), each run by
+    # the loop only when its next event is further away than the step takes. step_due() says whether a step's gap
+    # has passed; step() runs it and returns the temperature after the last step, else None.
+    def step_reset(self):
+        self.step_st, self.step_t, self.step_next, self.step_bad = 0, 0, None, 0
+
+    def step_due(self, utime, now_ms):
+        if self.step_st == 0:
+            return self.step_next is None or utime.ticks_diff(now_ms, self.step_next) >= 0
+        age = utime.ticks_diff(now_ms, self.step_t)
+        if age > TEMP_STEP_LOST_MS:
+            # A conversion left from an earlier loop: its result is old, start over
+            self.step_st = 0
+            return True
+        return age >= (TEMP_STEP_BIAS_MS if self.step_st == 1 else TEMP_STEP_CONV_MS)
+
+    def step(self, utime, now_ms):
+        drv = self.temperature_sensor
+        if self.step_st == 0:
+            drv.rtd_start()
+            self.step_st, self.step_t = 1, now_ms
+            return None
+        if self.step_st == 1:
+            drv.rtd_convert()
+            self.step_st, self.step_t = 2, now_ms
+            return None
+        temp = drv.temperature_from_rtd(drv.rtd_result())
+        self.step_st = 0
+        if temp < 2 or temp > 200:
+            # As read_temperature: retry at once, and the sixth bad reading in a row reads 200 (heater guard: overtemp)
+            self.step_bad += 1
+            self.step_next = None
+            if self.step_bad > 5:
+                self.step_bad = 0
+                return 200
+            return None
+        self.step_bad = 0
+        self.step_next = utime.ticks_add(now_ms, TEMP_STEP_EVERY_MS)
+        return self._average(temp)
+
+    def _average(self, temp):
+        
+        # Create value for sifting bias of the temperature
+        temperature_bias = 0
         
         self.temps[self.temps_i] = temp
         

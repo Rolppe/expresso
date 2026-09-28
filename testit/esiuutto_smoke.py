@@ -250,6 +250,33 @@ class Adc:
         return int((self.plant.bar(U.us) + 0.99 - F.PCAP_RAW_B) / F.PCAP_RAW_A)
 
 
+class Max31865:
+    """MAX31865-ajurin askelittainen luku (EXPRESSO-TEMPSTALE-JA-OLETUS): jokainen askel vie virtuaaliaikaa kuten SPI-siirrot
+    50 kHz:lla laitteella (~0,5 ms/siirto; rtd_start 4, rtd_convert 2, rtd_result 1 pidempi). Arvio, ei mitattu: laitteen
+    pisin askel EU_VV/EB_VV t_max_us:ssa."""
+    COST_US = {'start': 2000, 'convert': 1000, 'result': 700}
+
+    def __init__(self):
+        self.steps = []           # (us, askel)
+
+    def _spend(self, k):
+        self.steps.append((U.us, k))
+        U.us += self.COST_US[k]
+
+    def rtd_start(self): self._spend('start')
+    def rtd_convert(self): self._spend('convert')
+    def rtd_result(self): self._spend('result'); return 0
+    def temperature_from_rtd(self, rtd): return 93.0
+
+
+def temp_sensor():
+    import classes
+    ts = classes.TemperatureSensor.__new__(classes.TemperatureSensor)
+    ts.temperature_sensor, ts.temps, ts.temps_i = Max31865(), [0] * 7, 0
+    ts.step_reset()
+    return ts
+
+
 class Ratio:
     def set_pump_on(self): pass
     def set_pump_off(self): pass
@@ -268,6 +295,13 @@ class BrewData:
         self.learned_ff_pre, self.eu_coast_s, self.eu_g_pre, self.eu_tau_pre = 0.3, F.EU_COAST_S0, 0.0, 0.0
         self.saved = 0
         self.mode, self.pressure, self.pressure_filtered = None, 0.0, 0.0
+        # Kattilan lampotila (EXPRESSO-TEMPSTALE-JA-OLETUS): askelittainen luku classes.TemperatureSensorilla ja
+        # anturimallilla; lammittimen jokaisen paallekytkennan hetkella lukeman ika (ms) heat_age:en kuten rele-vahti sen nakee
+        self.temperature_sensor = temp_sensor()
+        self.relay_guard = types.SimpleNamespace(utime=U)
+        self.boiler_temperature, self.boiler_temperature_ms, self.heat_age = 93.0, None, []
+        self.heater.hook = lambda x: self.heat_age.append(
+            None if self.boiler_temperature_ms is None else U.us // 1000 - self.boiler_temperature_ms) if x else None
 
     def get_relays(self): return self.pump, self.solenoid, self.heater
     def get_switch_brew(self): return self.brew
@@ -284,7 +318,12 @@ class BrewData:
     def get_pre_infusion_mode(self): return True
     def get_flow_mode(self): return False
     def set_pump_ratio(self, r): self.pump_ratio = r
-    def get_boiler_temperature(self): return 93.0
+    def get_boiler_temperature(self):
+        self.boiler_temperature_ms = U.us // 1000
+        return 93.0
+    def step_boiler_temperature(self, now_ms):
+        import classes
+        return classes.BrewData.step_boiler_temperature(self, now_ms)
     def get_soft_pressure_release_arming_pressure(self): return 99.0
     def get_pressure_soft_release_mode(self): return False
     def get_pressure_average(self, utime):
