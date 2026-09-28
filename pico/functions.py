@@ -2790,20 +2790,36 @@ async def throttle_warmup_run(brew_data, utime, asyncio, pump_ratio_calculator, 
 # KURISTIMEN SAATOTILA (kuri:1)
 # ============================================================================
 
-KURI_PRINT_MS = 200
-KURI_FILT_TAU = 1.0          # s: mittarin kaltainen keskiarvo kayttajan tavoitteelle (raaka sd ~1,6 bar)
-KURI_CYCLE_US = 20000        # yksi 50 Hz:n verkkojakso = yksi pumpun isku, kun opittua jaksoa ei ole
+KURI_FILT_TAU = 1.0          # s: mittarin kaltainen keskiarvo kayttajan tavoitteelle
 KURI_CYCLES = 50             # iskut jaetaan tasaisesti 50 jakson (1 s) kehykseen
+# Vaihelukittu kytkenta (kuri6, kayttaja 28.9.2026: "pumppu teki ylimaaraisia iskuja ja jatti valista ... kytkenta tapahtuu
+# vaarassa kohtaa"). SSR on nollaylityskytkeva ja pumppu iskee vain aktiivisella puolijaksolla, joten isku tapahtuu, jos
+# releen ohjaus on paalla aktiivisen puolijakson alkavassa nollakohdassa Z. vsweep-a: Z = kellon reuna + ~18,6 ms
+# (10 ms tauon poistava lohko 8,5-18,7 ms). Paatos jakson Z:lle tehdaan Z - 10 ms:ssa = reuna + 8,6 ms, jolloin se saa
+# myohastya tai aikaistua ~10 ms vaihtamatta iskua. kuri2-5 kytkivat mielivaltaisessa vaiheessa: reuna lahella Z:aa ja
+# 15-28 ms keruu tai tehtavan vuoro -> isku tuplaantui tai jai pois.
+KURI_OFF_US = EU_OFF_US - 5000       # 8 600 us kellon reunasta
+KURI_PHASE_OK_US = 5000      # 2,5 x kellon sd alle taman -> kuvio kayttoon; siihen asti taysi sykli (ei kytkentoja)
+KURI_ERR_US = 9000           # paatos yli taman myohassa voi vaihtaa iskun -> err
+KURI_GC_SLOTS = 15           # hallittu keruu joka 15. paatoskohdassa (~300 ms, vrt. EU_GC_MS)
+KURI_PRINT_SLOTS = 10        # KURI-rivi joka 10. paatoskohdassa (~200 ms)
+KURI_SKIP_US = 2000          # raskas tyo vain ajallaan olleen paatoksen jalkeen: myohastymat eivat kasaannu
 
 
 async def throttle_set_run(brew_data, utime, asyncio, pump_ratio_calculator, switch_on):
-    """Kuristimen saatotila (kayttaja 28.9.2026, KAYTTAJAN-TIEDOT TILAUS-M): kun kuri:1 on paalla, uuttonappi
-    ajaa pumppua kuri:<n>:n mukaan n iskua sekunnissa (1-50, tasaisesti 50 jaksolle; kayttaja: 8 barille 24)
-    ilman paineensaatoa niin kauan kuin nappi on paalla, ja kayttaja kaantaa kuristimen annettuun paineeseen.
-    Jakso on viimeisin opittu verkkojakso (brew_data.mains_T_us, uuton EU/EB_END2), muuten 20 000 us: kuvio
-    ei ole lukittu vaiheeseen, mutta ei myoskaan liu'u 16 us/jakso (asyncio-pysahdys voi siirtaa yksittaista iskua). Rajat samat kuin klampissa: kaukalovahti (wmax), raaka paine
-    PCAP_OVER_BAR ja dev_safe; releen vartio toimii kuten aina. Lammitin pois kuten dev_run: termostaatti ei
-    aja taman silmukan aikana."""
+    """Kuristimen saatotila (kayttaja 28.9.2026, KAYTTAJAN-TIEDOT TILAUS-M): kun kuri:<n> on paalla, uuttonappi ajaa
+    pumppua n iskua sekunnissa (1-50, tasaisesti 50 jaksolle) ilman paineensaatoa niin kauan kuin nappi on paalla, ja
+    kayttaja kaantaa kuristimen annettuun paineeseen.
+
+    Kytkenta on lukittu verkon vaiheeseen kuten uutossa (TILAUS-A/B/J): Verkkokello oppii vaiheen paineen vareilysta.
+    Ennen lukitusta pumppu kay taydella syklilla (ei kytkentoja, joten ei vaaria iskuja); kun 2,5 sd < KURI_PHASE_OK_US,
+    jokainen paatos tehdaan kohdassa kellon reuna + KURI_OFF_US (positiivisten nollakohtien puolivali). Paatoskohdan
+    jalkeen tehdaan yksi raskas tyo: kellon ikkunan sulku, hallittu keruu tai yksi asyncio-vuoro (ja tulostus); kukin
+    mahtuu ~10 ms toleranssiin. err = paatokset yli KURI_ERR_US myohassa (voivat vaihtaa iskun).
+
+    Alussa ja lopussa purkusykli (_mcal_vent, TILAUS-H): loukkuun jaanyt paine esti kuri4:n jalkeisen kaynnistyksen.
+    Rajat: kaukalovahti (wmax), raaka paine PCAP_OVER_BAR ja dev_safe; releen vartio toimii kuten aina. Lammitin pois."""
+    from verkkokello import Verkkokello
     RELAY_PUMP, RELAY_SOLENOID, RELAY_HEATER = brew_data.get_relays()
     sensor = brew_data.pressure_sensor.pressure_sensor
     gain = brew_data.pressure_sensor.gain
@@ -2811,8 +2827,9 @@ async def throttle_set_run(brew_data, utime, asyncio, pump_ratio_calculator, swi
     RELAY_HEATER.value(0)
     reason = 'switch'
     p_filt = p_max = raw_max = 0.0
-    strokes = 0
-    cyc = getattr(brew_data, 'mains_T_us', None) or KURI_CYCLE_US
+    strokes = err = late_max = windows = learned = n_slot = 0
+    lock_ms = -1
+    clock = None
     rate = min(KURI_CYCLES, max(1, int(getattr(brew_data, 'throttle_set', 25))))
     start = utime.ticks_ms()
     tray_state, tray_reason = tray_guard_start(brew_data, utime)
@@ -2820,59 +2837,127 @@ async def throttle_set_run(brew_data, utime, asyncio, pump_ratio_calculator, swi
         reason = tray_reason
     else:
         brew_data.set_mode('KURI')
-        print('KURI_START rate=%d T_us=%.1f wmax=%.0f w=%.1f' % (
-            rate, cyc, brew_data.get_weight_limit(), brew_data.get_weight()))
+        relay = [False]
+
+        def set_relay(on):
+            if on != relay[0]:
+                relay[0] = on
+                RELAY_PUMP.value(1 if on else 0)
+                if on: pump_ratio_calculator.set_pump_on()
+                else: pump_ratio_calculator.set_pump_off()
+
         try:
+            RELAY_PUMP.value(0)
+            _cycles, vent_bar = await _mcal_vent(brew_data, utime, asyncio, sensor, gain, offset)
+            print('KURI_START rate=%d off_us=%d wmax=%.0f w=%.1f vent_bar=%.2f' % (
+                rate, KURI_OFF_US, brew_data.get_weight_limit(), brew_data.get_weight(), vent_bar))
             # Venttiili ennen pumppua kuten klamp: paine nousee vain kuristimen kautta.
             RELAY_SOLENOID.value(1)
-            brew_data.pressure_sensor.reset_average()
-            p_filt = brew_data.get_pressure_average(utime)
-            last_t = last_print = start
-            t0_us = utime.ticks_us()
-            pump_on = None
-            strokes = 0
-            while switch_on():
-                if brew_data.dev_safe:
-                    reason = 'devsafe'; break
-                tray_reason = tray_guard_check(brew_data, utime, tray_state)
-                if tray_reason:
-                    reason = tray_reason; break
-                bar = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset
-                if bar > raw_max:
-                    raw_max = bar
-                if bar > PCAP_OVER_BAR:
-                    reason = 'overpressure'; break
-                k = int(utime.ticks_diff(utime.ticks_us(), t0_us) / cyc) % KURI_CYCLES
-                on = (k + 1) * rate // KURI_CYCLES > k * rate // KURI_CYCLES
-                if on != pump_on:
-                    pump_on = on
-                    RELAY_PUMP.value(1 if on else 0)
-                    if on:
-                        strokes += 1
-                        pump_ratio_calculator.set_pump_on()
+            gc.collect()
+            t0 = utime.ticks_us()
+            clock = Verkkokello(t0)
+            clock.iq_start(t0)
+            set_relay(True)               # taysi sykli, kunnes kello on lukittu
+            slot = utime.ticks_add(t0, 20000)
+            next_s = t0
+            cyc_s, cyc_n, p = 0.0, 0, 0.0
+            phase_ok, iq_due, gc_due, pr_due, j = False, False, False, False, 0
+            while True:
+                now = utime.ticks_us()
+                if utime.ticks_diff(slot, now) < PCAP_RATE_US:
+                    while utime.ticks_diff(slot, utime.ticks_us()) > 0:
+                        pass
+                    t = utime.ticks_us()
+                    lag = utime.ticks_diff(t, slot)
+                    # Paatos heti (seuraava Z): kaikki laskenta vasta taman jalkeen
+                    if phase_ok:
+                        on = (j + 1) * rate // KURI_CYCLES > j * rate // KURI_CYCLES
+                        j += 1
+                        if lag > late_max: late_max = lag
+                        if lag > KURI_ERR_US: err += 1
                     else:
-                        pump_ratio_calculator.set_pump_off()
-                now = utime.ticks_ms()
-                dt = utime.ticks_diff(now, last_t) / 1000.0
-                last_t = now
-                pressure = brew_data.get_pressure_average(utime)
-                p_filt += (pressure - p_filt) * min(1.0, dt / KURI_FILT_TAU)
-                if p_filt > p_max:
-                    p_max = p_filt
-                brew_data.pressure_filtered = p_filt
-                if utime.ticks_diff(now, last_print) >= KURI_PRINT_MS:
-                    last_print = now
-                    print('KURI t=%d bar=%.2f filt=%.2f w=%.1f n=%d' % (
-                        utime.ticks_diff(now, start), pressure, p_filt, brew_data.get_weight() or 0.0, strokes))
-                await asyncio.sleep_ms(2)
-        except Exception:
+                        on = True
+                    set_relay(on)
+                    if on: strokes += 1
+                    n_slot += 1
+                    if cyc_n:
+                        p = cyc_s / cyc_n
+                    cyc_s, cyc_n = 0.0, 0
+                    p_filt += (p - p_filt) * min(1.0, 0.02 / KURI_FILT_TAU)
+                    if p_filt > p_max: p_max = p_filt
+                    brew_data.pressure = p
+                    brew_data.pressure_filtered = p_filt
+                    if not switch_on():
+                        reason = 'switch'; break
+                    if brew_data.dev_safe:
+                        reason = 'devsafe'; break
+                    tray_reason = tray_guard_check(brew_data, utime, tray_state)
+                    if tray_reason:
+                        reason = tray_reason; break
+                    # Seuraava paatoskohta: lukittuna kellon reunasta (nimellisesta kohdasta, ei myohastyneesta t:sta)
+                    if not phase_ok and 2.5 * clock.sd_us(t) < KURI_PHASE_OK_US:
+                        phase_ok = True
+                        lock_ms = utime.ticks_diff(utime.ticks_ms(), start)
+                    if phase_ok:
+                        nxt = utime.ticks_add(clock.edge(utime.ticks_add(slot, round(clock.T) - KURI_OFF_US)), KURI_OFF_US)
+                        while utime.ticks_diff(nxt, slot) < EU_MIN_SLOT_US:
+                            nxt = utime.ticks_add(nxt, round(clock.T))
+                    else:
+                        nxt = utime.ticks_add(slot, round(clock.T))
+                    slot = nxt
+                    # Yksi raskas tyo paatoskohdan jalkeen, vain jos paatos oli ajallaan (muuten seuraavassa kohdassa)
+                    if n_slot % KURI_GC_SLOTS == 0:
+                        gc_due = True
+                    if n_slot % KURI_PRINT_SLOTS == 0:
+                        pr_due = True
+                    if lag > KURI_SKIP_US:
+                        pass
+                    elif iq_due:
+                        iq_due = False
+                        res = clock.iq_close(t, learn=True)
+                        clock.iq_start(utime.ticks_us())
+                        if res is not None:
+                            windows += 1
+                            if res[3] == 0: learned += 1
+                    elif gc_due:
+                        gc_due = False
+                        gc.collect()
+                    else:
+                        if pr_due:
+                            pr_due = False
+                            print('KURI t=%d bar=%.2f filt=%.2f w=%.1f n=%d lock=%d sd=%d err=%d lmax=%d' % (
+                                utime.ticks_diff(utime.ticks_ms(), start), p, p_filt, brew_data.get_weight() or 0.0,
+                                strokes, 1 if phase_ok else 0, clock.sd_us(t), err, late_max))
+                        await asyncio.sleep_ms(0)
+                    continue
+                if utime.ticks_diff(now, next_s) >= 0:
+                    next_s = utime.ticks_add(next_s, PCAP_RATE_US)
+                    if utime.ticks_diff(now, next_s) > 0: next_s = utime.ticks_add(now, PCAP_RATE_US)
+                    bar = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset
+                    if bar > raw_max: raw_max = bar
+                    if bar > PCAP_OVER_BAR:
+                        reason = 'overpressure'; break
+                    cyc_s += bar; cyc_n += 1
+                    clock.iq_add(now, bar)
+                    if clock.iq_ready(now): iq_due = True
+        except Exception as e:
             reason = 'error'
+            print('KURI_ERROR %s' % e)
         finally:
             RELAY_PUMP.value(0)
-            RELAY_SOLENOID.value(0)
+            relay[0] = False
             pump_ratio_calculator.set_pump_off()
-    print('KURI_END reason=%s filt=%.2f filt_max=%.2f raw_max=%.2f n=%d ms=%d' % (
-        reason, p_filt, p_max, raw_max, strokes, utime.ticks_diff(utime.ticks_ms(), start)))
+            # Purku lopuksi (kayttaja 28.9.2026: loukkuun jaanyt paine esti seuraavan saadon)
+            try:
+                await _mcal_vent(brew_data, utime, asyncio, sensor, gain, offset)
+            except Exception:
+                pass
+            RELAY_SOLENOID.value(0)
+    if clock is not None and learned:
+        brew_data.mains_T_us = clock.T
+    print('KURI_END reason=%s filt=%.2f filt_max=%.2f raw_max=%.2f n=%d lock_ms=%d win=%d learned=%d err=%d lmax=%d ms=%d' % (
+        reason, p_filt, p_max, raw_max, strokes, lock_ms, windows, learned, err, late_max,
+        utime.ticks_diff(utime.ticks_ms(), start)))
     # Raja laukesi napin ollessa yha paalla: odota vapautusta, ettei uuttopolku kaynnisty heti peraan.
     while switch_on():
         await asyncio.sleep_ms(50)
