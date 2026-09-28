@@ -36,7 +36,8 @@ Usage:
   pico_dev.py capture <seconds> [out]   print/save serial output (no interrupt)
   pico_dev.py verify <MANIFEST.json>    SHA-256 of every file on the Pico vs. the manifest
   pico_dev.py watchdog-test             Ctrl-C and stop feeding: the Pico must reset itself (≤ 8 s)
-  pico_dev.py restore <set>             flash a set from the phone backup, wait for RESTORE_OK/FAIL
+  pico_dev.py restore <set> [seconds]   flash a set from the phone backup, wait for RESTORE_OK/FAIL
+                                        (default 420 s: 20260928-kuri1 ran past 300 s at ~1 kB/s)
   pico_dev.py charger on|off            switch the hub's charger (Shelly via Home Assistant)
 
 Every operation except `charger` runs with the charger off and powers it again when done
@@ -477,7 +478,7 @@ def verify(manifest_path):
     return bad == 0
 
 
-def restore(set_name, seconds=300):
+def restore(set_name, seconds=420):
     # The app's flasher writes the set over USB; wait for its verdict in logcat so the charger stays
     # off until the flash is over (PICO-HALLINTA.md luku 7: no serial link before RESTORE_OK).
     # One argument: adb shell joins its argv with spaces, so a split format string reaches date as two
@@ -560,7 +561,7 @@ def main(op):
     elif op == 'watchdog-test':
         watchdog_test()
     elif op == 'restore':
-        sys.exit(0 if restore(sys.argv[2]) else 1)
+        sys.exit(0 if restore(sys.argv[2], float(sys.argv[3]) if len(sys.argv) > 3 else 420) else 1)
     else:
         sys.exit(__doc__)
 
