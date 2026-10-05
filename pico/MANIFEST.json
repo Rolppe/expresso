@@ -71,8 +71,8 @@
   },
   {
     "name": "/relayguard.py",
-    "sha256": "deb70be21f8bc042a059d16a47c080563f594b8b2981590291ad85f4874f80eb",
-    "size": 11120
+    "sha256": "fdf3560bcff15bd4775ce9bdee4420272917e05b502c4be0c28482e9ca7ceac7",
+    "size": 13771
   },
   {
     "name": "/scale.py",
