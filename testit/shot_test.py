@@ -87,6 +87,10 @@ def make_brew_data():
     bd.test_shot_request = None; bd.test_shot_abort = False; bd.dev_safe = False
     bd.pcal_request = None; bd.pcal_cancel = False; bd.pcal_state = 'idle'; bd.pcal_stage = ''; bd.pcal_msg = ''
     bd.pcal_target = 0.0; bd.pcal_raw = {}; bd.pcal_points = {}
+    # Learned pre-infusion/brew values that save_settings persists (classes.BrewData defaults). Methods stay 0 (PI path):
+    # this plant only advances the clock on sleep, so pre_infusion_phased (pim:1) never ends here; esiuutto_smoke covers it.
+    bd.pre_infusion_method = 0; bd.eu_coast_s = 0.3; bd.eu_coast_fast_s = 0.2; bd.eu_g_pre = 0.0; bd.eu_tau_pre = 0.0
+    bd.brew_method = 0; bd.eb_ff = 0.0; bd.eb_x = 0.0; bd.eb_g = 0.0; bd.eb_tau = 0.0; bd.eb_coast_s = 0.2
     bd.learned_ff_pre = 0.3; bd.learned_ff_brew = 0.5; bd.pressure_filtered = 0.0
     bd.weight = None; bd.weight_ms = 0; bd.weight_limit = 0.0; bd.weight_rise_limit = 0.0
     bd.weight_a = 0.0; bd.weight_b = 0.0     # per-cell grams, logged since devsafe13
