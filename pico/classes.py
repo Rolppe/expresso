@@ -113,6 +113,7 @@ class BrewData:
         # raw pins are not kept on the object, so no path can switch them on around the limits.
         # The solenoid is not guarded: opening it only releases pressure.
         from relayguard import RelayGuard, GuardedRelay
+        _clock_given = utime is not None
         if utime is None:
             import utime
         self.relay_guard      = RelayGuard(self, utime, self._guard_pressure)
@@ -131,6 +132,13 @@ class BrewData:
         self.pre_infusion_time  = 0
         self.brew_temperature   = 97
         self.steam_temperature  = 125
+        # Standby (VALMIUSTILA, 5.10.2026): after standby_timeout_ms without any switch or app change the
+        # IDLE target drops to min(brew, standby_temperature) so the boiler pressure at rest is lower.
+        # RAM only (stby:<min>); the latch is cleared by note_activity() only, never by clock wrap.
+        self.standby_timeout_ms   = 30 * 60000
+        self.standby_temperature  = 90
+        self.standby              = False
+        self.last_activity_ms     = utime.ticks_ms() if _clock_given else 0
         self.pre_heat_time      = 0
         self.boiler_temperature = 0
         self.brew_pressure      = 8
@@ -414,11 +422,29 @@ class BrewData:
         return steam_temperature
     
     
+    def note_activity(self, now_ms, reason):
+        self.last_activity_ms = now_ms
+        if self.standby:
+            self.standby = False
+            print('STBY_OFF reason=%s' % reason)
+
+    def update_standby(self, now_ms):
+        # Latch: once on it stays on until note_activity(); a negative ticks_diff (ticks_ms wrap,
+        # valid only ~6 days) therefore cannot release it.
+        if self.standby_timeout_ms > 0 and not self.standby and self.mode == 'IDLE':
+            import utime
+            idle_ms = utime.ticks_diff(now_ms, self.last_activity_ms)
+            if idle_ms >= self.standby_timeout_ms:
+                self.standby = True
+                print('STBY_ON idle_s=%d target=%s' % (idle_ms // 1000, min(self.brew_temperature, self.standby_temperature)))
+
     def get_target_temperature(self):
         if self.mode == "BREW":
             target_temperature = self.brew_temperature
         elif self.mode == "IDLE":
             target_temperature = self.brew_temperature
+            if self.standby:
+                target_temperature = min(self.brew_temperature, self.standby_temperature)
         elif self.mode == "STEAM":
             target_temperature = self.steam_temperature
         elif self.mode == "WATER":

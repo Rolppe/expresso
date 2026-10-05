@@ -199,6 +199,13 @@ async def local_program(brew_data):
             await asyncio.sleep_ms(100)
             continue
         
+        # STANDBY (VALMIUSTILA): any switch counts as activity; the idle timer is checked once per pass,
+        # before the thermostat reads the target. Reads only, nothing blocking.
+        _now = utime.ticks_ms()
+        if SWITCH_BREW.value() or SWITCH_WATER.value() or SWITCH_STEAM.value():
+            brew_data.note_activity(_now, 'switch')
+        brew_data.update_standby(_now)
+
         # RUN THERMOSTAT
         thermostat.run()
         
@@ -293,6 +300,7 @@ async def local_program(brew_data):
                 await throttle_set_run(brew_data, utime, asyncio, pump_ratio_calculator, SWITCH_BREW.value)
             else:
                 await run_shot(brew_data, utime, asyncio, pump_ratio_calculator, SWITCH_BREW.value, 'PB')
+            brew_data.note_activity(utime.ticks_ms(), 'switch')
         
         
         # ============================================================================
@@ -333,6 +341,7 @@ async def local_program(brew_data):
             await run_shot(brew_data, utime, asyncio, pump_ratio_calculator, test_shot_running, 'TS',
                            limit_weight=True)
             brew_data.set_mode('IDLE')
+            brew_data.note_activity(utime.ticks_ms(), 'tshot')
         
         
         # ============================================================================
@@ -364,6 +373,7 @@ async def local_program(brew_data):
             # Set heater and pump relays off after hot water kloop
             RELAY_PUMP.value(0)
             RELAY_HEATER.value(0)
+            brew_data.note_activity(utime.ticks_ms(), 'switch')
            
            
         # ============================================================================

@@ -27,6 +27,7 @@ sys.path.insert(0, HERE)
 
 import types                              # noqa: E402
 sys.modules.setdefault('devsafe', types.SimpleNamespace(feed=lambda: None))   # machine-moduulia ei ole
+sys.modules.setdefault('utime', types.SimpleNamespace(ticks_ms=lambda: 0))   # handle_command herattaa valmiustilan (VALMIUSTILA)
 import functions as F                     # noqa: E402
 import commands as C                      # noqa: E402
 import classes                            # noqa: E402
@@ -89,6 +90,7 @@ def main():
     class TempBD:
         def __init__(self): self.brew_temperature = 97; self.setting_changed = False
         set_brew_temperature = classes.BrewData.set_brew_temperature
+        def note_activity(self, now_ms, reason): pass
     tb = TempBD()
     with redirect_stdout(io.StringIO()):
         upd = C.handle_command(tb, 'bt:250')

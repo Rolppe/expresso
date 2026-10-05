@@ -12,6 +12,8 @@ def _float_arg(command):
 def handle_command(brew_data, command):
     """Apply a command. Returns True when a persisted setting changed (caller resends settings)."""
     updated = False
+    stby_report = False
+    wake = True     # stby:on sets the standby latch itself, so it must not count as activity
 
     if command.startswith('pre:'):
         if command == 'pre:on':
@@ -404,6 +406,24 @@ def handle_command(brew_data, command):
         except Exception:
             pass
 
+    elif command.startswith('stby:'):
+        # Standby (VALMIUSTILA, 5.10.2026): stby:<min 0-240> = idle minutes before the IDLE target drops to
+        # min(brew, standby_temperature), 0 = standby off; stby:on = enter standby now (device test). RAM only
+        # like pim: every restart and flash returns to 30 min. Any switch or app change leaves standby.
+        arg = command[len('stby:'):]
+        try:
+            if arg == 'on':
+                brew_data.standby = True
+                wake = False
+                print('STBY_ON idle_s=0 target=%s' % min(brew_data.brew_temperature, brew_data.standby_temperature))
+            else:
+                minutes = min(240.0, max(0.0, float(arg)))
+                brew_data.standby_timeout_ms = int(minutes * 60000)
+            updated = True
+        except Exception:
+            pass
+        stby_report = True
+
     else:
         # Unknown command: the caller must be able to tell. main.py printed CMD_OK for every line it
         # read, so a typo or a command missing from the flashed firmware acknowledged exactly like a
@@ -412,4 +432,10 @@ def handle_command(brew_data, command):
         brew_data.command_known = False
         return updated
     brew_data.command_known = True
+    if updated and wake:
+        import utime    # lazy: smokes import this module without a fake clock
+        brew_data.note_activity(utime.ticks_ms(), 'app')
+    if stby_report:
+        print('STBY timeout_min=%d standby=%d temp=%s' % (
+            brew_data.standby_timeout_ms // 60000, 1 if brew_data.standby else 0, brew_data.get_target_temperature()))
     return updated
