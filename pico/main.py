@@ -326,8 +326,8 @@ async def local_program(brew_data):
             if _tray_reason:
                 print('TS_END loops=0 max_loop_ms=0 reason=%s' % _tray_reason)
                 continue
-            # The weight limits are deliberately not persisted, so they are off after every restart
-            # and flash. Print their state with every test shot: without this the log cannot tell a
+            # The weight limits are persisted in settings.txt (devsafe12), but a lost or reset file turns
+            # them off. Print their state with every test shot: without this the log cannot tell a
             # protected run from an unprotected one (18.9.2026).
             _wmax, _wrise = brew_data.get_weight_limit(), brew_data.get_weight_rise_limit()
             _limits = ('wmax:%.0f ' % _wmax if _wmax > 0 else '') + \

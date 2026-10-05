@@ -2404,8 +2404,6 @@ async def pressure_len_run(brew_data, utime, asyncio, target):
         trough_v = 99.0
         trough_at = 0
         next_gap_j = 0
-        venting = False
-        vents = 0
         j = 0
         while True:
             while utime.ticks_diff(next_t, utime.ticks_us()) > 0: pass
@@ -3137,8 +3135,13 @@ def load_settings(json_module, brew_data):
             fast_heatup_mode           = data.get('fast_heatup_mode')
         
         # Set settings to brew_data object
-        brew_data.set_brew_temperature(brew_temperature)
-        brew_data.set_steam_temperature(steam_temperature)
+        # A setpoint over SETPOINT_MAX_C keeps its default; it must not take the whole file (and wmax) with it
+        for setter, value in ((brew_data.set_brew_temperature, brew_temperature),
+                              (brew_data.set_steam_temperature, steam_temperature)):
+            try:
+                setter(value)
+            except ValueError as e:
+                print('settings.txt: %s, default kept' % e)
         brew_data.set_pre_infusion_time(pre_infusion_time)
         brew_data.set_pressure_soft_release_time(pressure_soft_release_time)
         brew_data.set_pre_infusion_mode(pre_infusion_mode)
