@@ -38,6 +38,8 @@ class Scale:
         self.errors = 0
         self.last_a = 0.0
         self.last_b = 0.0
+        self.raw_a = 0          # last raw HX711 counts, for the brew log's dual-cell rows (UUTTOLOKI)
+        self.raw_b = 0
         self._buf = []
         self._hist = []
         # Raw (unfiltered) samples for the flow fit, and the same series cleaned with a median of
@@ -169,6 +171,7 @@ class Scale:
         except OSError:
             self.errors += 1
             return None
+        self.raw_a, self.raw_b = a, b
         c = (a - self.off_a) + self.trim_b * (b - self.off_b)
         # Per-cell values in grams (18.9.2026). The sum is what everything else uses, but the split
         # is the only way to test whether the load distribution during a shot correlates with the
@@ -264,6 +267,12 @@ class Scale:
         self._buf = []
         self._hist = []
         return self.off_a, self.off_b
+
+    def scale_meta(self):
+        """Calibration for the brew log (UUTTOLOKI): the app rebuilds grams from the raw rows as
+        ((a - off_a) + trim_b * (b - off_b)) / scale, the same sum as update()."""
+        return {'scale': self.scale, 'trim_b': self.trim_b, 'sense': 1,
+                'off_a': self.off_a, 'off_b': self.off_b}
 
     def load(self):
         try:

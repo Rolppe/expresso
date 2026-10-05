@@ -20,6 +20,7 @@ from functions          import save_settings, load_settings, print_values, fast_
 from commands           import handle_command
 from classes            import BrewData, HeatingSpeedCalculator, Thermostat, TemperatureSensor, PressureSensor, PumpRatioCalculator, PumpPressureController
 from bluetooth_handler  import BLEHandler
+from brew_logger        import BrewSessionLogger, brew_log_service
 from secrets            import ssid, password
 from preset             import FEATURES, PINS, MAX31865_CONFIG, TARGET_TEMPERATURES
 from backflush          import run_backflush
@@ -84,6 +85,11 @@ brew_data = BrewData(
 # riville, kuka vuoron varasi (EXPRESSO-ESIUUTTO-VUORONVARAUS, 26.9.2026)
 brew_data.tbusy = ['-', 0]
 
+# Brew log (EXPRESSO-UUTTOLOKI, 5.10.2026): run_shot starts and ends a session on the brew switch, the BLE
+# task samples it at 10 Hz and sends the finished shot to the app as the August brew_log multipack
+brew_data.brew_logger = BrewSessionLogger(utime)
+brew_data.tray_scale = tray_scale
+
 
 def task_busy(name, t0):
     d = utime.ticks_diff(utime.ticks_us(), t0)
@@ -109,6 +115,9 @@ async def ble_communication(brew_data):
         if utime.ticks_diff(utime.ticks_ms(), last_transmission_time) >= 200:
             last_transmission_time = utime.ticks_ms()
             ble_handler.run_transmission()
+
+        # Brew log: 10 Hz sample during a shot, hand-over to the multipack when it is done (UUTTOLOKI)
+        brew_log_service(brew_data, utime)
 
         # Mainostus disconnectin jälkeen
         ble_handler.advertise_if_needed()
