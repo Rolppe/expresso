@@ -22,6 +22,11 @@
 #   - heater on for 120 s of on-time while the boiler is > 5 C under its target and the pump is
 #     off, and the reading rose less than 2 C -> heater off until restart (a sensor off the boiler
 #     reads a plausible room temperature and would heat without end)
+#   - that no-rise latch is retried (V-154, user's choice (a) 5.10.2026): the Pico stays powered from
+#     the Zero while the machine is off the mains, so an evening switch-off latched the heater and the
+#     morning switch-on found it dead. A boiler that cools >= 10 C under the latch reading proves the
+#     sensor sits on the boiler, and the missing rise was missing mains: then retry every 60 s without
+#     end. Without that proof, 3 retries 10 min apart, then latched until restart. A retry heats 30 s.
 # Not detectable here: a pressure sensor stuck at a plausible 0 bar. Hot water and a flush with no
 # puck also stay near 0 bar with the pump on, so "no pressure while pumping" is not a fault.
 # The drip-tray weight is NOT here on purpose (user, 19.9.2026): the tray limit applies to test
@@ -45,6 +50,11 @@ HEATER_NORISE_ON_MS  = 120000 # heater on-time allowed without a rise, far under
 HEATER_NORISE_RISE_C = 2.0
 HEATER_NORISE_BELOW_C = 5.0   # counted only this far under target: the thermostat then heats
                               # >= 55 % of the time (heat_cycler), so the boiler must warm up
+HEATER_NORISE_COOL_C = 10.0   # cooling under the latch reading that proves the sensor is on the boiler
+HEATER_NORISE_RETRY_ON_MS = 30000     # a retry's on-time without a rise; 0,2 C/s warm-up gives ~6 C
+HEATER_NORISE_RETRY_MS = 600000       # latch to retry without the cooling proof (sensor may be off)
+HEATER_NORISE_RETRY_MAX = 3           # retries without the proof; then latched until restart
+HEATER_NORISE_RETRY_PROVEN_MS = 60000 # latch to retry with the proof: machine is just off the mains
 POLL_MS            = 100      # guard poll period; 20 ms would jitter the 1 kHz capture loops
 
 
@@ -62,7 +72,12 @@ class RelayGuard:
         self.raw_bar = 0.0
         self.heat_on_ms = 0           # heater on-time in the current no-rise window
         self.heat_min_c = None        # lowest reading in that window
-        self.heat_dead = False        # latched until restart
+        self.heat_dead = False        # latched until a retry (V-154) or restart
+        self.heat_dead_ms = 0         # latch time
+        self.heat_dead_c = None       # reading at the latch
+        self.heat_retries = 0         # retries without the cooling proof since the last rise
+        self.heat_proven = False      # cooled >= HEATER_NORISE_COOL_C while latched, since the last rise
+        self.heat_window_ms = HEATER_NORISE_ON_MS
         self.last_poll = None
         self.pump_run_start = None
         self.pump_last_want = None    # last time the pump was on or asked to be
@@ -180,6 +195,9 @@ class RelayGuard:
             target = self.bd.get_target_temperature()
         except Exception:
             target = None
+        if self.heat_dead:
+            self._norise_retry(now, t)
+            return
         if heater is None or t is None or target is None or pump_on or \
                 t > target - HEATER_NORISE_BELOW_C:
             # Water flowing in cools the boiler, and near the target the thermostat heats little:
@@ -190,13 +208,40 @@ class RelayGuard:
         if self.heat_min_c is None or t < self.heat_min_c:
             self.heat_min_c = t
         if t - self.heat_min_c >= HEATER_NORISE_RISE_C:
+            # The heater works: retries and the proof start over, and the full window is back
             self.heat_on_ms = 0
             self.heat_min_c = t
+            self.heat_retries = 0
+            self.heat_proven = False
+            self.heat_window_ms = HEATER_NORISE_ON_MS
             return
         if heater.pin.value():
             self.heat_on_ms += dt
-        if self.heat_on_ms >= HEATER_NORISE_ON_MS:
+        if self.heat_on_ms >= self.heat_window_ms:
             self.heat_dead = True
+            self.heat_dead_ms = now
+            self.heat_dead_c = t
+
+    def _norise_retry(self, now, t):
+        if t is not None and self.heat_dead_c is not None and \
+                t <= self.heat_dead_c - HEATER_NORISE_COOL_C:
+            self.heat_proven = True
+        if not self.heat_proven and self.heat_retries >= HEATER_NORISE_RETRY_MAX:
+            return
+        wait = HEATER_NORISE_RETRY_PROVEN_MS if self.heat_proven else HEATER_NORISE_RETRY_MS
+        if self.utime.ticks_diff(now, self.heat_dead_ms) < wait:
+            return
+        if not self.heat_proven:
+            self.heat_retries += 1
+        self.heat_dead = False
+        self.heat_on_ms = 0
+        self.heat_min_c = None
+        self.heat_window_ms = HEATER_NORISE_RETRY_ON_MS
+        try:
+            print('GUARD_RETRY heater proven=%d n=%d temp=%s' % (
+                1 if self.heat_proven else 0, self.heat_retries, t))
+        except Exception:
+            pass
 
     def start(self):
         from machine import Timer
