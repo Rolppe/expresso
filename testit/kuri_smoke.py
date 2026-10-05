@@ -168,6 +168,9 @@ def main():
         def set_setting_changed(self):
             pass
 
+        def note_activity(self, now_ms, reason):    # handle_command wakes the standby (VALMIUSTILA)
+            pass
+
     b = Cb()
     got = []
     for cmd in ('kuri:24', 'kuri:99', 'kuri:0'):

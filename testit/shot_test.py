@@ -93,6 +93,7 @@ def make_brew_data():
     bd.flow = None; bd.flow_window_ms = 1000
     bd.pre_heat_time = 0          # save_settings reads it; not otherwise used by these tests
     bd.command_known = True
+    bd.standby = False; bd.standby_timeout_ms = 30 * 60000; bd.standby_temperature = 90; bd.last_activity_ms = 0   # VALMIUSTILA
     bd.get_switch_brew = lambda: bd.SWITCH_BREW
     return bd
 
