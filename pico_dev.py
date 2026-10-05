@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-"""eXpresso Pico development tool (Mac) — runs without anyone at the machine.
+"""eXpresso Pico development tool — runs without anyone at the machine.
 
-Talks to the Pico through the phone app's USB serial bridge: adb forward tcp:2217 → OnePlus
+Default link (PICO_LINK=zero, ZERO-USB 1.10.2026): the Pico is on the Zero's USB, and ser2net there
+serves it as raw TCP 192.0.2.10:2217 → /dev/hubi0 (Infra/iot/zero/REKISTERI.md). No adb, app or
+charger is involved. PICO_LINK=phone is the old chain: adb forward tcp:2217 → OnePlus
 (192.0.2.11:5555) → PicoBridgeService → USB-CDC → Pico. Every REPL operation starts with
 devsafe: Ctrl-C (firmware's finally drives relays off), then devsafe.enter() reads the relay pins
 back and must report [0, 0, 0] before anything else runs. The 8 s hardware watchdog is fed
@@ -36,15 +38,23 @@ Usage:
   pico_dev.py capture <seconds> [out]   print/save serial output (no interrupt)
   pico_dev.py verify <MANIFEST.json>    SHA-256 of every file on the Pico vs. the manifest
   pico_dev.py watchdog-test             Ctrl-C and stop feeding: the Pico must reset itself (≤ 8 s)
-  pico_dev.py restore <set> [seconds]   flash a set from the phone backup, wait for RESTORE_OK/FAIL
-                                        (default 420 s: 20260928-kuri1 ran past 300 s at ~1 kB/s)
-  pico_dev.py charger on|off            switch the hub's charger (Shelly via Home Assistant)
+  pico_dev.py flash <MANIFEST.json>     write the manifest's files from its folder over the serial link:
+                                        devsafe, changed files to <name>.new and SHA-256 checked, then
+                                        renamed, full verify, reset (VERIFIED n/n, FLASH_OK/FLASH_FAIL)
+  pico_dev.py manifest <MANIFEST.json>  rewrite the manifest from the files beside it; entries without a
+                                        local file (secrets.py) are kept as they are
+  pico_dev.py restore <set> [seconds]   phone link only: flash a set from the phone backup, wait for
+                                        RESTORE_OK/FAIL (default 420 s: 20260928-kuri1 ran past 300 s)
+  pico_dev.py charger on|off            phone link only: switch the hub's charger (Shelly via HA)
 
-Every operation except `charger` runs with the charger off and powers it again when done
-(CHARGER_CYCLE, temporary until the Type-C fault is fixed; PICO_CHARGER_CYCLE=0 disables).
+With PICO_LINK=phone every operation except `charger` runs with the charger off and powers it again
+when done (CHARGER_CYCLE; PICO_CHARGER_CYCLE=0 disables). The Zero link has no charger to cycle.
 
 Source of truth: Infra/iot/expresso/pico_dev.py in the project repo (copied to the Mac legacy folder).
 """
+import base64
+import glob
+import hashlib
 import json
 import os
 import shutil
@@ -58,6 +68,8 @@ import time
 ADB = os.environ.get('PICO_ADB') or next(
     (a for a in ('/opt/homebrew/bin/adb', os.path.expanduser('~/.local/share/platform-tools/adb'))
      if os.path.exists(a)), None) or shutil.which('adb') or 'adb'
+LINK = os.environ.get('PICO_LINK', 'zero')
+ZERO = '192.0.2.10'
 PHONE = '192.0.2.11:5555'
 PORT = 2217
 APP = 'com.example.silvia_pico_ui'
@@ -96,7 +108,7 @@ class ChargerOff:
     """Charger off and the Pico enumerated for the block; charger back on afterwards, also on error."""
 
     def __enter__(self):
-        if not CHARGER_CYCLE:
+        if not CHARGER_CYCLE or LINK == 'zero':
             return self
         subprocess.run([ADB, 'connect', PHONE], capture_output=True)
         # otg_switch drops to 0 on boot and after idling; adbd runs as root on this build
@@ -112,7 +124,7 @@ class ChargerOff:
         return self
 
     def __exit__(self, *exc):
-        if CHARGER_CYCLE:
+        if CHARGER_CYCLE and LINK != 'zero':
             charger(True)
         return False
 
@@ -121,6 +133,8 @@ def ensure_bridge():
     # Only start the app bridge and the forward. Do not open probe connections: the bridge serves one
     # client, and a probe closing right after the real client connects restores the old USB listener
     # over the new one, so the real client receives nothing (seen 17.9.2026).
+    if LINK == 'zero':
+        return
     subprocess.run([ADB, 'connect', PHONE], capture_output=True)
     adb('shell', 'input', 'keyevent', 'KEYCODE_WAKEUP', check=False)
     adb('shell', 'am', 'start', '-n', APP + '/.MainActivity', '--ez', 'espressopico_start_bridge', 'true',
@@ -151,7 +165,7 @@ class Link:
         ensure_bridge()
         self._connect()
         hello = self.drain(0.8)
-        if b'ERR usb closed' in hello:
+        if LINK != 'zero' and b'ERR usb closed' in hello:
             # USB re-enumerated (Pico reset): restart the app so it reopens the port
             self.s.close()
             adb('shell', 'am', 'force-stop', APP, check=False)
@@ -163,14 +177,15 @@ class Link:
             self.drain(0.8)
 
     def _connect(self):
+        host = ZERO if LINK == 'zero' else '127.0.0.1'
         for attempt in range(10):
             try:
-                self.s = socket.create_connection(('127.0.0.1', PORT), timeout=5)
+                self.s = socket.create_connection((host, PORT), timeout=5)
                 break
             except OSError:
                 time.sleep(1.5)
         else:
-            sys.exit('bridge not reachable on 127.0.0.1:%d' % PORT)
+            sys.exit('bridge not reachable on %s:%d' % (host, PORT))
         self.s.settimeout(0.3)
 
     def drain(self, seconds):
@@ -458,27 +473,128 @@ def phold(seconds, out_path=None):
     return 0
 
 
-def verify(manifest_path):
-    manifest = json.load(open(manifest_path))
-    link = Link()
-    link.enter_devsafe()
+def pico_sha(link, name):
+    # 'missing' when the file does not exist on the Pico
+    return link.exec("import uhashlib,ubinascii\ntry:\n f=open(%r,'rb')\nexcept OSError:\n print('missing')\nelse:\n"
+                     " h=uhashlib.sha256()\n while True:\n  b=f.read(512)\n  if not b: break\n  h.update(b)\n f.close()\n"
+                     " print(ubinascii.hexlify(h.digest()).decode())" % name).strip()
+
+
+def verify_link(link, manifest):
     bad = n = 0
     for e in manifest:
         if e.get('skipped'):
             continue
-        h = link.exec("import uhashlib,ubinascii\nh=uhashlib.sha256()\nf=open(%r,'rb')\nwhile True:\n b=f.read(512)\n"
-                      " if not b: break\n h.update(b)\nf.close()\nprint(ubinascii.hexlify(h.digest()).decode())"
-                      % e['name']).strip()
+        h = pico_sha(link, e['name'])
         n += 1
         ok = h == e['sha256']
         bad += not ok
         print('%-32s %s' % (e['name'], 'OK' if ok else 'MISMATCH ' + h[:12]))
-    link.reset()
     print('VERIFIED %d/%d' % (n - bad, n))
     return bad == 0
 
 
+def verify(manifest_path):
+    manifest = json.load(open(manifest_path))
+    link = Link()
+    link.enter_devsafe()
+    ok = verify_link(link, manifest)
+    link.reset()
+    return ok
+
+
+def local_sha(path):
+    with open(path, 'rb') as f:
+        return hashlib.sha256(f.read()).hexdigest()
+
+
+def manifest(manifest_path):
+    # Zero link: no phone set, so the manifest is computed from the files beside it. An entry without
+    # a local file (secrets.py lives only on the Pico and in the phone sets) is kept unchanged.
+    base = os.path.dirname(os.path.abspath(manifest_path))
+    old = {e['name']: e for e in json.load(open(manifest_path))} if os.path.exists(manifest_path) else {}
+    names = set(old)
+    for pattern in ('*.py', 'scale_cal.json', 'lib/*.py'):
+        names.update('/' + os.path.relpath(p, base) for p in glob.glob(os.path.join(base, pattern)))
+    out = []
+    for name in sorted(names):
+        path = base + name
+        if os.path.exists(path):
+            out.append({'name': name, 'sha256': local_sha(path), 'size': os.path.getsize(path)})
+        else:
+            out.append(old[name])
+            print('KEPT %s (no local file)' % name)
+    with open(manifest_path, 'w') as f:
+        json.dump(out, f, indent=2)
+        f.write('\n')
+    print('MANIFEST %s: %d entries' % (manifest_path, len(out)))
+    return True
+
+
+FLASH_CHUNK = 1024      # bytes per raw REPL exec; every exec feeds the 8 s watchdog
+
+
+def flash(manifest_path):
+    # Zero link flash (EXPRESSO-ZERO-FLASH, 5.10.2026). Not mpremote: it does not feed the devsafe
+    # watchdog, so the Pico would reset 8 s into the copy, and it skips the relay read-back. Same order
+    # as the app's PicoFlasher (PICO-HALLINTA.md luku 5): Ctrl-C, relays off + read-back, then files.
+    # Changed files go to <name>.new and are hashed on the Pico before any rename, so a broken copy
+    # leaves the old firmware whole.
+    manifest = json.load(open(manifest_path))
+    base = os.path.dirname(os.path.abspath(manifest_path))
+    entries = [e for e in manifest if not e.get('skipped')]
+    for e in entries:
+        path = base + e['name']
+        if os.path.exists(path) and local_sha(path) != e['sha256']:
+            print('FLASH_FAIL local %s does not match the manifest (run: pico_dev.py manifest)' % path)
+            return False
+    link = Link()
+    link.enter_devsafe()
+    todo = []
+    for e in entries:
+        path = base + e['name']
+        h = pico_sha(link, e['name'])
+        if h == e['sha256']:
+            continue
+        if not os.path.exists(path):
+            print('FLASH_FAIL %s differs on the Pico and has no local file' % e['name'])
+            link.reset()
+            return False
+        todo.append(e)
+    print('FLASH_PLAN %d/%d changed: %s' % (len(todo), len(entries), ' '.join(e['name'] for e in todo) or '-'))
+    try:
+        for e in todo:
+            data = open(base + e['name'], 'rb').read()
+            t0 = time.time()
+            link.exec("import gc,ubinascii\ngc.collect()\n_f=open(%r,'wb')" % (e['name'] + '.new'))
+            for i in range(0, len(data), FLASH_CHUNK):
+                link.exec("_f.write(ubinascii.a2b_base64(%r))" % base64.b64encode(data[i:i + FLASH_CHUNK]).decode())
+            link.exec("_f.close()")
+            h = pico_sha(link, e['name'] + '.new')
+            if h != e['sha256']:
+                raise RuntimeError('%s.new sha256 %s' % (e['name'], h[:12]))
+            print('WROTE %-32s %6d B %.1f s' % (e['name'], len(data), time.time() - t0))
+        for e in todo:
+            link.exec("import os\ntry:\n os.remove(%r)\nexcept OSError:\n pass\nos.rename(%r, %r)"
+                      % (e['name'], e['name'] + '.new', e['name']))
+    except Exception as exc:
+        print('FLASH_FAIL %s' % exc)
+        for e in todo:
+            try:
+                link.exec("import os\ntry:\n os.remove(%r)\nexcept OSError:\n pass" % (e['name'] + '.new'))
+            except Exception:
+                pass
+        link.reset()
+        return False
+    ok = verify_link(link, manifest)
+    link.reset()
+    print('FLASH_OK' if ok else 'FLASH_FAIL verify')
+    return ok
+
+
 def restore(set_name, seconds=420):
+    if LINK == 'zero':
+        sys.exit('restore is the phone link; on the Zero link use: pico_dev.py flash <MANIFEST.json>')
     # The app's flasher writes the set over USB; wait for its verdict in logcat so the charger stays
     # off until the flash is over (PICO-HALLINTA.md luku 7: no serial link before RESTORE_OK).
     # One argument: adb shell joins its argv with spaces, so a split format string reaches date as two
@@ -514,8 +630,10 @@ def watchdog_test():
     print('stopped feeding at %s; waiting for the watchdog reset' % time.strftime('%H:%M:%S'))
     t0 = time.time()
     time.sleep(15)
-    # A reset re-enumerates USB: restart the app so it reopens the port and the bridge
-    adb('shell', 'am', 'force-stop', APP, check=False)
+    # A reset re-enumerates USB: restart the app so it reopens the port and the bridge (the Zero's
+    # ser2net reopens /dev/hubi0 on the next connection by itself)
+    if LINK != 'zero':
+        adb('shell', 'am', 'force-stop', APP, check=False)
     time.sleep(2)
     link = Link()
     link.send(b'CMD dev:resume\r\n')
@@ -558,6 +676,10 @@ def main(op):
         capture(float(sys.argv[2]), sys.argv[3] if len(sys.argv) > 3 else None)
     elif op == 'verify':
         sys.exit(0 if verify(sys.argv[2]) else 1)
+    elif op == 'flash':
+        sys.exit(0 if flash(sys.argv[2]) else 1)
+    elif op == 'manifest':
+        sys.exit(0 if manifest(sys.argv[2]) else 1)
     elif op == 'watchdog-test':
         watchdog_test()
     elif op == 'restore':
@@ -567,12 +689,14 @@ def main(op):
 
 
 OPS = ('safe', 'cmd', 'shot', 'hold', 'pcap', 'psweep', 'plen', 'pgap', 'vkello', 'vsweep', 'klamp', 'pstep', 'phold', 'capture',
-       'verify', 'watchdog-test', 'restore')
+       'verify', 'flash', 'manifest', 'watchdog-test', 'restore')
 
 if __name__ == '__main__':
     if len(sys.argv) < 2:
         sys.exit(__doc__)
     op = sys.argv[1]
+    if op == 'manifest' and len(sys.argv) > 2:
+        sys.exit(0 if manifest(sys.argv[2]) else 1)
     if op == 'charger' and len(sys.argv) > 2 and sys.argv[2] in ('on', 'off'):
         sys.exit(0 if charger(sys.argv[2] == 'on') else 1)
     if op not in OPS:

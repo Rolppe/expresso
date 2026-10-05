@@ -7,6 +7,9 @@ puhelimen ``sha256sum``-tulostetta vasten. Lopuksi laskee ``MANIFEST.json``:in p
 ``sha256sum``- ja ``stat``-tulosteesta koko uudelle setille ja todentaa sen samalla tavalla.
 Katso Infra/iot/expresso/PICO-HALLINTA.md luku 6.
 
+Vain puhelinketju (PICO_LINK=phone). Pico on 5.10.2026 alkaen Zeron USB:ssä (ZERO-USB): silloin settiä ei
+rakenneta, vaan ``pico_dev.py flash pico/MANIFEST.json`` kirjoittaa repon tiedostot suoraan (luku 7).
+
 Käyttö:
   build_set.py <uusi> [--from <pohja>] [tiedosto...]
   build_set.py --check <uusi> [--from <pohja>] [tiedosto...]   # ei yhtään muuttavaa komentoa
