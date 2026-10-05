@@ -11,8 +11,8 @@
   },
   {
     "name": "/bluetooth_handler.py",
-    "sha256": "d71ffaf72436808e80b4e718613ebbf5c68a3f17cb7d3e0519ae42a0383a21f8",
-    "size": 15873
+    "sha256": "cc643726b417c100717fc7fd4950f08e83af510dc81e4548b17b9a953ba97ae0",
+    "size": 16161
   },
   {
     "name": "/boot.py",
