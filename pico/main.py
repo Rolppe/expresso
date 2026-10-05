@@ -303,9 +303,10 @@ async def local_program(brew_data):
         # If brew switch is on start brewing (code path shared with the remote test shot)
         if SWITCH_BREW.value():
             if getattr(brew_data, 'throttle_set', 0):
-                # Kuristimen saatotila (kuri:1, TILAUS-M): pumppu joka toisella jaksolla ilman paineensaatoa
+                # Kuristimen saatotila (kuri:1, TILAUS-M): pumppu joka toisella jaksolla ilman paineensaatoa.
+                # Testikomento kuten muut: dev_run sammuttaa lammittimen (EXPRESSO-TURVA-DEVRUN 5.10.2026).
                 from functions import throttle_set_run
-                await throttle_set_run(brew_data, utime, asyncio, pump_ratio_calculator, SWITCH_BREW.value)
+                await dev_run(throttle_set_run(brew_data, utime, asyncio, pump_ratio_calculator, SWITCH_BREW.value))
             else:
                 await run_shot(brew_data, utime, asyncio, pump_ratio_calculator, SWITCH_BREW.value, 'PB')
             brew_data.note_activity(utime.ticks_ms(), 'switch')
