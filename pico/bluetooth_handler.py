@@ -71,7 +71,7 @@ def live_payload(brew_data):
     if weight is not None:
         weight = round(weight, 1)      # 0.1 g is below the measured noise; the full float cost
                                        # 18 characters of a 240 B packet
-    return {
+    data = {
         'boiler_temperature'         : brew_data.boiler_temperature,
         'pressure'                   : brew_data.pressure,
         'mode'                       : brew_data.get_mode(),
@@ -82,6 +82,11 @@ def live_payload(brew_data):
         'pump_ratio'                 : brew_data.get_pump_ratio(),
         'weight'                     : weight
     }
+    if brew_data.standby:
+        # VALMIUSTILA (5.10.2026): the key rides only while standby holds - standby is IDLE-only, so the
+        # packet carries the shortest mode string and stays within 240 B; a live packet without it means off.
+        data['standby'] = True
+    return data
 
 
 def flow_payload(brew_data):
