@@ -394,6 +394,13 @@ bd3 = make_brew_data()
 functions.load_settings(_json, bd3)
 check('old settings file keeps limits off', bd3.get_weight_limit() == 0.0 and bd3.get_weight_rise_limit() == 0.0,
       '%s / %s' % (bd3.get_weight_limit(), bd3.get_weight_rise_limit()))
+# a setpoint over the limit keeps its default but must not delete the file (and wmax with it)
+_json.dump(dict(saved, brew_temperature=200), open('/tmp/settings.txt', 'w'))
+bd4 = make_brew_data()
+functions.load_settings(_json, bd4)
+check('over-limit setpoint keeps its default', bd4.brew_temperature == 93.0, str(bd4.brew_temperature))
+check('over-limit setpoint keeps the file and wmax', _os.path.exists('/tmp/settings.txt') and bd4.get_weight_limit() == 470.0,
+      str(bd4.get_weight_limit()))
 _os.chdir(_cwd)
 
 # 12. real-time flow from the drip-tray scale (18.9.2026). Measured on the Pico: one sample every
