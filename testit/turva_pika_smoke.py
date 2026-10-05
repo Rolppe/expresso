@@ -162,7 +162,7 @@ def main():
     check('main.py: ei suoria testiajokutsuja dev_run:n ohi', not direct, str(direct))
     check('main.py: dev_run sammuttaa lammittimen',
           re.search(r'async def dev_run\(coro\):\s*\n\s*RELAY_HEATER\.value\(0\)', src) is not None)
-    check('main.py: 13 testikomentoa dev_run:n kautta', src.count('await dev_run(') == 13,
+    check('main.py: 14 testikomentoa dev_run:n kautta', src.count('await dev_run(') == 14,
           str(src.count('await dev_run(')))
 
     print('RESULT: %d failed' % len(fails))
