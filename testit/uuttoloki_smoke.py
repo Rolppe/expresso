@@ -99,6 +99,7 @@ def brew_data():
     bd.settings_requested = False; bd.command_known = True
     bd.RELAY_PUMP, bd.RELAY_SOLENOID, bd.RELAY_HEATER = Relay(11), Relay(12), Relay(13)
     bd.boiler_temperature = 93.4; bd.pressure = 0.0; bd.flow = None; bd.weight = 250.0; bd.mode = 'IDLE'
+    bd.standby = False
     bd.tray_scale = FakeScale(); bd.brew_logger = BL.BrewSessionLogger(utime)
     return bd
 
@@ -421,5 +422,13 @@ try:
     check('PB shot 8 s: discarded as too short', bd.pending_brew_log is None and 'BREW_LOG discard' in out)
 except Exception as e:
     check('short PB shot runs', False, repr(e))
+
+# VALMIUSTILA in the live packet (5.10.2026): the key only while standby holds, and the packet still fits
+bd = full_brew_data()
+check('live packet: no standby key outside standby', 'standby' not in bh.live_payload(bd))
+bd.standby = True
+raw = bh.trim_payload(bh.live_payload(bd), json, bh.BLEHandler.MAX_NOTIFY)
+check('live packet in standby: standby true, weight kept, <= 240 B', raw is not None
+      and json.loads(raw).get('standby') is True and 'weight' in json.loads(raw), '%s B' % (raw and len(raw)))
 
 print('\nRESULT: %d failed' % len(fails)); sys.exit(1 if fails else 0)
