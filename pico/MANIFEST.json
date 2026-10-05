@@ -11,8 +11,8 @@
   },
   {
     "name": "/bluetooth_handler.py",
-    "sha256": "6fe7fee32cb5d96018870b798f65c9f65c543e09c8cd730d10c011a97833a26d",
-    "size": 9277
+    "sha256": "d71ffaf72436808e80b4e718613ebbf5c68a3f17cb7d3e0519ae42a0383a21f8",
+    "size": 15873
   },
   {
     "name": "/boot.py",
@@ -25,14 +25,19 @@
     "size": 1805
   },
   {
+    "name": "/brew_logger.py",
+    "sha256": "6e6507db5f68b06f43697cac2280df27b9610ce8222d48b7e7b24d791a141e9f",
+    "size": 8652
+  },
+  {
     "name": "/classes.py",
-    "sha256": "c365501edecdcc07cb018331e4d123725cc4e857373fe05d90ec161fbdedc090",
-    "size": 57032
+    "sha256": "e4643ed08c0ef6e18a99e5fcf2e7f54c1894aed1f9b7cfeb92be51471f81dc4c",
+    "size": 67972
   },
   {
     "name": "/commands.py",
-    "sha256": "14ca620a31239586dfe3107bc1a2c82b5a5be2e4212675a5f9abff3e1b479740",
-    "size": 18129
+    "sha256": "e09a8108fa056db7b6d682752d9355ab93ce65fd1d96683c75f2b7be0fb9c77a",
+    "size": 20714
   },
   {
     "name": "/devsafe.py",
@@ -41,13 +46,13 @@
   },
   {
     "name": "/functions.py",
-    "sha256": "c49c34006dd259d659cbf9c53308935bde2e622a019e133c9ed4f5ab4b1f1c01",
-    "size": 185721
+    "sha256": "5a324b0b0920ddf71f552e39b7bb5da696c13bad7e3cfd4382dfb194c07ccd58",
+    "size": 187397
   },
   {
     "name": "/lib/adafruit_max31865.py",
-    "sha256": "5c5d36dc9eefb6fc284a46314cf07d32a87b99e3de9621b5bbbdd416398240fe",
-    "size": 9570
+    "sha256": "970fc55d2d53f91ffe3717cdc862ae923e91692636bb927d41f1684833a4c27d",
+    "size": 11799
   },
   {
     "name": "/lib/spi_device.py",
@@ -56,8 +61,8 @@
   },
   {
     "name": "/main.py",
-    "sha256": "ba03210602b62531376ce75a49f4cadfb556d20af5bc243a72b4573425191bde",
-    "size": 19379
+    "sha256": "f4ba967de53e6290f608c15d7db960a850b7be21e0f4e45328060360b60e6494",
+    "size": 20599
   },
   {
     "name": "/preset.py",
@@ -71,8 +76,8 @@
   },
   {
     "name": "/scale.py",
-    "sha256": "39750594deaacf35b87003c0f7c736428ffcbcb4bc6aeca1d3ff0348be199e01",
-    "size": 9944
+    "sha256": "afa8478c51ba773b0c4e063560d9f4ce67a0532aaf0086ea77bbdc439ec705ba",
+    "size": 10445
   },
   {
     "name": "/scale_cal.json",
