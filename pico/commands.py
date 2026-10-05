@@ -424,6 +424,26 @@ def handle_command(brew_data, command):
             pass
         stby_report = True
 
+    # App protocol of the August firmware (EXPRESSO-UUTTOLOKI, 5.10.2026). The app sends these on every connect;
+    # none sets updated, so none counts as activity or leaves standby. bluetooth_handler acts on the flags.
+    elif command in ('sync', 'get:settings', 'settings?'):
+        brew_data.settings_requested = True
+
+    elif command in ('brew_log?', 'brew_log:get'):
+        # Resend the pending shot from its meta frame; nothing pending = nothing to do
+        if brew_data.pending_brew_log is not None:
+            brew_data.brew_log_tx_reset = True
+            brew_data.brew_log_send_requested = True
+        print('BREW_LOG resend %s' % ('id=%s' % brew_data.pending_brew_log['id'] if brew_data.pending_brew_log
+                                      else 'none pending'))
+
+    elif command.startswith('brew_log:ack'):
+        # brew_log:ack:<id> frees the RAM copy. Like August, any ack clears: the app acks only what it stored.
+        brew_data.pending_brew_log = None
+        brew_data.brew_log_send_requested = False
+        brew_data.brew_log_tx_reset = True
+        print('BREW_LOG ack id=%s' % command[len('brew_log:ack:'):])
+
     else:
         # Unknown command: the caller must be able to tell. main.py printed CMD_OK for every line it
         # read, so a typo or a command missing from the flashed firmware acknowledged exactly like a

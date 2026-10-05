@@ -889,6 +889,12 @@ async def run_shot(brew_data, utime, asyncio, pump_ratio_calculator, keep_runnin
     # 10 s:n jalkeen (GUARD_TRIP heater reason=tempstale, 28.9.2026). Palautus finallyssa, ennen paasilmukan lukua.
     tsens = brew_data.temperature_sensor
     tsens.c1_on()
+    # Uuttoloki (EXPRESSO-UUTTOLOKI): vain kytkimen uutto (PB), ei testiuutto. Naytteet ottaa BLE-tehtava
+    # (brew_logger.brew_log_service), joten uuttosilmukoiden ajoitus ei muutu.
+    brew_log = getattr(brew_data, 'brew_logger', None) if label == 'PB' else None
+    if brew_log is not None:
+        scale = getattr(brew_data, 'tray_scale', None)
+        brew_log.start(start_time, brew_data.get_weight(), scale.scale_meta() if scale is not None else None)
     try:
         # ===== PRE-INFUSION ===== #
         # bim:1 (EXPRESSO-UUTTO-8BAR) = vaiheet 3-4 esiuuton jatkona samassa silmukassa: vain pim:1:n, paalla olevan
@@ -998,14 +1004,19 @@ async def run_shot(brew_data, utime, asyncio, pump_ratio_calculator, keep_runnin
         # ===== PRESSURE SOFT RELEASE ===== #
         RELAY_PUMP.value(0)
         brew_data.set_pump_ratio(0)
+        log_reason = 'abort' if abort_reason else 'switch_off'
         if brew_data.get_pressure() >= brew_data.get_soft_pressure_release_arming_pressure() and brew_data.get_pressure_soft_release_mode():
             brew_data.set_mode('soft pressure release')
             soft_pressure_release_time = brew_data.get_pressure_soft_release_time()
             print("soft release time: " + str(soft_pressure_release_time))
             # App slider sends fractional seconds (srt:), range() would raise TypeError
             await asyncio.sleep_ms(int(float(soft_pressure_release_time) * 1000))
+            log_reason = 'spr_end'
 
         # ===== PRESSURE DRAIN ===== #
+        # Loki loppuu ennen kuin solenoidi purkaa ryhman paineen kaukaloon (elokuun brew_logger)
+        if brew_log is not None and brew_log.is_active():
+            brew_log.end_session(utime.ticks_ms(), brew_data.get_weight(), log_reason)
         RELAY_SOLENOID.value(0)
         if FEATURES['after_brew_pressure_drain_flag']:
             brew_data.set_mode('after brew pressure drain')
@@ -1021,6 +1032,8 @@ async def run_shot(brew_data, utime, asyncio, pump_ratio_calculator, keep_runnin
         RELAY_HEATER.value(0)
         RELAY_SOLENOID.value(0)
         tsens.c1_off()
+        if brew_log is not None and brew_log.is_active():
+            brew_log.end_session(utime.ticks_ms(), brew_data.get_weight(), 'error')
     return abort_reason
 
 

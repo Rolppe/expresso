@@ -234,6 +234,15 @@ class BrewData:
         # persisted): it is a measurement setting, not a safety limit.
         self.flow               = None
         self.flow_window_ms     = 1000
+        # Brew log (EXPRESSO-UUTTOLOKI, 5.10.2026): main.py sets brew_logger and tray_scale. A finished
+        # shot waits in pending_brew_log (RAM) until the app acks it; the flags drive bluetooth_handler's
+        # multipack and are set by commands (sync, brew_log?, brew_log:ack) and brew_logger.brew_log_service.
+        self.brew_logger             = None
+        self.tray_scale              = None
+        self.pending_brew_log        = None
+        self.brew_log_send_requested = False
+        self.brew_log_tx_reset       = False
+        self.settings_requested      = False
         # Outer flow cascade (VIRTAUSSAATO, 18.9.2026): runtime-only, not persisted (fmode:/fset:
         # never set updated = True), so the device is always in pressure control after a boot.
         self.flow_mode          = False
