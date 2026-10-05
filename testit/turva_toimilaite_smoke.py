@@ -329,7 +329,48 @@ def main():
     t = [96.0]
     run(G.POLL_MS, t)
     heater.value(1)
-    check('D9 ei-nouse-laukaisu pysyy uudelleenkaynnistykseen asti', heater.value() == 0)
+    check('D9 ei-nouse-laukaisu ei vapaudu heti', heater.value() == 0)
+
+    # V-154 (a): lukon uusinta. Ilman jaahtymistodistetta anturi voi olla irti kattilasta.
+    t = [25.0]
+    run(G.HEATER_NORISE_RETRY_MS - 5000, t); heater.value(1)
+    check('D10 ilman jaahtymista ei uusita ennen %d min' % (G.HEATER_NORISE_RETRY_MS // 60000), heater.value() == 0)
+    run(6000, t); heater.value(1)
+    check('D11 uusinta %d min kuluttua vapauttaa lammittimen' % (G.HEATER_NORISE_RETRY_MS // 60000),
+          heater.value() == 1)
+    run(G.HEATER_NORISE_RETRY_ON_MS + 1000, t)
+    check('D12 uusinnassa %d s ilman nousua lukitsee uudelleen' % (G.HEATER_NORISE_RETRY_ON_MS // 1000),
+          heater.value() == 0)
+    for _ in range(G.HEATER_NORISE_RETRY_MAX - 1):
+        run(G.HEATER_NORISE_RETRY_MS + 1000, t); heater.value(1)
+        run(G.HEATER_NORISE_RETRY_ON_MS + 1000, t)
+    run(3 * G.HEATER_NORISE_RETRY_MS, t); heater.value(1)
+    check('D13 %d uusinnan jalkeen ilman jaahtymista lukko pysyy' % G.HEATER_NORISE_RETRY_MAX,
+          heater.value() == 0 and g.heat_retries == G.HEATER_NORISE_RETRY_MAX, g.heat_retries)
+
+    # Keitin irti verkosta illalla, Pico Zeron virralla: lukema laskee yon yli, aamulla verkkovirta takaisin
+    c = Clock()
+    bd = make_bd(c)
+    pump, sol, heater = bd.get_relays()
+    g = bd.relay_guard
+    bd.mode = 'IDLE'
+    t = [90.0]
+    for _ in range(8 * 60):              # 8 h, termostaatti pyytaa lammitysta minuutin valein
+        heater.value(1)
+        run(60000, t, dtemp_per_s=-0.01)
+        t[0] = max(22.0, t[0])
+    check('D14 yo ilman verkkovirtaa: jaahtyminen todistaa anturin kattilassa', g.heat_proven, g.heat_proven)
+    on_s = None
+    for s in range(180):                 # verkkovirta takaisin: lammitin nostaa 0,2 C/s kun rele on paalla
+        heater.value(1)
+        run(1000, t, dtemp_per_s=0.2 if heater.value() else 0.0)
+        if on_s is None and t[0] >= 25.0:
+            on_s = s
+    check('D15 aamulla lammitys alkaa %d s sisalla' % (G.HEATER_NORISE_RETRY_PROVEN_MS // 1000 + 30),
+          on_s is not None and on_s <= G.HEATER_NORISE_RETRY_PROVEN_MS // 1000 + 30, on_s)
+    check('D16 nousu nollaa uusinnat ja todisteen',
+          heater.value() == 1 and not g.heat_dead and not g.heat_proven and g.heat_retries == 0,
+          (heater.value(), g.heat_dead, g.heat_proven, g.heat_retries))
 
     print('RESULT: %d failed' % len(fails))
     return 1 if fails else 0
