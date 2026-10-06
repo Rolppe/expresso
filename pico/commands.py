@@ -424,6 +424,19 @@ def handle_command(brew_data, command):
             pass
         stby_report = True
 
+    elif command.startswith('stbt:'):
+        # Standby temperature (EXPRESSO-IOS valmiustila, 6.10.2026): stbt:<C 60-95> replaces the fixed 90 C;
+        # the IDLE target in standby stays min(brew, stbt). RAM only like stby: the app resends it after
+        # every connect, so it is not activity - a reconnect must not wake the boiler from standby.
+        try:
+            brew_data.standby_temperature = int(min(95.0, max(60.0, float(command[len('stbt:'):]))))
+            updated = True
+            wake = False
+        except Exception:
+            pass
+        print('STBT temp=%d standby=%d target=%s' % (
+            brew_data.standby_temperature, 1 if brew_data.standby else 0, brew_data.get_target_temperature()))
+
     elif command == 'heat?':
         # Heater guard state (V-154-SYY, 6.10.2026): the measured boiler reading and the no-rise latch.
         # Read-only, so not activity: the stby report's temp= was the target and misled the 6.10. check.

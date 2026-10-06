@@ -193,6 +193,27 @@ try:
 except Exception as e:
     check('stby: raised', False, repr(e))
 
+# stbt: standby temperature (6.10.2026)
+try:
+    bd = make(); idle_for(bd, 30 * MIN); assert bd.standby
+    r, out = capture(commands.handle_command, bd, 'stbt:70')
+    check('stbt:70 in standby: target 70, stays in standby (not activity), reports', r is True and bd.standby and
+          bd.standby_temperature == 70 and bd.get_target_temperature() == 70 and
+          out == ['STBT temp=70 standby=1 target=70'], '%s' % out)
+    capture(commands.handle_command, bd, 'stbt:120')
+    check('stbt clamps to 95', bd.standby_temperature == 95)
+    capture(commands.handle_command, bd, 'stbt:10')
+    check('stbt clamps to 60', bd.standby_temperature == 60)
+    r, out = capture(commands.handle_command, bd, 'stbt:abc')
+    check('stbt:abc changes nothing, reports, not activity', r is False and bd.standby_temperature == 60 and bd.standby and
+          out == ['STBT temp=60 standby=1 target=60'], '%s' % out)
+    bd = make(); bd.brew_temperature = 88.0; capture(commands.handle_command, bd, 'stbt:95'); idle_for(bd, 30 * MIN)
+    check('stbt 95 > brew 88 -> standby target 88', bd.standby and bd.get_target_temperature() == 88.0, str(bd.get_target_temperature()))
+    bd = make(); capture(commands.handle_command, bd, 'stbt:75'); out = idle_for(bd, 30 * MIN)
+    check('stbt:75 then 30 min -> STBY_ON target 75', out == ['STBY_ON idle_s=1800 target=75'], '%s' % out)
+except Exception as e:
+    check('stbt: raised', False, repr(e))
+
 # main.py wiring (text check: the loop itself needs the whole firmware)
 src = open(os.path.join(HERE, '..', 'pico', 'main.py')).read()
 loop = src[src.index('while True:', src.index('MAIN LOOP - LOCAL PROGRAM')):]
