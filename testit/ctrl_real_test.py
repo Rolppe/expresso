@@ -1,5 +1,9 @@
-import sys, types, random, statistics as st
-sys.path.insert(0, '/tmp/fw'); sys.modules['utime'] = types.ModuleType('utime')
+import os, sys, types, random, statistics as st
+HERE = os.path.dirname(os.path.abspath(__file__))
+# Repo firmware unless FW names another set: a leftover /tmp/fw was picked silently and the test ran against
+# stale code (6.10.2026)
+FW = os.environ.get('FW') or os.path.join(HERE, '..', 'pico')
+sys.path.insert(0, FW); sys.modules['utime'] = types.ModuleType('utime')
 from classes import PumpPressureController
 clock = [0]  # ms
 class U:

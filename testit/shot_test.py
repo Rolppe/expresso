@@ -1,5 +1,8 @@
-import sys, types, asyncio as aio, random
-FW = '/tmp/fw'
+import os, sys, types, asyncio as aio, random
+HERE = os.path.dirname(os.path.abspath(__file__))
+# Repo firmware unless FW names another set: a leftover /tmp/fw was picked silently and the test ran against
+# stale code (6.10.2026)
+FW = os.environ.get('FW') or os.path.join(HERE, '..', 'pico')
 sys.path.insert(0, FW)
 # --- fake MicroPython modules ---
 clock = [0.0]
@@ -27,8 +30,9 @@ machine = types.ModuleType('machine'); machine.Pin = Pin; machine.WDT = WDT
 machine.disable_irq = lambda: 0; machine.enable_irq = lambda s=0: None   # scale.py bit-bangs the HX711
 sys.modules['machine'] = machine
 import importlib.util
-# Esiehto: /tmp/fw = kopio pico/*.py + scale_cal.json + lib/, ja /tmp/fw_preset.py = kopio pico/preset.py
-spec = importlib.util.spec_from_file_location('preset', '/tmp/fw_preset.py'); preset = importlib.util.module_from_spec(spec); spec.loader.exec_module(preset); sys.modules['preset'] = preset
+# Ei esiehtoa: oletuksena repon pico/; FW ja FW_PRESET ovat valinnaisia (toinen firmwarejoukko / preset.py)
+PRESET = os.environ.get('FW_PRESET') or os.path.join(FW, 'preset.py')
+spec = importlib.util.spec_from_file_location('preset', PRESET); preset = importlib.util.module_from_spec(spec); spec.loader.exec_module(preset); sys.modules['preset'] = preset
 import classes, functions, commands, devsafe
 from classes import BrewData, PumpRatioCalculator
 
@@ -76,7 +80,7 @@ class Temp:
 def make_brew_data():
     bd = BrewData.__new__(BrewData)
     bd.pressure_sensor = Sensor(); bd.temperature_sensor = Temp()
-    bd.relay_guard = types.SimpleNamespace(utime=utime)   # classes.get_boiler_temperature lukee sen kellon (TURVA-TOIMILAITE)
+    bd.relay_guard = types.SimpleNamespace(utime=utime, user_retry=lambda now, reason: None)   # user_retry: classes.note_activity (9103dc2) kutsuu; classes.get_boiler_temperature lukee sen kellon (TURVA-TOIMILAITE)
     bd.RELAY_PUMP, bd.RELAY_SOLENOID, bd.RELAY_HEATER = Pin(11), Pin(12), Pin(13)
     bd.SWITCH_BREW, bd.SWITCH_WATER, bd.SWITCH_STEAM = Pin(7), Pin(8), Pin(9)
     bd.pre_infusion_mode = True; bd.pre_infusion_time = 3.0; bd.pre_infusion_pressure = 2.0
