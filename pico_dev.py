@@ -50,14 +50,21 @@ Usage:
 With PICO_LINK=phone every operation except `charger` runs with the charger off and powers it again
 when done (CHARGER_CYCLE; PICO_CHARGER_CYCLE=0 disables). The Zero link has no charger to cycle.
 
+Lock: one run at a time per machine, flock on PICO_DEV_LOCK (default /tmp/pico_dev.lock); a second run
+exits 1 with "PICO_BUSY pid=.. op=.. since=..". SIGTERM/SIGHUP run the charger restore (exit 128+signum).
+Exception: restore installs no signal handler (the app's flasher keeps writing; charger on by hand afterwards).
+The lock is per machine: runs on the Mac and on palvelin do not see each other.
+
 Source of truth: Infra/iot/expresso/pico_dev.py in the project repo (copied to the Mac legacy folder).
 """
 import base64
+import fcntl
 import glob
 import hashlib
 import json
 import os
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -82,6 +89,7 @@ CHARGER_CYCLE = os.environ.get('PICO_CHARGER_CYCLE', '1') != '0'
 CHARGER_ENTITY = 'switch.shellyplus1pm_example'
 HA_SH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'ha', 'ha.sh')
 PICO_VID = '2e8a'
+LOCK_PATH = os.environ.get('PICO_DEV_LOCK', '/tmp/pico_dev.lock')
 
 
 def adb(*args, check=True):
@@ -127,6 +135,29 @@ class ChargerOff:
         if CHARGER_CYCLE and LINK != 'zero':
             charger(True)
         return False
+
+
+def acquire_lock(op):
+    """One pico_dev.py run at a time (28.9.2026: two captures overlapped). Held until the process dies."""
+    f = open(LOCK_PATH, 'a+')
+    try:
+        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        f.seek(0)
+        sys.exit('PICO_BUSY %s: toinen pico_dev.py-ajo on kesken; odota tai lopeta se' % f.read().strip())
+    f.seek(0)
+    f.truncate()
+    f.write('pid=%d op=%s since=%s' % (os.getpid(), op, time.strftime('%Y-%m-%d %H:%M:%S')))
+    f.flush()
+    return f
+
+
+def install_signal_exit():
+    """SIGTERM/SIGHUP -> SystemExit, so __exit__ (charger back on) and finally blocks run (27.9.2026)."""
+    def handler(signum, frame):
+        sys.exit(128 + signum)
+    signal.signal(signal.SIGTERM, handler)
+    signal.signal(signal.SIGHUP, handler)
 
 
 def ensure_bridge():
@@ -714,5 +745,9 @@ if __name__ == '__main__':
     # shot/hold liittaisivat vanhaan lokiin (26.9. a2/b2 erotettiin kasin): kieltaydy ennen laturia ja yhteytta
     if op in ('shot', 'hold') and len(sys.argv) > 3 and os.path.exists(sys.argv[3]) and os.path.getsize(sys.argv[3]) > 0:
         sys.exit('LOG_EXISTS %s: loki on jo olemassa, %s ei liita siihen; anna uusi nimi' % (sys.argv[3], op))
+    _lock = acquire_lock(op)
+    # restore: the app's flasher keeps writing, so the charger stays off on a kill; run `pico_dev.py charger on` by hand after RESTORE_OK/FAIL
+    if op != 'restore':
+        install_signal_exit()
     with ChargerOff():
         main(op)
