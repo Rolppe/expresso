@@ -191,6 +191,12 @@ def on_phone():
         s.close()
 
 
+class LinkTimeout(RuntimeError):
+    def __init__(self, msg, buf=b''):
+        RuntimeError.__init__(self, msg)
+        self.buf = buf
+
+
 class Link:
     def __init__(self):
         ensure_bridge()
@@ -198,14 +204,18 @@ class Link:
         hello = self.drain(0.8)
         if LINK != 'zero' and b'ERR usb closed' in hello:
             # USB re-enumerated (Pico reset): restart the app so it reopens the port
-            self.s.close()
+            # Sama uusinta kuin ensimmaisessa yhteydessa: tassa ilman sita laturisyklin jalkeinen komento kaatui
+            # 'Connection refused' (26.9.2026: pit:6, 4 x shot/cmd, ennen sita 25.9.2026 b-ajo)
+            self.reopen()
+
+    def reopen(self):
+        self.s.close()
+        if LINK != 'zero':
             adb('shell', 'am', 'force-stop', APP, check=False)
             time.sleep(2)
             ensure_bridge()
-            # Sama uusinta kuin ensimmaisessa yhteydessa: tassa ilman sita laturisyklin jalkeinen komento kaatui
-            # 'Connection refused' (26.9.2026: pit:6, 4 x shot/cmd, ennen sita 25.9.2026 b-ajo)
-            self._connect()
-            self.drain(0.8)
+        self._connect()
+        self.drain(0.8)
 
     def _connect(self):
         host = ZERO if LINK == 'zero' else '127.0.0.1'
@@ -250,23 +260,37 @@ class Link:
                 d = self.s.recv(65536)
                 if d:
                     buf += d
-                    if buf.endswith(marker):
-                        return buf
+                    # Noise after the marker (e.g. the BLE app's "Received: 'sync'") must not defeat the
+                    # match; drop it (23.9.2026, verify crashed twice)
+                    if marker in buf:
+                        return buf[:buf.index(marker) + len(marker)]
             except socket.timeout:
                 pass
-        raise RuntimeError('timeout waiting for %r, tail %r' % (marker, buf[-200:]))
+        raise LinkTimeout('timeout waiting for %r, tail %r' % (marker, buf[-200:]), buf)
 
     def send(self, data):
         self.s.sendall(data)
 
     # ---- raw REPL (after devsafe) ----
     def enter_devsafe(self):
-        self.send(b'\r\x03\x03')
-        out = self.drain(1.0)
-        self.send(b'\x02')
-        self.drain(0.3)
-        self.send(b'\x01')
-        self.until(b'raw REPL; CTRL-B to exit\r\n>', 5)
+        def enter_raw():
+            self.send(b'\r\x03\x03')
+            out = self.drain(1.0)
+            self.send(b'\x02')
+            self.drain(0.3)
+            self.send(b'\x01')
+            self.until(b'raw REPL; CTRL-B to exit\r\n>', 5)
+            return out
+
+        try:
+            out = enter_raw()
+        except LinkTimeout as e:
+            if e.buf:
+                raise
+            # Silent bridge (tail b'') crashed the run without reopening it (23.9.2026)
+            print('LINK_REOPEN raw REPL silent, reopening bridge')
+            self.reopen()
+            out = enter_raw()
         res = self.exec("try:\n import devsafe\n ok = devsafe.enter()\nexcept ImportError:\n"
                         " from machine import Pin\n for n in (11, 12, 13): Pin(n, Pin.OUT, value=0).value(0)\n"
                         " ok = [Pin(n).value() for n in (11, 12, 13)] == [0, 0, 0]\n print('NO_DEVSAFE relays off ok=%s' % ok)\n"
