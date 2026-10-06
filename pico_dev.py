@@ -182,9 +182,12 @@ class Link:
             # After every Pico re-enumeration the ser2net raw port passed nothing either way until
             # /dev/hubi0 was opened once directly on the Zero (seen three times 5.10.2026, after
             # flash resets). An open and close there is enough; failure here is not fatal.
-            subprocess.run(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5', 'zero',
-                            'timeout 8 python3 -c "import serial; serial.Serial(\'/dev/hubi0\', 115200).close()"'],
-                           capture_output=True, timeout=15)
+            try:
+                subprocess.run(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5', 'zero',
+                                'timeout 8 python3 -c "import serial; serial.Serial(\'/dev/hubi0\', 115200).close()"'],
+                               capture_output=True, timeout=15)
+            except (subprocess.TimeoutExpired, OSError):
+                pass
         for attempt in range(10):
             try:
                 self.s = socket.create_connection((host, PORT), timeout=5)
