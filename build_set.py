@@ -4,7 +4,8 @@
 Kopioi pohjasetin puhelimen yksityisessä tallennuksessa (``run-as ... cp -r``), työntää
 muuttuneet tiedostot ``/data/local/tmp/``:n kautta ja todentaa jokaisen paikallisen SHA-256:n
 puhelimen ``sha256sum``-tulostetta vasten. Lopuksi laskee ``MANIFEST.json``:in puhelimen omasta
-``sha256sum``- ja ``stat``-tulosteesta koko uudelle setille ja todentaa sen samalla tavalla.
+``sha256sum``- ja ``stat``-tulosteesta koko uudelle setille, todentaa sen samalla tavalla ja
+kirjoittaa sen myös repon ``pico/MANIFEST.json``:iin.
 Katso Infra/iot/expresso/PICO-HALLINTA.md luku 6.
 
 Vain puhelinketju (PICO_LINK=phone). Pico on 5.10.2026 alkaen Zeron USB:ssä (ZERO-USB): silloin settiä ei
@@ -255,18 +256,23 @@ def build(new_name, base, files):
     sizes = parse_stat_sizes(r.stdout)
     manifest = build_manifest(rows, sizes)
 
+    # The pushed manifest also replaces the repo's pico/MANIFEST.json, so `pico_dev.py verify` checks
+    # the device against the set it now runs, not the previous one (it gave a false MISMATCH).
     manifest_local = os.path.join(HERE, '.manifest_tmp.json')
     with open(manifest_local, 'w') as f:
         json.dump(manifest, f, indent=2, sort_keys=True)
         f.write('\n')
     try:
         push_and_verify(manifest_local, 'MANIFEST.json', new_dir)
+        os.replace(manifest_local, os.path.join(PICO_DIR, 'MANIFEST.json'))
     finally:
-        os.remove(manifest_local)
+        if os.path.exists(manifest_local):
+            os.remove(manifest_local)
 
     restore_cmd = ('%s -s %s shell am start -n %s/.MainActivity --es espressopico_restore_backup %s'
                    % (ADB, PHONE, APP, new_name))
     print('Setti %s valmis (%d tiedostoa + MANIFEST.json).' % (new_name, len(files)))
+    print('Manifesti kirjoitettu myös: %s' % os.path.join(PICO_DIR, 'MANIFEST.json'))
     print('Palautuskomento:')
     print('  %s' % restore_cmd)
     print('ÄLÄ KOSKE SARJALINKKIIN ENNEN RESTORE_OK-RIVIÄ.')
