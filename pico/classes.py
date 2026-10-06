@@ -433,6 +433,7 @@ class BrewData:
     
     def note_activity(self, now_ms, reason):
         self.last_activity_ms = now_ms
+        self.relay_guard.user_retry(now_ms, reason)   # a person is here: retry a no-rise latch (V-154-SYY)
         if self.standby:
             self.standby = False
             print('STBY_OFF reason=%s' % reason)
