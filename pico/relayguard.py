@@ -27,6 +27,10 @@
 #     morning switch-on found it dead. A boiler that cools >= 10 C under the latch reading proves the
 #     sensor sits on the boiler, and the missing rise was missing mains: then retry every 60 s without
 #     end. Without that proof, 3 retries 10 min apart, then latched until restart. A retry heats 30 s.
+#   - a Pico that starts cold off the mains (flash or crash with the boiler at room temperature, 5.10.2026
+#     evening) latches at room temperature, can never cool 10 C more, and spends its 3 retries overnight
+#     (V-154-SYY, 6.10.2026). So user activity (a switch, or an app setting: note_activity) releases the
+#     latch at once for one 30 s retry; it does not refill the unattended retries.
 # Not detectable here: a pressure sensor stuck at a plausible 0 bar. Hot water and a flush with no
 # puck also stay near 0 bar with the pump on, so "no pressure while pumping" is not a fault.
 # The drip-tray weight is NOT here on purpose (user, 19.9.2026): the tray limit applies to test
@@ -242,6 +246,35 @@ class RelayGuard:
                 1 if self.heat_proven else 0, self.heat_retries, t))
         except Exception:
             pass
+
+    def user_retry(self, now, reason):
+        """A person acted on the machine: retry a no-rise latch now, one HEATER_NORISE_RETRY_ON_MS window."""
+        if not self.heat_dead:
+            return
+        self.heat_dead = False
+        self.heat_on_ms = 0
+        self.heat_min_c = None
+        self.heat_window_ms = HEATER_NORISE_RETRY_ON_MS
+        try:
+            print('GUARD_RETRY heater user=%s n=%d temp=%s' % (reason, self.heat_retries, self.bd.boiler_temperature))
+        except Exception:
+            pass
+
+    def heat_status(self, now):
+        """One line for the heat? command: the measured reading and the heater guard's state."""
+        ms = getattr(self.bd, 'boiler_temperature_ms', None)
+        heater = self.relays.get('heater')
+        try:
+            target = self.bd.get_target_temperature()
+        except Exception:
+            target = None
+        return 'HEAT temp=%s age_ms=%s target=%s heater=%d dead=%d proven=%d retries=%d dead_c=%s ' \
+               'dead_age_s=%s on_ms=%d window_ms=%d guard=%s' % (
+                   self.bd.boiler_temperature, None if ms is None else self.utime.ticks_diff(now, ms), target,
+                   1 if heater is not None and heater.pin.value() else 0, 1 if self.heat_dead else 0,
+                   1 if self.heat_proven else 0, self.heat_retries, self.heat_dead_c,
+                   self.utime.ticks_diff(now, self.heat_dead_ms) // 1000 if self.heat_dead else None,
+                   self.heat_on_ms, self.heat_window_ms, self.status())
 
     def start(self):
         from machine import Timer

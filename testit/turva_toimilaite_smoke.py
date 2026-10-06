@@ -372,6 +372,60 @@ def main():
           heater.value() == 1 and not g.heat_dead and not g.heat_proven and g.heat_retries == 0,
           (heater.value(), g.heat_dead, g.heat_proven, g.heat_retries))
 
+    # V-154-SYY 6.10.2026: Pico kaynnistyi kylmana irti verkosta (flash 5.10. illalla, kattila 25,9 C).
+    # Lukko syntyy huoneenlammossa, jaahtymistodistetta ei voi tulla, ja 3 uusintaa kuluu yon aikana.
+    c = Clock()
+    bd = make_bd(c)
+    pump, sol, heater = bd.get_relays()
+    g = bd.relay_guard
+    bd.mode = 'IDLE'
+    t = [25.9]
+    for _ in range(8 * 60):
+        heater.value(1)
+        run(60000, t, dtemp_per_s=-0.0001)
+        t[0] = max(23.1, t[0])
+    check('D17 kylma kaynnistys irti verkosta: yon jalkeen lukko paalla ilman todistetta',
+          g.heat_dead and not g.heat_proven and g.heat_retries == G.HEATER_NORISE_RETRY_MAX,
+          (g.heat_dead, g.heat_proven, g.heat_retries))
+    for _ in range(120):                 # verkkovirta takaisin, kukaan ei koske: lukko pysyy (tunnettu raja)
+        heater.value(1)
+        run(1000, t, dtemp_per_s=0.2 if heater.value() else 0.0)
+    check('D18 ilman kayttajan toimintoa lukko pysyy (uusintabudjetti kulunut)', g.heat_dead and t[0] < 24.0, t[0])
+    bd.note_activity(c.ms, 'app')        # kayttaja muuttaa asetusta sovelluksesta tai kaantaa kytkinta
+    on_s = None
+    for s in range(60):
+        heater.value(1)
+        run(1000, t, dtemp_per_s=0.2 if heater.value() else 0.0)
+        if on_s is None and t[0] >= 25.0:
+            on_s = s
+    check('D19 kayttajan toiminto vapauttaa lukon ja lammitys alkaa %d s sisalla' % (G.HEATER_NORISE_RETRY_ON_MS // 1000),
+          on_s is not None and on_s <= G.HEATER_NORISE_RETRY_ON_MS // 1000, on_s)
+    check('D20 nousun jalkeen lukko, uusinnat ja todiste nollattu',
+          heater.value() == 1 and not g.heat_dead and g.heat_retries == 0, (g.heat_dead, g.heat_retries))
+
+    # Irronnut anturi: kayttajan toiminto antaa yhden 30 s uusinnan, ei uutta automaattibudjettia
+    t = [25.0]
+    g.heat_dead = True; g.heat_dead_ms = c.ms; g.heat_dead_c = 25.0
+    g.heat_retries = G.HEATER_NORISE_RETRY_MAX; g.heat_proven = False
+    bd.note_activity(c.ms, 'switch')
+    heater.value(1)
+    check('D21 kayttajan toiminto vapauttaa lukon heti', heater.value() == 1)
+    run(G.HEATER_NORISE_RETRY_ON_MS + 1000, t)
+    run(3 * G.HEATER_NORISE_RETRY_MS, t); heater.value(1)
+    check('D22 irronneella anturilla lukitsee 30 s jalkeen eika uusi itse', heater.value() == 0 and g.heat_dead,
+          (heater.value(), g.heat_dead, g.heat_retries))
+
+    # Tilakomento heat? (V-154-SYY): mitattu lampotila ja lukon tila, ei asetusarvoa
+    import commands, io, contextlib
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        r = commands.handle_command(bd, 'heat?')
+    out = buf.getvalue().strip().splitlines()
+    check('D23 heat? raportoi mitatun lampotilan ja lukon tilan, ei aktiivisuutta',
+          r is False and bd.command_known and len(out) == 1 and out[0].startswith('HEAT temp=25.0 ')
+          and ' dead=1 ' in out[0] and ' retries=%d ' % G.HEATER_NORISE_RETRY_MAX in out[0]
+          and ' target=%s ' % bd.get_target_temperature() in out[0], out)
+
     print('RESULT: %d failed' % len(fails))
     return 1 if fails else 0
 

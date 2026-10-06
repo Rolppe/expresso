@@ -424,6 +424,12 @@ def handle_command(brew_data, command):
             pass
         stby_report = True
 
+    elif command == 'heat?':
+        # Heater guard state (V-154-SYY, 6.10.2026): the measured boiler reading and the no-rise latch.
+        # Read-only, so not activity: the stby report's temp= was the target and misled the 6.10. check.
+        guard = brew_data.relay_guard
+        print(guard.heat_status(guard.utime.ticks_ms()))
+
     # App protocol of the August firmware (EXPRESSO-UUTTOLOKI, 5.10.2026). The app sends these on every connect;
     # none sets updated, so none counts as activity or leaves standby. bluetooth_handler acts on the flags.
     elif command in ('sync', 'get:settings', 'settings?'):
@@ -456,6 +462,6 @@ def handle_command(brew_data, command):
         import utime    # lazy: smokes import this module without a fake clock
         brew_data.note_activity(utime.ticks_ms(), 'app')
     if stby_report:
-        print('STBY timeout_min=%d standby=%d temp=%s' % (
+        print('STBY timeout_min=%d standby=%d target=%s' % (
             brew_data.standby_timeout_ms // 60000, 1 if brew_data.standby else 0, brew_data.get_target_temperature()))
     return updated

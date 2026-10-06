@@ -14,8 +14,10 @@ reason=switch; (d) pre:on -> STBY_OFF reason=app; (e) lukukomento ei herätä; (
 import contextlib, importlib.util, io, os, sys, types
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-FW = '/tmp/fw' if os.path.isdir('/tmp/fw') else os.path.join(HERE, '..', 'pico')
-PRESET = '/tmp/fw_preset.py' if os.path.exists('/tmp/fw_preset.py') else os.path.join(FW, 'preset.py')
+# Repo firmware unless FW names another set: a leftover /tmp/fw (5.10.2026) was picked silently and the smoke
+# passed against stale code (V-154-SYY, 6.10.2026)
+FW = os.environ.get('FW') or os.path.join(HERE, '..', 'pico')
+PRESET = os.environ.get('FW_PRESET') or os.path.join(FW, 'preset.py')
 sys.path.insert(0, FW)
 
 clock = [0]     # ms
@@ -159,7 +161,7 @@ except Exception as e:
 # (h) stby:0
 try:
     bd = make(); r, out = capture(commands.handle_command, bd, 'stby:0')
-    check('h: stby:0 reports', out == ['STBY timeout_min=0 standby=0 temp=%s' % bd.brew_temperature], '%s' % out)
+    check('h: stby:0 reports', out == ['STBY timeout_min=0 standby=0 target=%s' % bd.brew_temperature], '%s' % out)
     out = idle_for(bd, 120 * MIN)
     check('h: stby:0 -> no standby in 2 h', not bd.standby and not out and bd.get_target_temperature() == bd.brew_temperature)
 except Exception as e:
@@ -178,16 +180,16 @@ except Exception as e:
 try:
     bd = make(); r, out = capture(commands.handle_command, bd, 'stby:on')
     check('stby:on enters standby now, stays (not activity)', bd.standby and r is True and out ==
-          ['STBY_ON idle_s=0 target=90', 'STBY timeout_min=30 standby=1 temp=90'], '%s' % out)
+          ['STBY_ON idle_s=0 target=90', 'STBY timeout_min=30 standby=1 target=90'], '%s' % out)
     r, out = capture(commands.handle_command, bd, 'stby:15')
     check('stby:15 is an app change, wakes and reports', bd.standby_timeout_ms == 15 * MIN and not bd.standby and
-          out == ['STBY_OFF reason=app', 'STBY timeout_min=15 standby=0 temp=%s' % bd.brew_temperature], '%s' % out)
+          out == ['STBY_OFF reason=app', 'STBY timeout_min=15 standby=0 target=%s' % bd.brew_temperature], '%s' % out)
     capture(commands.handle_command, bd, 'stby:999')
     check('stby clamps to 240 min', bd.standby_timeout_ms == 240 * MIN)
     capture(commands.handle_command, bd, 'stby:-5')
     check('stby clamps to 0', bd.standby_timeout_ms == 0)
     r, out = capture(commands.handle_command, bd, 'stby:abc')
-    check('stby:abc reports, changes nothing, not activity', r is False and out == ['STBY timeout_min=0 standby=0 temp=%s' % bd.brew_temperature], '%s' % out)
+    check('stby:abc reports, changes nothing, not activity', r is False and out == ['STBY timeout_min=0 standby=0 target=%s' % bd.brew_temperature], '%s' % out)
 except Exception as e:
     check('stby: raised', False, repr(e))
 
