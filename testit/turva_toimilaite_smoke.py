@@ -143,8 +143,9 @@ def main():
     print('info A: %d RELAY_PUMP/RELAY_HEATER-paallekytkentaa lahteessa, kaikki GuardedRelay-olioita' % ons)
 
     main_src = src('main.py')
+    # Kuumavesisilmukka siirtyi functions.hot_water_run:iin (EXPRESSO-KUUMAVESI-RAJAT 7.10.2026)
     check('A7 kuumavesisilmukka lukee lampotilan (lammittimen tuoreusraja)',
-          re.search(r"while \(SWITCH_WATER\.value\(\)\):[\s\S]{0,400}get_boiler_temperature\(\)", main_src) is not None)
+          re.search(r"while \(SWITCH_WATER\.value\(\)\):[\s\S]{0,600}get_boiler_temperature\(\)", src('functions.py')) is not None)
     check('A8 vartion ajastin kaynnistetaan main.py:ssa', 'relay_guard.start()' in main_src)
 
     # ---- B. guard behaviour ----------------------------------------------------------------
