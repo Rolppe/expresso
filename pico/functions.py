@@ -3204,3 +3204,46 @@ def load_settings(json_module, brew_data):
 
 
 
+
+
+# Hot water switch limit: run ends after this many ms (käyttäjä 7.10.2026, TURVAKATO kohta 4)
+HOT_WATER_MAX_MS = 1000
+
+
+async def hot_water_run(brew_data, thermostat, utime, asyncio):
+    """Hot water switch loop. The thermostat drives the heater; the run ends on time or when the
+    relay guard cuts the pump. Returns the end reason: 'time', 'pump' or 'switch'."""
+    RELAY_PUMP, RELAY_SOLENOID, RELAY_HEATER = brew_data.get_relays()
+    SWITCH_BREW, SWITCH_WATER, SWITCH_STEAM  = brew_data.get_switches()
+
+    brew_data.set_mode('WATER')
+    RELAY_PUMP.value(1)
+
+    # The temperature is read at least once a second so the relay guard's heater limits see a
+    # fresh value (EXPRESSO-TURVA-TOIMILAITE, 22.9.2026)
+    start = utime.ticks_ms()
+    brew_data.get_boiler_temperature()
+    last_temperature_read = start
+    reason = None
+    while (SWITCH_WATER.value()):
+        now = utime.ticks_ms()
+        if utime.ticks_diff(now, last_temperature_read) >= 1000:
+            brew_data.get_boiler_temperature()
+            last_temperature_read = now
+        if reason is None:
+            if utime.ticks_diff(now, start) >= HOT_WATER_MAX_MS:
+                reason = 'time'
+            elif RELAY_PUMP.value() == 0:
+                reason = 'pump'
+            else:
+                thermostat.run()
+            if reason is not None:
+                RELAY_PUMP.value(0)
+                RELAY_HEATER.value(0)
+                print('HOT_WATER_END reason=%s' % reason)
+        await asyncio.sleep_ms(50)
+
+    RELAY_PUMP.value(0)
+    RELAY_HEATER.value(0)
+    brew_data.note_activity(utime.ticks_ms(), 'switch')
+    return reason or 'switch'

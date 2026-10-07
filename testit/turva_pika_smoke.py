@@ -158,7 +158,8 @@ def main():
     # 6. main.py: lammitin pois testikomentojen ajaksi
     src = open(os.path.join(PICO, 'main.py')).read()
     runs = re.findall(r'await (\w*(?:_run|mains_calibrate))\(', src)
-    direct = [f for f in runs if f not in ('run_shot', 'dev_run')]
+    # hot_water_run on kayttajan kuumavesipolku, ei testikomento: lammitin termostaatilla (EXPRESSO-KUUMAVESI-RAJAT 7.10.2026)
+    direct = [f for f in runs if f not in ('run_shot', 'dev_run', 'hot_water_run')]
     check('main.py: ei suoria testiajokutsuja dev_run:n ohi', not direct, str(direct))
     check('main.py: dev_run sammuttaa lammittimen',
           re.search(r'async def dev_run\(coro\):\s*\n\s*RELAY_HEATER\.value\(0\)', src) is not None)

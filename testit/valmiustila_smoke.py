@@ -220,7 +220,12 @@ loop = src[src.index('while True:', src.index('MAIN LOOP - LOCAL PROGRAM')):]
 check('main.py: update_standby before thermostat.run', 0 < loop.index('update_standby(') < loop.index('thermostat.run()'))
 check('main.py: all three switches note activity', all(s in loop[:loop.index('thermostat.run()')]
       for s in ('SWITCH_BREW.value()', 'SWITCH_WATER.value()', 'SWITCH_STEAM.value()')) and "note_activity(_now, 'switch')" in loop)
-check('main.py: brew, tshot and hot water branches note activity on return', loop.count('brew_data.note_activity(utime.ticks_ms()') == 3)
+# hot water moved to functions.hot_water_run (EXPRESSO-KUUMAVESI-RAJAT 7.10.2026): it notes activity itself
+fsrc = open(os.path.join(HERE, '..', 'pico', 'functions.py')).read()
+hw = fsrc[fsrc.index('async def hot_water_run('):]
+check('main.py: brew and tshot branches note activity on return, hot water via hot_water_run',
+      loop.count('brew_data.note_activity(utime.ticks_ms()') == 2 and 'await hot_water_run(' in loop and
+      "brew_data.note_activity(utime.ticks_ms(), 'switch')" in hw)
 
 print('RESULT: %d failed' % len(fails))
 sys.exit(1 if fails else 0)
