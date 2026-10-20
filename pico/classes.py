@@ -1912,7 +1912,7 @@ class TemperatureSensor:
                         # the average apart from the SPI parts (K3: part 6 and _c1_put together took 0.86 ms, 20.10.2026)
                         if tph == 6:
                             traw = raw
-                        elif self._c1_put(st, ring, tab, traw, utime.ticks_ms()):
+                        elif tph == 7 and self._c1_put(st, ring, tab, traw, utime.ticks_ms()):
                             tdue = utime.ticks_add(tst, TEMP_C1_EVERY_MS * 1000)
                         k = CX_TR
                     tph = tph + 1 if tph < 7 else 0
