@@ -5,6 +5,7 @@ devsafe.relays_off()
 # IMPORT LIBRARIES
 import utime
 import json
+import sys
 import socket
 import network
 import select
@@ -22,7 +23,7 @@ from classes            import BrewData, HeatingSpeedCalculator, Thermostat, Tem
 from bluetooth_handler  import BLEHandler
 from brew_logger        import BrewSessionLogger, brew_log_service
 from secrets            import ssid, password
-from preset             import FEATURES, PINS, MAX31865_CONFIG, TARGET_TEMPERATURES
+from preset             import FEATURES, PINS, MAX31865_CONFIG, TARGET_TEMPERATURES, DIAGNET
 from backflush          import run_backflush
 
 
@@ -30,9 +31,12 @@ from backflush          import run_backflush
 # INITIALIZATION
 # ============================================================================
 
-# Turn off wifi for bluetooth stability
-wlan = network.WLAN(network.STA_IF)
-wlan.active(False)
+# Wi-Fi only for the diagnostics link (EXPRESSO-DIAGNET 20.10.2026): stdout tee + shot samples as UDP to
+# the collector. Earlier the radio was off for bluetooth stability; DIAGNET['enabled'] False restores that.
+import diagnet
+import brew_logger as _brew_logger_mod
+diag = diagnet.start(network, socket, utime, DIAGNET, ssid, password)
+_brew_logger_mod.SINK = diag
 
 # INITIALIZE PT100 TEMPERATURE SENSOR WITH MAX31865
 temperature_sensor = TemperatureSensor(max31865, PINS, MAX31865_CONFIG)
@@ -458,13 +462,25 @@ async def watchdog_feeder():
 # ============================================================================
 
 async def async_main():
-    await asyncio.gather(ble_communication(brew_data), local_program(brew_data),
-                         serial_commands(brew_data), watchdog_feeder(), scale_reader(brew_data))
+    tasks = [ble_communication(brew_data), local_program(brew_data),
+             serial_commands(brew_data), watchdog_feeder(), scale_reader(brew_data)]
+    if diag is not None:
+        tasks.append(diag.run(brew_data, asyncio))
+    await asyncio.gather(*tasks)
 
 try:
     asyncio.run(async_main())
+except BaseException as e:
+    # Relays first, then the traceback into the diagnostics ring: the watchdog resets the Pico 8 s later
+    # and the REPL's own traceback would never leave over the network.
+    devsafe.relays_off()
+    if diag is not None:
+        sys.print_exception(e)
+    raise
 finally:
     # Ctrl-C (KeyboardInterrupt), a crash or any exit: relays down before the REPL takes over.
     # The watchdog keeps running: tools must call devsafe.enter()/feed(), otherwise the Pico resets.
     devsafe.relays_off()
     print('DEVSAFE relays off (main exited) relays=%s' % devsafe.relays_state())
+    if diag is not None:
+        diag.flush()

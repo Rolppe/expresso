@@ -4,6 +4,10 @@
 # FEATURES
 # ============================================================================
 
+# EXPRESSO-DIAGNET (20.10.2026, paketit/DIAGNET.md): stdout and shot samples as UDP to the palvelin
+# collector, which publishes to Home Assistant. enabled False = Wi-Fi off as before.
+DIAGNET = {'enabled': True, 'host': '192.0.2.11', 'port': 47210}
+
 FEATURES = {
     # Core features
     'pid_control_flag'               : True,   # PID temperature control (standby/steam)
