@@ -1514,7 +1514,10 @@ class HeatingSpeedCalculator:
 # blocks >= 75 ms, which the shot loops cannot take, and without a reading the relay guard blocks the heater after 10 s
 # (GUARD_TRIP heater reason=tempstale in every bim:1 run, 28.9.2026). Reading it in short steps inside the shot loop
 # cost the smoke's pump control (case 10 hold mean +0.029 -> +0.067 bar), so core 1 reads it instead: run_shot hands it
-# the sensor (c1_on) and takes it back (c1_off); outside a shot core 0 reads as before. Core 1 runs with the heap locked
+# the sensor (c1_on) and takes it back (c1_off). Since C1-JAKSOT vaihe 2 (20.10.2026) core 1 reads at rest too
+# (c1_rest_on at boot): core 0's read_rtd slept 75 ms twice a main loop round (HB lmax_us 175-295 ms, l100 ~330/min),
+# so a shot's c1_on/c1_off only marks its counts and core 1 keeps the sensor; c1_take gives it back to core 0 (ystall's
+# tests without the temperature, or core 1 stopped). Core 1 runs with the heap locked
 # (an allocation there could start a GC in the middle of a pump loop) and only integers: the 7-reading average is in
 # 0.01 C, converted with a table built on core 0 from the driver's own formula (interpolation error < 0.01 C).
 TEMP_C1_BIAS_MS  = 10         # the driver's read_rtd gaps
@@ -1528,7 +1531,8 @@ TEMP_C1_MAX_CDEG = 20000
 # c1 state (array 'i'), shared by the cores: every field one word, written by one core only (WANT, T0 core 0; the rest
 # core 1, RI and GAP also core 0 while core 1 is idle). NBAD and LAST: bad readings in a row and the time of the last good
 # one, kept here so that the reading loop and the executor share _c1_put.
-C1_WANT, C1_IDLE, C1_SEQ, C1_CDEG, C1_MS, C1_BAD, C1_GAP, C1_ERR, C1_RI, C1_RUN, C1_T0, C1_NBAD, C1_LAST = range(13)
+# RST (0 sets, 1 clears): a shot started from the rest reading, so core 1 starts GAP, BAD and LAST again.
+C1_WANT, C1_IDLE, C1_SEQ, C1_CDEG, C1_MS, C1_BAD, C1_GAP, C1_ERR, C1_RI, C1_RUN, C1_T0, C1_NBAD, C1_LAST, C1_RST = range(14)
 # Core 1 never sleeps (EXPRESSO-C1-JAKSOT vaihe 2): a sleep_ms on core 1 stretched core 0's collections at rest from
 # ~20 ms to 80-600 ms and its sleep_ms(0) turns to 65 ms during a reading (GC-UUTTO, 20.10.2026), so every wait on core 1
 # spins on ticks_us.
@@ -1621,7 +1625,9 @@ class TemperatureSensor:
         self.c1_tab = array('i', [int(drv.temperature_from_rtd(TEMP_C1_RAW_LO + (k << 8)) * 100 + 0.5)
                                   for k in range(TEMP_C1_RAW_N + 1)])
         self.c1_seq0 = 0
-        st = array('i', [0] * 13)
+        self.c1_log0 = 0              # C1_SEQ at the latest c1_on: c1_log's readings of a shot
+        self.c1_rest = 0              # 1 = core 1 reads at rest too (c1_rest_on)
+        st = array('i', [0] * 14)
         st[C1_IDLE] = st[C1_RUN] = 1
         self.c1 = st
         # ystall bit 64 (EXPRESSO-GC-UUTTO, TILAUS-O): core 1 jitter test, WANT 2. [0] ms asked; core 1 writes
@@ -1654,14 +1660,26 @@ class TemperatureSensor:
         """Hands the sensor to core 1 (run_shot start). Its average goes on from core 0's readings. want 3: the
         executor reads it between its samples (cx set up by the caller, TEMP set here)."""
         st = self.c1
-        if st is None or st[C1_RUN] == 0 or st[C1_WANT] != 0:
+        if st is None or st[C1_RUN] == 0:
+            return False
+        if st[C1_WANT] == 1 and self.c1_rest:
+            # Core 1 already reads (rest): it keeps the sensor and its average; the shot's counts start here. WANT 3
+            # takes over after the reading in progress (the loop looks at WANT only between readings)
+            st[C1_T0] = self.c1_utime.ticks_ms()
+            self.c1_log0 = st[C1_SEQ]
+            st[C1_RST] = 1
+            if want == 3:
+                self.cx[CX_TEMP] = 1
+                st[C1_WANT] = 3
+            return True
+        if st[C1_WANT] != 0:
             return False
         ring = self.c1_ring
         for k in range(7):
             ring[k] = int(self.temps[k] * 100 + 0.5)
         st[C1_RI], st[C1_GAP], st[C1_BAD] = self.temps_i, 0, 0
         st[C1_T0] = self.c1_utime.ticks_ms()
-        self.c1_seq0 = st[C1_SEQ]
+        self.c1_seq0 = self.c1_log0 = st[C1_SEQ]
         if want == 3:
             self.cx[CX_TEMP] = 1
             st[C1_WANT] = 3
@@ -1670,8 +1688,26 @@ class TemperatureSensor:
         return True
 
     def c1_off(self):
-        """Takes the sensor back (run_shot end): waits for a reading in progress, then core 0 goes on from core 1's
-        average. Also ends the executor if it was reading."""
+        """Ends a shot's use of core 1 (run_shot end) and the executor if it was reading. At rest core 1 keeps the
+        sensor and goes back to its reading loop (the executor first finishes a half reading); otherwise c1_take."""
+        st = self.c1
+        if not self.c1_reads():
+            return
+        if self.c1_rest and st[C1_RUN] == 1:
+            st[C1_WANT] = 1
+            self.cx[CX_TEMP] = 0
+            return
+        self.c1_take()
+
+    def c1_rest_on(self):
+        """Core 1 reads the temperature at rest too (boot, and after c1_take): core 0 never waits for the chip."""
+        if self.c1_on(1):
+            self.c1_rest = 1
+            print('TEMP_C1 rest')
+
+    def c1_take(self):
+        """Takes the sensor back to core 0: waits for a reading in progress, then core 0 goes on from core 1's
+        average. Also ends the executor if it was reading. WANT stays 0 until c1_on or c1_rest_on."""
         st = self.c1
         if not self.c1_reads():
             return
@@ -1711,7 +1747,7 @@ class TemperatureSensor:
         if st is None:
             return 'c1_n=-1'
         return 'c1_n=%d c1_gap_ms=%d c1_bad=%d c1_err=%d' % (
-            st[C1_SEQ] - self.c1_seq0, st[C1_GAP], st[C1_BAD], st[C1_ERR])
+            st[C1_SEQ] - self.c1_log0, st[C1_GAP], st[C1_BAD], st[C1_ERR])
 
     def _c1_main(self):
         import micropython
@@ -1768,6 +1804,11 @@ class TemperatureSensor:
         """One MAX31865 result into core 1's 7-reading average (0.01 C). Returns 1 for a good reading, 0 for a bad one
         (as read_temperature: the caller retries at once, and the sixth bad one in a row reads 200 C = heater guard
         overtemp). Shared by the reading loop and the executor."""
+        if st[C1_RST]:
+            st[C1_RST] = 0
+            st[C1_GAP] = 0
+            st[C1_BAD] = 0
+            st[C1_LAST] = 0
         c = -1
         if TEMP_C1_RAW_LO <= raw < TEMP_C1_RAW_LO + (TEMP_C1_RAW_N << 8):
             j = (raw - TEMP_C1_RAW_LO) >> 8

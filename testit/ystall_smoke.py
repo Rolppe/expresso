@@ -287,7 +287,9 @@ def real_ts(ut_):
     t.c1_ring = array('i', [0] * 7)
     t.c1_tab = array('i', [k * 1000 for k in range(CL.TEMP_C1_RAW_N + 1)])
     t.c1_seq0 = 0
-    t.c1 = array('i', [0] * 13)
+    t.c1_log0 = 0
+    t.c1_rest = 0
+    t.c1 = array('i', [0] * 14)
     t.c1[CL.C1_IDLE] = t.c1[CL.C1_RUN] = 1
     t.c1_test = array('i', [0] * 7)
     t.c1_adc = None
@@ -352,6 +354,50 @@ check('c1_off: back to WANT 0 and core 0', t1.c1[CL.C1_IDLE] == 1 and not t1.c1_
 t1.c1[CL.C1_WANT] = -1
 th6.join(1)
 check('WANT -1 ends the thread without an error', not th6.is_alive() and t1.c1[CL.C1_ERR] == 0 and t1.c1[CL.C1_RUN] == 0)
+
+# C1-JAKSOT vaihe 2: core 1 reads at rest too (core 0's read_rtd slept 75 ms twice a main loop round, 20.10.2026)
+src_main = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'pico', 'main.py')).read()
+check('rest: main.py starts the rest reading right after c1_start',
+      re.search(r'c1_start\(utime\)\n\s*temperature_sensor\.c1_rest_on\(\)', src_main) is not None)
+tr = real_ts(utw)
+tr.temperature_sensor.temperature = property(lambda s: (_ for _ in ()).throw(AssertionError('core 0 read the chip')))
+th7 = threading.Thread(target=lambda: CL.TemperatureSensor._c1_main(tr), daemon=True)
+th7.start()
+time.sleep(0.05)
+with contextlib.redirect_stdout(io.StringIO()):
+    tr.c1_rest_on()
+time.sleep(0.4)
+check('rest: WANT 1, core 1 reads, core 0 takes its average', tr.c1_rest == 1 and tr.c1[CL.C1_WANT] == 1
+      and tr.c1[CL.C1_SEQ] >= 1 and tr.read_temperature() == tr.c1_temperature(), (tr.c1[CL.C1_WANT], tr.c1[CL.C1_SEQ]))
+tr.c1[CL.C1_GAP] = 99999
+s0 = tr.c1[CL.C1_SEQ]
+check('rest: a shot c1_on keeps core 1 reading', tr.c1_on() and tr.c1[CL.C1_WANT] == 1 and tr.c1_temperature() is not None)
+time.sleep(0.4)
+log = dict(kv.split('=') for kv in tr.c1_log().split())
+check('rest: the shot log counts from its c1_on, gap started again (RST)', 1 <= int(log['c1_n']) <= 3
+      and int(log['c1_gap_ms']) < 1000 and tr.c1[CL.C1_RST] == 0 and tr.c1[CL.C1_SEQ] - s0 == int(log['c1_n']), log)
+tr.c1_off()
+check('rest: c1_off leaves core 1 reading', tr.c1[CL.C1_WANT] == 1 and tr.c1_active())
+bd7 = types.SimpleNamespace(diag=None, tbusy=None, temperature_sensor=tr,
+                            pressure_sensor=types.SimpleNamespace(pressure_sensor=types.SimpleNamespace(read_u16=lambda: 20000)))
+for mode, name in ((640, '128+512: the executor reads from the rest reading'), (128, '128: core 0 takes the chip for the run')):
+    tr.temperature_sensor.seq = []
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        aio.run(ystall.ystall_run(bd7, utw, SlowAio(), 1, mode))
+    o7 = buf.getvalue()
+    n7 = tr.c1[CL.C1_SEQ]
+    time.sleep(0.4)
+    seq7 = ''.join(tr.temperature_sensor.seq)
+    check('rest: ystall %s; WANT 1 again after it' % name, 'C1X' in o7 and ('C1T' in o7) == (mode == 640)
+          and tr.c1[CL.C1_WANT] == 1 and tr.c1_rest == 1 and tr.c1[CL.C1_SEQ] > n7 and tr.cx[CL.CX_TEMP] == 0
+          and (('0123456' in seq7) == (mode == 640)), (o7.splitlines()[-3:], tr.c1[CL.C1_WANT], seq7[:30]))
+with contextlib.redirect_stdout(io.StringIO()):
+    tr.c1_take()
+check('rest: c1_take gives the chip to core 0 (WANT 0, average handed back)', tr.c1[CL.C1_WANT] == 0
+      and tr.c1[CL.C1_IDLE] == 1 and not tr.c1_active() and tr.temps == avg_after(tr.c1[CL.C1_SEQ])[1], tr.temps)
+tr.c1[CL.C1_WANT] = -1
+th7.join(1)
 
 print('RESULT: %d failed' % len(FAILED))
 sys.exit(1 if FAILED else 0)
