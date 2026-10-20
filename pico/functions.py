@@ -211,7 +211,7 @@ EU_PRINT_GAP_MS = 20         # loppurivien vali: USB-CDC:n lahetysjono on 256 ta
 # naytteet tulevat renkaasta omilla ajoillaan; (2) kohdan k paatos kirjoitetaan kohtaan k+2 (K1: +1 jakso hyvaksytty),
 # ja 10 ms tauko on kaksi tapahtumaa. Jokaisella kohdalla on tapahtuma, joten nalka (CX_STARVE_US) on virhe, ei tauko.
 # Etumatka = seuraavan kirjoittamattoman tapahtuman aikaisin hetki (kohdan k+2 tauon paluu) - nyt.
-# Esiuutto (vaihe 3) ja uutto bim:1 (vaihe 4, siirtyma ei koske jonoon); vanha polku on oletus.
+# Esiuutto (vaihe 3) ja uutto bim:1 (vaihe 4, siirtyma ei koske jonoon); oletus 1 (BrewData.eu_c1x), c1x:0 = vanha polku.
 EU_C1X_START_MS = 150        # ydin 1 nayttaa ensimmaisen naytteen (CX_N > 0) tassa ajassa, muuten EU_C1X fail ja vanha polku
 EU_C1X_GC_LEAD_US = 35000    # hallittu keruu (~21 ms) vain, kun etumatka on vahintaan tama
 EU_C1X_YIELD_LEAD_US = 30000 # asyncio-vuoro vain, kun rengas on luettu ja etumatka vahintaan tama (pisin varaus 28 ms, laite an)

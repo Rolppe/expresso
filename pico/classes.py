@@ -216,6 +216,9 @@ class BrewData:
         # Uuton opitut arvot erillaan esiuuton arvoista (settings.txt, eb_*): tarve uuttopaineessa, sen suhde saman ajon
         # esiuuton tarpeeseen (0 = ei tietoa -> paineiden suhde), G ja tau katkaisusta, jalkinousu.
         self.brew_method        = 1
+        # Ytimen 1 jaksot (c1x:, RAM, EXPRESSO-C1-JAKSOT vaiheet 3-4, TILAUS-O): oletus 1, kayttaja 20.10.2026 "Ota kayttoon"
+        # (laite 2 x 3 + 3 uuttoa: miss 0 vs vanha 40 + 17, pito sd 0,193 vs 0,223). c1x:0 = vanha polku.
+        self.eu_c1x             = 1
         self.eb_ff              = 0.0
         self.eb_x               = 0.0
         self.eb_g               = 0.0

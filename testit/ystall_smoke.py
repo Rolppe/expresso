@@ -478,9 +478,10 @@ seg = pk.log[i0:]
 t_on = next((t for t, v in seg if v == 1), None)
 t_off = next((t for t, v in seg if v == 0 and t_on is not None and t > t_on), None)
 dst = utw.ticks_diff(t_off, t_on) if t_off is not None else -1
-# The host thread can stand 10-30 ms (GIL): the bound above is loose, the one below (no early starvation) is not
+# The host thread can stand 10-30 ms (GIL): the bound above is loose. Below: RecPin stamps the switch-on after the
+# executor's own now (= CX_LAST), ~40 us later on the host (24 961 us seen 20.10.2026), so 1 ms of slack
 check('starve: no event for CX_STARVE_US while ARMED turns the pin off (not before CX_STARVE_US)',
-      t_on is not None and tk.cx[CL.CX_STARVE] >= 1 and CL.CX_STARVE_US <= dst <= CL.CX_STARVE_US + 60000,
+      t_on is not None and tk.cx[CL.CX_STARVE] >= 1 and CL.CX_STARVE_US - 1000 <= dst <= CL.CX_STARVE_US + 60000,
       (seg[:3], dst, tk.cx[CL.CX_STARVE]))
 n1 = len(pk.log)
 put(tk, 2, 1)
