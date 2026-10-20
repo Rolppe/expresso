@@ -5,6 +5,26 @@
 from functions import PCAP_GATE_PERIOD_US, PSWEEP_N_MAX, PSWEEP_MULT_MAX, PGAP_SPACING_MAX_MS
 
 
+class SerialLine:
+    """Bytes from the USB serial port -> 'CMD ...' lines. Only printable ASCII is kept: commands are ASCII,
+    and sys.stdin.read(1) in text mode raised UnicodeError on one stray non-UTF-8 byte, which ended every
+    asyncio task, dropped the relays and let the watchdog reset the Pico (DIAGNET caught it 20.10.2026 10.18.58)."""
+    MAX = 80
+
+    def __init__(self):
+        self.buf = bytearray()
+
+    def feed(self, b):
+        """One byte (int). Returns the finished line (str) at CR/LF, else None."""
+        if b == 13 or b == 10:
+            line = bytes(self.buf).decode().strip()
+            self.buf = bytearray()
+            return line
+        if 32 <= b < 127 and len(self.buf) < self.MAX:
+            self.buf.append(b)
+        return None
+
+
 def _float_arg(command):
     return float(command.split(':', 1)[1])
 

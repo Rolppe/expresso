@@ -202,5 +202,14 @@ try:
 except Exception as e:
     check('cmd cal without scale does not raise', False, e)
 
+
+# ---- SerialLine: a stray byte must not end the firmware (UnicodeError 20.10.2026 10.18.58) ------------
+sl = C.SerialLine()
+out = [sl.feed(x) for x in b'\xff\xfe\x00CMD heat?\xe4\r']
+check('serial: non-ASCII dropped, line kept', out[-1] == 'CMD heat?' and all(o is None for o in out[:-1]), out[-1])
+out = [sl.feed(x) for x in (b'x' * 200) + b'\n']
+check('serial: line capped at 80', out[-1] == 'x' * 80)
+check('serial: empty line', sl.feed(10) == '')
+
 print('RESULT: %d failed' % len(FAILED))
 sys.exit(1 if FAILED else 0)
