@@ -14,6 +14,8 @@
 #       100 ms:n porraskeruista. Sarjalinkki (Zero) ei kayta radiota; DIAGNET liittyy uudelleen itse (_join).
 #  32 = ydin 1 lukee lampotilaa kuten uutossa (TemperatureSensor.c1_on/c1_off, sama kuin run_shot): levossa ydin 1
 #       nukkuu 2 ms:n silmukassa, uutossa se lukee, ja uutossa keruu on ~19 ms, levossa 80-600 ms (20.10.2026)
+#  64 = ydin 1 ajaa 1 kHz:n kokonaislukusilmukan muisti lukittuna ja lukee paineen ADC:ta (TILAUS-O-koe):
+#       C1J-rivi kertoo sen omat naytevalit, kun ydin 0 samaan aikaan keraa. Ei yhdessa bitin 32 kanssa.
 # Rivit: YSTALL (vuoro > YS_LOG_US), YS_GC (keruu > YS_LOG_US), YSTALL_END (yhteenveto). Releisiin ei kosketa.
 
 import gc
@@ -45,6 +47,17 @@ async def ystall_run(brew_data, utime, asyncio, seconds, mode):
     c1_run = False
     if mode & 32 and tsens is not None:
         c1_run = bool(tsens.c1_on())
+    c1j = False
+    st = getattr(tsens, 'c1', None) if tsens is not None else None
+    if mode & 64 and not c1_run and st is not None and st[9] == 1 and st[0] == 0:     # C1_RUN, C1_WANT
+        ps = getattr(brew_data, 'pressure_sensor', None)
+        tsens.c1_adc = getattr(ps, 'pressure_sensor', None)
+        r = tsens.c1_test
+        for k in range(1, 7):
+            r[k] = 0
+        r[0] = int(seconds * 1000)
+        st[0] = 2
+        c1j = True
     t0 = utime.ticks_us()
     end = utime.ticks_add(t0, int(seconds * 1000000))
     gc_t = t0
@@ -95,6 +108,13 @@ async def ystall_run(brew_data, utime, asyncio, seconds, mode):
         if diag is not None:
             diag.quiet = quiet0
         diagnet.LEGACY_SEND = legacy0
+    if c1j:
+        w0 = utime.ticks_us()
+        while tsens.c1_test[6] == 0 and utime.ticks_diff(utime.ticks_us(), w0) < 3000000:
+            await asyncio.sleep_ms(10)
+        r = tsens.c1_test
+        print('C1J done=%d n=%d gmax_us=%d g15=%d g2=%d g5=%d adc=%d' % (r[6], r[1], r[2], r[3], r[4], r[5],
+                                                                        0 if tsens.c1_adc is None else 1))
     print('YSTALL_END s=%d mode=%d n=%d y10=%d y50=%d y_max_us=%d gc_n=%d gc_max_us=%d free=%d guard_off=%d radio_off=%d c1=%d' % (
         seconds, mode, n, y10, y50, y_max, gc_n, gc_max, gc.mem_free(), 1 if guard_off else 0, 1 if radio_off else 0,
         1 if c1_run else 0))
