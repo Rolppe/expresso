@@ -101,6 +101,23 @@ def scale_payload(brew_data):
             'flow_g_s': 0.0 if flow is None else round(flow, 2)}   # the fit's own noise is 0.2 g/s
 
 
+def settings_payloads(brew_data):
+    """The two settings packets (BLE and the Wi-Fi link send the same ones)."""
+    brew_temperature = brew_data.get_brew_temperature()
+    return ({
+        'brew_temperature': brew_temperature,
+        'pre_infusion_mode': brew_data.get_pre_infusion_mode(),
+        'pressure_soft_release_mode': brew_data.get_pressure_soft_release_mode(),
+        'fast_heatup_mode': brew_data.get_fast_heatup_mode()
+    }, {
+        'brew_temperature': brew_temperature,
+        'brew_pressure': brew_data.get_brew_pressure(),
+        'pre_infusion_pressure': brew_data.get_pre_infusion_pressure(),
+        'pre_infusion_time': brew_data.get_pre_infusion_time(),
+        'pressure_soft_release_time': brew_data.get_pressure_soft_release_time()
+    })
+
+
 def trim_payload(data, json_module, max_len=MAX_NOTIFY):
     """JSON of the packet, dropping fields in NOTIFY_DROP_ORDER until it fits. None when even the
     trimmed packet is too long - the caller must say so rather than send something a central cannot
@@ -171,20 +188,8 @@ class BLEHandler:
         """Asetukset kahtena pienenä pakettina (yhteyden muodostuessa, muutoksessa ja 2 s välein)"""
         if not self._connections:
             return
-        brew_temperature = self.brew_data.get_brew_temperature()
-        self._notify({
-            'brew_temperature': brew_temperature,
-            'pre_infusion_mode': self.brew_data.get_pre_infusion_mode(),
-            'pressure_soft_release_mode': self.brew_data.get_pressure_soft_release_mode(),
-            'fast_heatup_mode': self.brew_data.get_fast_heatup_mode()
-        })
-        self._notify({
-            'brew_temperature': brew_temperature,
-            'brew_pressure': self.brew_data.get_brew_pressure(),
-            'pre_infusion_pressure': self.brew_data.get_pre_infusion_pressure(),
-            'pre_infusion_time': self.brew_data.get_pre_infusion_time(),
-            'pressure_soft_release_time': self.brew_data.get_pressure_soft_release_time()
-        })
+        for packet in settings_payloads(self.brew_data):
+            self._notify(packet)
 
 
 # ====================== REAALIAIKAISTEN TIETOJEN LÄHETTÄMINEN ======================
@@ -234,6 +239,17 @@ class BLEHandler:
             command = value.decode('utf-8').strip()
 
             print(f"Received: '{command}'")
+
+            if command == 'wifi:key?':
+                # Wi-Fi link key, only over BLE and only to the asking connection (EXPRESSO-WIFI-APPI vaihe 1):
+                # pairing by proximity, the same trust BLE already gives. Never printed: stdout goes to DIAGNET.
+                link = getattr(self.brew_data, 'wifi_link', None)
+                if link is not None:
+                    raw = json.dumps(link.key_packet()) + '\n'
+                    chunk = max(20, min(self.MAX_NOTIFY, self._mtus.get(conn_handle, 23) - 3))
+                    for i in range(0, len(raw), chunk):
+                        self._ble.gatts_notify(conn_handle, self._handle_tx, raw[i:i + chunk])
+                return
 
             updated = handle_command(self.brew_data, command)
 
