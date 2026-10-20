@@ -11,8 +11,8 @@
   },
   {
     "name": "/bluetooth_handler.py",
-    "sha256": "cc643726b417c100717fc7fd4950f08e83af510dc81e4548b17b9a953ba97ae0",
-    "size": 16161
+    "sha256": "bc2ac44ca1a72f8e093ceb68b1d4fbdc9d611d479f5e5cf10933916fdae6d631",
+    "size": 17640
   },
   {
     "name": "/boot.py",
@@ -31,13 +31,13 @@
   },
   {
     "name": "/classes.py",
-    "sha256": "f3a27f6d9d2c83f3a8d1cf9a93527fb0cf598ab6cda6b340408feabd8a93d9b7",
-    "size": 68080
+    "sha256": "93a47aa2acc34bd0f24dbf4d2f891929df461ae90ec684c66507d0052d4e75a7",
+    "size": 68283
   },
   {
     "name": "/commands.py",
-    "sha256": "8928ef04d614e43930e6553aafaf7a775a9cb6d824e518127c3a2daacaad8675",
-    "size": 21777
+    "sha256": "0e95d8e6fe5f1e8c482517e6f51a3069267afabf718e70282a43e94059cba8b9",
+    "size": 23106
   },
   {
     "name": "/devsafe.py",
@@ -66,8 +66,8 @@
   },
   {
     "name": "/main.py",
-    "sha256": "e2755dc06cea5a3aba2a9dab32343cfb800a90026e3ffd072000076428bb6702",
-    "size": 20669
+    "sha256": "3e72e314ffa9e7975766bf2bd6028d06c9bbe75674bfb8af8efaefe1108d809d",
+    "size": 22091
   },
   {
     "name": "/preset.py",
@@ -90,6 +90,11 @@
     "size": 93
   },
   {
+    "name": "/scalecal.py",
+    "sha256": "73335d67290ad4ad5ee23ec51380ba98d7e8f839ffbe234b8cb428796bebeb81",
+    "size": 10476
+  },
+  {
     "name": "/secrets.py",
     "sha256": "582a28c95ba3de1efaa9fb36dc07c52ed6771f00be3be0f30ac4bb75c5da10ba",
     "size": 430
@@ -103,5 +108,10 @@
     "name": "/verkkokello.py",
     "sha256": "d299f81fda6f5ef9a6f1fa26b813f29efb7cf355034afc50da72d84bd8a177ae",
     "size": 7895
+  },
+  {
+    "name": "/wifilink.py",
+    "sha256": "8ef7204eb3c003101e8d1d17d58fae79bdebefb38eb1377bd3d04879eb7c44c3",
+    "size": 11430
   }
 ]
