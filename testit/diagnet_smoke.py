@@ -236,6 +236,52 @@ d.step(bd)
 check('hb every 5 s in shot', b'DIAG_HB' in b''.join(p for p, a in SOCK.sent) and b'brew=1' in b''.join(p for p, a in SOCK.sent))
 d.shot_end('max', 0)
 
+# ---- DIAG_MIN: relay guard window + diagnet line ---------------------------------------------------
+import relayguard as RG  # noqa: E402
+
+
+class Pin:
+    def __init__(self, v):
+        self.v = v
+
+    def value(self, *a):
+        return self.v
+
+
+g = RG.RelayGuard(types.SimpleNamespace(), clk)
+g.relays = {'heater': types.SimpleNamespace(pin=Pin(1)), 'pump': types.SimpleNamespace(pin=Pin(0))}
+for i, p in enumerate((0.5, 9.0, 2.5)):
+    g.pressure = p
+    g._accumulate(100, i == 1)
+g.relays['heater'].pin.v = 0
+g.pressure = 1.0
+g._accumulate(100, False)
+w = g.take_minute()
+check('guard window sums', w[:4] == (400, 300, 100, 4) and abs(w[4] - 3.25) < 1e-9 and w[5] == 0.5 and w[6] == 9.0)
+check('guard window resets', g.take_minute()[:4] == (0, 0, 0, 0) and g.take_minute()[4] is None)
+g.bd = types.SimpleNamespace(pressure=1.0, boiler_temperature=95.0, get_target_temperature=lambda: 100.0, dev_safe=False)
+g._accumulate = lambda dt, pump_on: 1 / 0
+try:
+    g.poll()
+    g.poll()
+    check('accumulate error cannot trip guard', g.block.get('all') != 'guarderror')
+except Exception:
+    check('accumulate error cannot trip guard', False)
+WLAN.connected = False
+d.ring.take(100000)
+bd2 = types.SimpleNamespace(relay_guard=types.SimpleNamespace(take_minute=lambda: (61000, 30500, 2000, 610, 1.234, -0.05, 9.5)),
+                            boiler_temperature=99.5, get_target_temperature=lambda: 100.0)
+d._t_min = None
+d._t_hb = clk.ms
+d.step(bd2)
+clk.ms += 60000
+d._t_hb = clk.ms
+d.step(bd2)
+txt = d.ring.take(100000).decode()
+check('DIAG_MIN line', 'DIAG_MIN win_ms=61000 heat_ms=30500 pump_ms=2000 p_n=610 p_avg=1.23 p_min=-0.05 p_max=9.50 T=99.50 target=100.00' in txt)
+check('DIAG_MIN once per minute', txt.count('DIAG_MIN') == 1)
+WLAN.connected = True
+
 # ---- flush -----------------------------------------------------------------------------------------
 SOCK.sent.clear()
 d.ring.put(b'Traceback (most recent call last):\nMemoryError: memory allocation failed\n')

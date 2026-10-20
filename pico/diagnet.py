@@ -18,11 +18,16 @@ import io
 
 RING_BYTES = 8192
 PKT_BYTES = 1400            # UDP payload, under the 1472 B Ethernet limit
+MIN_MS = 60000              # DIAG_MIN: heater/pump on-time and pressure per minute (user 20.10.2026)
 HB_IDLE_MS = 60000
 HB_BREW_MS = 5000
 JOIN_RETRY_MS = 30000
 SEND_PERIOD_MS = 100
 SEND_PKTS_PER_STEP = 2
+
+
+def _f2(x):
+    return '-' if x is None else '%.2f' % x
 
 
 class Ring:
@@ -134,6 +139,7 @@ class DiagNet:
         self.brew = False
         self._t_join = None
         self._t_hb = None
+        self._t_min = None
         self._tee = None
 
     def _boot_id(self):
@@ -216,6 +222,21 @@ class DiagNet:
         self.send_max_us = 0
         self.tee_max_us = 0
 
+    def minute(self, bd):
+        """DIAG_MIN from the relay guard's window. win_ms is the real window: a busy loop that delays this
+        task makes the window longer, not the numbers wrong."""
+        g = getattr(bd, 'relay_guard', None) if bd is not None else None
+        if g is None:
+            return
+        win, heat, pump, n, avg, mn, mx = g.take_minute()
+        t = getattr(bd, 'boiler_temperature', None)
+        try:
+            target = bd.get_target_temperature()
+        except Exception:
+            target = None
+        self.line('DIAG_MIN win_ms=%d heat_ms=%d pump_ms=%d p_n=%d p_avg=%s p_min=%s p_max=%s T=%s target=%s' % (
+            win, heat, pump, n, _f2(avg), _f2(mn), _f2(mx), _f2(t), _f2(target)))
+
     # ---- sender -------------------------------------------------------------------------------------
     def _send_one(self):
         if not self.ring.size:
@@ -247,6 +268,13 @@ class DiagNet:
             if self._t_hb is None or self.utime.ticks_diff(now, self._t_hb) >= (HB_BREW_MS if self.brew else HB_IDLE_MS):
                 self._t_hb = now
                 self.heartbeat(bd)
+            if self._t_min is None:
+                self._t_min = now
+                if bd is not None and getattr(bd, 'relay_guard', None) is not None:
+                    bd.relay_guard.take_minute()     # drop the partial window from boot
+            elif self.utime.ticks_diff(now, self._t_min) >= MIN_MS:
+                self._t_min = now
+                self.minute(bd)
             if not self.wlan.isconnected():
                 if not self.brew and (self._t_join is None or
                                       self.utime.ticks_diff(now, self._t_join) >= JOIN_RETRY_MS):

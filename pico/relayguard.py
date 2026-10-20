@@ -86,6 +86,15 @@ class RelayGuard:
         self.pump_run_start = None
         self.pump_last_want = None    # last time the pump was on or asked to be
         self.trips = []           # (ms, name, reason) for the log; the latest few only
+        # Minute summary for diagnet (EXPRESSO-DIAGNET, user 20.10.2026: heater on-time per minute and the
+        # pressure): accumulated here because this Timer also runs inside the busy loops that never yield.
+        self.acc_heat_ms = 0
+        self.acc_pump_ms = 0
+        self.acc_win_ms = 0
+        self.acc_p_n = 0
+        self.acc_p_sum = 0.0
+        self.acc_p_min = None
+        self.acc_p_max = None
         self.timer = None
 
     # ----- limits -------------------------------------------------------------
@@ -174,6 +183,10 @@ class RelayGuard:
                 self.pump_last_want = now
             dt = 0 if self.last_poll is None else self.utime.ticks_diff(now, self.last_poll)
             self.last_poll = now
+            try:
+                self._accumulate(dt, pump_on)
+            except Exception:
+                pass        # diagnostics only: must never reach the guarderror trip below
             self._norise(now, dt, pump_on)
             for name, relay in self.relays.items():
                 r = self._reason(name, now)
@@ -191,6 +204,30 @@ class RelayGuard:
                 print('GUARD_TRIP all reason=guarderror %s' % e)
             except Exception:
                 pass
+
+    def _accumulate(self, dt, pump_on):
+        heater = self.relays.get('heater')
+        self.acc_win_ms += dt
+        if heater is not None and heater.pin.value():
+            self.acc_heat_ms += dt
+        if pump_on:
+            self.acc_pump_ms += dt
+        p = self.pressure
+        self.acc_p_n += 1
+        self.acc_p_sum += p
+        if self.acc_p_min is None or p < self.acc_p_min:
+            self.acc_p_min = p
+        if self.acc_p_max is None or p > self.acc_p_max:
+            self.acc_p_max = p
+
+    def take_minute(self):
+        """(win_ms, heat_ms, pump_ms, p_n, p_avg, p_min, p_max) since the last call, and a new window."""
+        out = (self.acc_win_ms, self.acc_heat_ms, self.acc_pump_ms, self.acc_p_n,
+               self.acc_p_sum / self.acc_p_n if self.acc_p_n else None, self.acc_p_min, self.acc_p_max)
+        self.acc_win_ms = self.acc_heat_ms = self.acc_pump_ms = self.acc_p_n = 0
+        self.acc_p_sum = 0.0
+        self.acc_p_min = self.acc_p_max = None
+        return out
 
     def _norise(self, now, dt, pump_on):
         heater = self.relays.get('heater')
