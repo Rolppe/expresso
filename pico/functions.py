@@ -222,7 +222,11 @@ EU_C1X_DEAD_US = 50000       # ei uutta naytetta ytimelta 1 nain kauan -> reason
 EB_C1X_KP_TAIL = 0.2         # uuton pidon 1. s:n P c1x:lla (vanha polku max(EB_KP, EU_KP_TAIL) = 0,4): paatos toteutuu
                              # jakson myohemmin, ja korotettu P varahtelee pidon alussa (malli 25b kohina, 8 siementa: ylitys
                              # 0,26 -> 0,22, vanha 0,20 +- 0,06; kaanto 0,3 -> 0,6 kaistalle 0,67 -> 0,61 s, vanha 0,60 +- 0,03).
-                             # Katkaisun ennusteen +20 ms ja virheen ennuste jakson eteenpain kokeiltiin: ylitys 0,28-0,35
+                             # Virheen ennuste jakson eteenpain kokeiltiin mallissa: ylitys 0,28-0,35
+EU_C1X_LAG_S = 0.02          # paatos toteutuu jakson myohemmin: katkaisun ennuste p5 + nousu x (jalkinousu + tama), ja
+                             # jalkinousun oppi vahentaa sen, jotta opittu coast_s ei riipu polusta. Laite 20.10.2026 (sarja
+                             # 3 + 3, katkaisussa ~21 bar/s): ilman tata c1x:n jalkinousu 1,85-1,95 vs vanha 1,42-1,72 bar,
+                             # ylitys 0,52 vs 0,16. Mallin 8 barin nousu ~11 bar/s ei nayttanyt sita (ylitys pidon alusta)
 
 
 def _cx_put(x, ev, wt, ne, utime, t, on):
@@ -364,6 +368,7 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
     clock.iq_start(t0)
     relay = [False]
     pump_out = None if c1x else RELAY_PUMP      # c1x: ydin 1 kaantaa pinnin, set_relay vain kirjaa tilan
+    dly = 0.0                     # c1x: paatoksen lisaviive (s) katkaisun ennusteessa ja jalkinousun opissa (EU_C1X_LAG_S)
 
     def set_relay(on):
         if on != relay[0]:
@@ -398,6 +403,7 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
             cq = [[True, True, False], [True, True, False]]     # kohdittain [paalla, paalla ennen kohtaa, vaihe ok]
             q_dl = utime.ticks_add(slot1, EU_GAP_US)
             c1_seen = utime.ticks_us()
+            dly = EU_C1X_LAG_S
             cx[CL.CX_ARMED] = 1
     set_relay(True)
     phase, reason = 1, 'stop'
@@ -560,7 +566,7 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                 # jarjestelma, nousu 11,5 bar/s, katkaisu vasta 1,3-1,6 barissa -> huippu 3,4-4,3 bar)
                 if phase == 1 and len(hist) == 2 * EU_AVG_N and \
                         (p5 >= target * 0.5 or (p5 >= target * 0.25 and rate >= EU_RATE_FAST)) and \
-                        p5 + rate * (coast_f if rate >= EU_RATE_FAST else coast_s) >= target - EU_CUT_MARGIN_BAR:
+                        p5 + rate * ((coast_f if rate >= EU_RATE_FAST else coast_s) + dly) >= target - EU_CUT_MARGIN_BAR:
                     phase = 2
                     cut_t, p_cut, rate_cut, peak, coast_open = t, p5, rate, p5, True
                     coast_c = coast_f if rate >= EU_RATE_FAST else coast_s
@@ -608,7 +614,7 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                 # G = rate + p5/tau taman ajon noususta, tau siita, etta pidon tarve ff = tavoite / (G tau): tau = (tavoite/ff
                 # - p5) / rate (sama kuin EU_END tau_obs). Hitaasta noususta G:ta ei saa: edellisen uuton eb_g.
                 if phase == 3 and cut_t is None and len(hist) == 2 * EU_AVG_N and \
-                        p5 + rate * coast_c >= target - EB_CUT_MARGIN_BAR:
+                        p5 + rate * (coast_c + dly) >= target - EB_CUT_MARGIN_BAR:
                     cut_t, p_cut, rate_cut, peak, coast_open = t, p5, rate, p5, True
                     ramp_base, ramp_t, integ, acc = p5, t, 0.0, 0.0
                     tau_c, g = eb_tau, eb_g
@@ -661,7 +667,7 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                             # nousun keskella (c-ajo: huippu = katkaisu, coast_s puolittui turhaan)
                             learn = rate_cut >= EU_RATE_MIN and peak > p_cut
                             if learn:
-                                obs = (peak - p_cut) / rate_cut
+                                obs = (peak - p_cut) / rate_cut - dly
                                 coast_c = max(EU_COAST_MIN, min(EU_COAST_MAX, coast_c + 0.5 * (obs - coast_c)))
                                 if stage_b: pass              # uuton jalkinousu erikseen (eb_coast_s), ei esiuuton arvoihin
                                 elif rate_cut >= EU_RATE_FAST: coast_f = coast_c
