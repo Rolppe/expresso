@@ -1679,6 +1679,16 @@ class TemperatureSensor:
             return True
         if st[C1_WANT] != 0:
             return False
+        if 0 in self.temps:
+            # Boot: temps starts as zeros, and the rest reading (c1_rest_on) began from one reading and six zeros: the
+            # average read 13.9 C and the heater came on (adf8580 flash 20.10.2026). Slots not read yet take the mean of
+            # the read ones; with none read, core 0 reads once now (~75 ms, boot only).
+            if not any(self.temps):
+                self.read_temperature()
+            good = [t for t in self.temps if t]
+            if good:
+                m = sum(good) / len(good)
+                self.temps = [t if t else m for t in self.temps]
         ring = self.c1_ring
         for k in range(7):
             ring[k] = int(self.temps[k] * 100 + 0.5)
