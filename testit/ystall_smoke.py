@@ -121,5 +121,32 @@ with contextlib.redirect_stdout(io.StringIO()):
     aio.run(ystall.ystall_run(bd, ut, SlowAio(), 1, 2))
 check('without bit 16 the radio is untouched', w2.calls == [])
 
+# bit 32: core 1 reads as in a shot (c1_on), handed back after (c1_off), also when the run raises
+class Ts:
+    def __init__(self):
+        self.calls = []
+
+    def c1_on(self):
+        self.calls.append('on'); return True
+
+    def c1_off(self):
+        self.calls.append('off')
+
+
+ts = Ts()
+bd = types.SimpleNamespace(diag=None, tbusy=None, temperature_sensor=ts)
+buf = io.StringIO()
+with contextlib.redirect_stdout(buf):
+    aio.run(ystall.ystall_run(bd, ut, SlowAio(), 1, 34))
+check('bit 32: c1_on then c1_off', ts.calls == ['on', 'off'] and ' c1=1' in buf.getvalue())
+ts2 = Ts()
+bd = types.SimpleNamespace(diag=None, tbusy=None, temperature_sensor=ts2)
+try:
+    with contextlib.redirect_stdout(io.StringIO()):
+        aio.run(ystall.ystall_run(bd, ut, Boom(), 1, 32))
+except RuntimeError:
+    pass
+check('bit 32: c1_off after an exception', ts2.calls == ['on', 'off'])
+
 print('RESULT: %d failed' % len(FAILED))
 sys.exit(1 if FAILED else 0)
