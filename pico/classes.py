@@ -1544,12 +1544,12 @@ CX_SW, CX_SR, CX_EW, CX_ER, CX_N, CX_GMAX, CX_OVF, CX_NEV, CX_LMAX, CX_LATE, CX_
 # an event, ARMED (0) starvation counted from the first event, LAST (1) time of the last event, DRY (0) 1 = record
 # only, PIN (1) the relay state the executor last set (dry: the state it would have set), LIDX/LWR (1) the latest
 # event's index and its write time minus its due time (us; > 0 = core 0 wrote it late), from cx_wt (0), TEMP (0)
-# 1 = the executor also reads the boiler temperature (c1_on(3)), TS/TC/TR (1) the longest rtd_start, rtd_convert and
-# rtd_result + average (us, K3)
+# 1 = the executor also reads the boiler temperature (c1_on(3)), TS/TC/TR (1) the longest part of bias on, conversion
+# start and result + average (us, K3; rtd_part)
 CX_LATE_US = 300              # = EU_LATE_MAX_US
 CX_STARVE_US = 25000          # a mains cycle and a margin without an event
 # Temperature between samples (vaihe 2): a MAX31865 step runs only when the next sample and the next relay event are
-# both further than this, so it delays neither (K3: each step must take < 0.5 ms)
+# both further than this, so it delays neither (K3: each step must take < 0.5 ms; one byte at 50 kHz, ~0.2 ms)
 CX_TROOM_US = 700
 
 
@@ -1817,7 +1817,7 @@ class TemperatureSensor:
         drv = self.temperature_sensor
         ring = self.c1_ring
         tab = self.c1_tab
-        tph = 0                       # next MAX31865 step: 0 rtd_start, 1 rtd_convert, 2 rtd_result
+        tph = 0                       # next MAX31865 part (rtd_part): 0-1 bias, 2-3 conversion, 4-6 result
         prev = utime.ticks_us()
         nxt = prev
         tdue = prev                   # the next step not before this
@@ -1854,20 +1854,22 @@ class TemperatureSensor:
                     x[CX_LAST] = now
                 if tt and room > CX_TROOM_US and utime.ticks_diff(now, tdue) >= 0 and \
                         utime.ticks_diff(nxt, now) > CX_TROOM_US:
-                    if tph == 0:
-                        drv.rtd_start()
-                        tst = now
-                        tdue = utime.ticks_add(now, TEMP_C1_BIAS_MS * 1000)
+                    raw = drv.rtd_part(tph)
+                    if tph < 2:
+                        if tph == 0:
+                            tst = now
+                        else:
+                            tdue = utime.ticks_add(now, TEMP_C1_BIAS_MS * 1000)
                         k = CX_TS
-                    elif tph == 1:
-                        drv.rtd_convert()
-                        tdue = utime.ticks_add(now, TEMP_C1_CONV_MS * 1000)
+                    elif tph < 4:
+                        if tph == 3:
+                            tdue = utime.ticks_add(now, TEMP_C1_CONV_MS * 1000)
                         k = CX_TC
                     else:
-                        if self._c1_put(st, ring, tab, drv.rtd_result(), utime.ticks_ms()):
+                        if tph == 6 and self._c1_put(st, ring, tab, raw, utime.ticks_ms()):
                             tdue = utime.ticks_add(tst, TEMP_C1_EVERY_MS * 1000)
                         k = CX_TR
-                    tph = tph + 1 if tph < 2 else 0
+                    tph = tph + 1 if tph < 6 else 0
                     d = utime.ticks_diff(utime.ticks_us(), now)
                     if d > x[k]:
                         x[k] = d
@@ -1885,15 +1887,17 @@ class TemperatureSensor:
             if x[CX_N] and g > x[CX_GMAX]:
                 x[CX_GMAX] = g
             x[CX_N] += 1
-        if tt and tph:
-            # A reading left half way: let its conversion end before core 0 takes the chip (c1_off waits for IDLE,
-            # which core 1 sets only after this returns); the result is dropped
-            if tph == 1:
-                drv.rtd_convert()
-                tdue = utime.ticks_add(utime.ticks_us(), TEMP_C1_CONV_MS * 1000)
+        # A reading left half way: finish its parts (CS back up, the conversion ended) before core 0 or the reading
+        # loop takes the chip (c1_off waits for IDLE, which core 1 sets only after this returns); the result is dropped
+        while tt and tph:
             while utime.ticks_diff(tdue, utime.ticks_us()) > 0:
                 pass
-            drv.rtd_result()
+            drv.rtd_part(tph)
+            if tph == 1:
+                tdue = utime.ticks_add(utime.ticks_us(), TEMP_C1_BIAS_MS * 1000)
+            elif tph == 3:
+                tdue = utime.ticks_add(utime.ticks_us(), TEMP_C1_CONV_MS * 1000)
+            tph = tph + 1 if tph < 6 else 0
         if pin is not None:
             pin.value(0)
         x[CX_PIN] = 0

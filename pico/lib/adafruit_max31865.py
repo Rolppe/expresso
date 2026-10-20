@@ -91,7 +91,15 @@ class MAX31865:
         self._write_u8(_MAX31865_CONFIG_REG, config)# Default to no bias and no auto conversion.
         self.set_bias(False)
         self.set_auto_convert(False)
-    
+        # rtd_part buffers: the config register without bias, one-shot, fault detection and fault clear bits, as left
+        # above; nothing changes it later except bias, which rtd_part sets itself
+        cfg = self._read_u8(_MAX31865_CONFIG_REG) & ~(_MAX31865_CONFIG_BIAS | 0x2C | _MAX31865_CONFIG_FAULTSTAT)
+        self._pw = bytearray([_MAX31865_CONFIG_REG | 0x80])
+        self._pb = bytearray([cfg | _MAX31865_CONFIG_BIAS | _MAX31865_CONFIG_FAULTSTAT])
+        self._pc = bytearray([cfg | _MAX31865_CONFIG_BIAS | _MAX31865_CONFIG_1SHOT])
+        self._pr = bytearray([_MAX31865_RTDMSB_REG])
+        self._pm, self._pl = bytearray(1), bytearray(1)
+
     def _read_u8(self, address):
         # Read an 8-bit unsigned value from the specified 8-bit address.
         with self._device as device:
@@ -229,6 +237,29 @@ class MAX31865:
         dev.chip_select.value(1)
         # Remove fault bit.
         return ((r[0] << 8) | r[1]) >> 1
+    # The same reading one byte at a time (EXPRESSO-C1-JAKSOT vaihe 2, K3, 20.10.2026): the SPI runs at 50 kHz, a byte
+    # takes 160 us, and rtd_start's four transfers took 2 ms between core 1's 1 ms samples. Parts 0-1 bias on and faults
+    # cleared, 2-3 one-shot conversion, 4-6 the result, which part 6 returns (the others -1). The config comes from
+    # __init__, so no read-modify-write; CS stays low between the parts of one transfer. Gaps as above: >= 10 ms after
+    # part 1, >= 65 ms after part 3.
+    def rtd_part(self, k):
+        dev = self._device
+        if k == 0 or k == 2:
+            dev.chip_select.value(0)
+            dev.spi.write(self._pw)
+        elif k == 1 or k == 3:
+            dev.spi.write(self._pb if k == 1 else self._pc)
+            dev.chip_select.value(1)
+        elif k == 4:
+            dev.chip_select.value(0)
+            dev.spi.write(self._pr)
+        elif k == 5:
+            dev.spi.readinto(self._pm)
+        else:
+            dev.spi.readinto(self._pl)
+            dev.chip_select.value(1)
+            return ((self._pm[0] << 8) | self._pl[0]) >> 1
+        return -1
     @property
     def resistance(self):
         """Read the resistance of the RTD and return its value in Ohms."""
