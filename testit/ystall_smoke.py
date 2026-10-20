@@ -184,5 +184,12 @@ check('bit 64: C1J line from the core 1 loop', len(c1j) == 1 and 'done=1' in c1j
       and 900 <= ts.c1_test[1] <= 1100, c1j)
 check('bit 64: WANT back to 0', ts.c1[0] == 0)
 
+# core 1 runs with the heap locked: no tuple building in its code (1cd1bbf: r[1], ..., r[5] = ... ended the thread)
+import inspect  # noqa: E402
+import re  # noqa: E402
+src = inspect.getsource(CL.TemperatureSensor._c1_jitter) + inspect.getsource(CL.TemperatureSensor._c1_loop)
+multi = [l.strip() for l in src.splitlines() if re.match(r'^\s*[^#=]*,[^#=]*,[^#=]*,[^#=]*=[^=]', l)]
+check('core 1 code: no assignment to more than 3 targets (tuple = allocation)', not multi, multi)
+
 print('RESULT: %d failed' % len(FAILED))
 sys.exit(1 if FAILED else 0)

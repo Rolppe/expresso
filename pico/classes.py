@@ -1717,7 +1717,13 @@ class TemperatureSensor:
             if adc is not None:
                 adc.read_u16()
             n += 1
-        r[1], r[2], r[3], r[4], r[5] = n, gmax, g15, g2, g5
+        # One store per field: a 5-target assignment builds a tuple, which raised MemoryError with the heap locked
+        # and ended the core 1 thread (c1_err=1, 1cd1bbf 20.10.2026)
+        r[1] = n
+        r[2] = gmax
+        r[3] = g15
+        r[4] = g2
+        r[5] = g5
         r[6] = 1
 
     def _c1_loop(self, st, ring, tab, drv, utime):
