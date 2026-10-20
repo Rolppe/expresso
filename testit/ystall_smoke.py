@@ -401,6 +401,21 @@ check('rest: c1_take gives the chip to core 0 (WANT 0, average handed back)', tr
 tr.c1[CL.C1_WANT] = -1
 th7.join(1)
 
+# Boot (adf8580 flash 20.10.2026: 13.92 C and heater on right after boot): c1_on with temps not read yet (zeros) does
+# not start core 1's average from zeros
+tz = real_ts(utw)
+tz.temps = [0, 0, 0, 97.0, 0, 0, 0]
+tz.c1_on()
+ring1 = list(tz.c1_ring)
+tz.c1[CL.C1_WANT] = 0
+tz2 = real_ts(utw)
+tz2.temps = [0] * 7
+tz2.temperature_sensor.temperature = 90.0
+tz2.c1_on()
+check('boot: zeros in temps take the mean of the read ones; none read -> core 0 reads once first',
+      ring1 == [9700] * 7 and list(tz2.c1_ring) == [9000] * 7, (ring1, list(tz2.c1_ring)))
+tz2.c1[CL.C1_WANT] = 0
+
 # C1-JAKSOT vaihe 3 (K4): the real _c1_exec switching a pin. CX_OK read just before every switch-on; no event for
 # CX_STARVE_US while ARMED turns the pin off and keeps it off; the executor's end and a core 1 error leave the pin at 0
 class RecPin:
