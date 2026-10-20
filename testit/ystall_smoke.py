@@ -325,7 +325,7 @@ def avg_after(n):
     return '%.2f' % (sum(r) / 7), r
 
 
-check('bit 512: readings every ~250 ms between samples', vt and 2 <= int(vt['t_n']) <= 5
+check('bit 512: readings every ~250 ms between samples, none bad', vt and 2 <= int(vt['t_n']) <= 5 and vt['bad'] == '0'
       and vt['cdeg'] == avg_after(int(vt['t_n']))[0], vt)
 check('bit 512: step durations recorded (K3)', vt and all(0 < int(vt[k]) < 50000 for k in ('ts_us', 'tc_us', 'tr_us')), vt)
 check('bit 512: samples and events go on', vx and int(vx['n']) >= 700 and int(vx['nev']) >= 60, vx)
