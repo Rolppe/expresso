@@ -1586,7 +1586,7 @@ class TemperatureSensor:
         # During a shot core 1 owns the sensor: its latest average, or the last one of core 0 until core 1 has one
         if self.c1_active():
             t = self.c1_temperature()
-            return t if t is not None else round(sum(self.temps) / len(self.temps), 2)
+            return t if t is not None else self._temps_avg()
 
         # Create value for sifting bias of the temperature
         temperature_bias = 0
@@ -1612,12 +1612,18 @@ class TemperatureSensor:
             self.temps_i = 0          
 
         # Calculate temperature average
-        temperature = round((sum(self.temps) / len(self.temps)), 2)
+        temperature = self._temps_avg()
                 
         # Bias temperature value
         temperature = temperature + temperature_bias
         
         return temperature
+
+    def _temps_avg(self):
+        """Average of the readings so far: temps starts as zeros, and the first boot reading averaged with six of them read
+        13.97 C and switched the heater on (heat? right after the c5b22a4 flash, 20.10.2026)."""
+        good = [t for t in self.temps if t]
+        return round(sum(good) / len(good), 2) if good else 0.0
 
     # ----- core 1 (EXPRESSO-TEMPSTALE-JA-OLETUS) -----
     def c1_start(self, utime):

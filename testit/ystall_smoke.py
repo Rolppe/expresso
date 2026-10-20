@@ -415,6 +415,12 @@ tz2.c1_on()
 check('boot: zeros in temps take the mean of the read ones; none read -> core 0 reads once first',
       ring1 == [9700] * 7 and list(tz2.c1_ring) == [9000] * 7, (ring1, list(tz2.c1_ring)))
 tz2.c1[CL.C1_WANT] = 0
+tz3 = real_ts(utw)
+tz3.temps, tz3.temps_i = [0] * 7, 0
+tz3.temperature_sensor.temperature = 97.0
+r3 = [tz3.read_temperature(), tz3.read_temperature()]
+check('boot: core 0 read_temperature averages only the slots read (c5b22a4 flash: 13.97 C, heater on)',
+      r3 == [97.0, 97.0], r3)
 
 # C1-JAKSOT vaihe 3 (K4): the real _c1_exec switching a pin. CX_OK read just before every switch-on; no event for
 # CX_STARVE_US while ARMED turns the pin off and keeps it off; the executor's end and a core 1 error leave the pin at 0
