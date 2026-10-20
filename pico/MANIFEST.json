@@ -46,13 +46,13 @@
   },
   {
     "name": "/diagnet.py",
-    "sha256": "84ea221f59d1f6cec3d6920471f4d44195187be87de92b6d1fd3064d4db100fe",
-    "size": 13741
+    "sha256": "1f928b393d34a82f5588e6486c4148fdc7894fc465cb5d447b13a4542965d774",
+    "size": 15783
   },
   {
     "name": "/functions.py",
-    "sha256": "7d1a00c1388d0f7d5ad6c200aa57b3c75d57ad47e5099a992d51270ff114c197",
-    "size": 189384
+    "sha256": "1f2832e353a46de5a0f8199da65202581e97f8ddecdfa472c8b8d3dac5eab09d",
+    "size": 190123
   },
   {
     "name": "/lib/adafruit_max31865.py",
@@ -81,8 +81,8 @@
   },
   {
     "name": "/scale.py",
-    "sha256": "afa8478c51ba773b0c4e063560d9f4ce67a0532aaf0086ea77bbdc439ec705ba",
-    "size": 10445
+    "sha256": "074a2ffe89aa0a34c0e0b3671b96651247c9161d35f314ed659c2aae57a13444",
+    "size": 11118
   },
   {
     "name": "/scale_cal.json",
@@ -106,12 +106,12 @@
   },
   {
     "name": "/verkkokello.py",
-    "sha256": "d299f81fda6f5ef9a6f1fa26b813f29efb7cf355034afc50da72d84bd8a177ae",
-    "size": 7895
+    "sha256": "cddada250e637274e0064be6f7ec72496ee56b92bc89eaa5bfe867ec20e60d77",
+    "size": 8468
   },
   {
     "name": "/wifilink.py",
-    "sha256": "f204a047779a98cbdda48758878a0af5fe27c4cec7004867c19e0e68e1e503c7",
-    "size": 12385
+    "sha256": "dfa086463486e249fdfa7c65be4c410cc1f0c132be173204210b3cf06121ecdb",
+    "size": 13172
   }
 ]
