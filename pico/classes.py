@@ -1534,11 +1534,12 @@ C1_WANT, C1_IDLE, C1_SEQ, C1_CDEG, C1_MS, C1_BAD, C1_GAP, C1_ERR, C1_RI, C1_RUN,
 CX_NS = 256                   # samples: 256 ms of slack for core 0
 CX_NE = 64                    # events
 CX_SW, CX_SR, CX_EW, CX_ER, CX_N, CX_GMAX, CX_OVF, CX_NEV, CX_LMAX, CX_LATE, CX_STARVE, CX_ARMED, CX_LAST, \
-    CX_DRY, CX_PIN = range(15)
+    CX_DRY, CX_PIN, CX_LIDX, CX_LWR = range(17)
 # SW (1) sample write, SR (0) sample read, EW (0) event write, ER (1) event read, N/GMAX/OVF (1) samples, gap max us,
 # ring overruns, NEV/LMAX/LATE (1) events done, lateness max us, events > CX_LATE_US late, STARVE (1) cycles without
 # an event, ARMED (0) starvation counted from the first event, LAST (1) time of the last event, DRY (0) 1 = record
-# only, PIN (1) the relay state the executor last set (dry: the state it would have set)
+# only, PIN (1) the relay state the executor last set (dry: the state it would have set), LIDX/LWR (1) the latest
+# event's index and its write time minus its due time (us; > 0 = core 0 wrote it late), from cx_wt (0)
 CX_LATE_US = 300              # = EU_LATE_MAX_US
 CX_STARVE_US = 25000          # a mains cycle and a margin without an event
 
@@ -1618,7 +1619,8 @@ class TemperatureSensor:
         # [1] n, [2] max gap us, [3] gaps > 1.5 ms, [4] > 2 ms, [5] > 5 ms, [6] done
         self.c1_test = array('i', [0] * 7)
         self.c1_adc = None
-        self.cx = array('i', [0] * 15)
+        self.cx = array('i', [0] * 17)
+        self.cx_wt = array('i', [0] * CX_NE)       # core 0's write time of each event slot
         self.cx_samp = array('i', [0] * (2 * CX_NS))
         self.cx_ev = array('i', [0] * (2 * CX_NE))
         self.cx_pin = None            # the pump's raw Pin (not GuardedRelay); dry runs leave it alone
@@ -1749,6 +1751,7 @@ class TemperatureSensor:
         x = self.cx
         sm = self.cx_samp
         ev = self.cx_ev
+        wt = self.cx_wt
         adc = self.c1_adc
         pin = None if x[CX_DRY] else self.cx_pin
         prev = utime.ticks_us()
@@ -1769,6 +1772,8 @@ class TemperatureSensor:
                         x[CX_PIN] = on
                         if d > x[CX_LMAX]:
                             x[CX_LMAX] = d
+                            x[CX_LIDX] = r
+                            x[CX_LWR] = utime.ticks_diff(wt[r % CX_NE], ev[i])
                         if d > CX_LATE_US:
                             x[CX_LATE] += 1
                         x[CX_ER] = r + 1
