@@ -1601,6 +1601,10 @@ class TemperatureSensor:
         st = array('i', [0] * 11)
         st[C1_IDLE] = st[C1_RUN] = 1
         self.c1 = st
+        # ystall bit 64 (EXPRESSO-GC-UUTTO, TILAUS-O): core 1 jitter test, WANT 2. [0] ms asked; core 1 writes
+        # [1] n, [2] max gap us, [3] gaps > 1.5 ms, [4] > 2 ms, [5] > 5 ms, [6] done
+        self.c1_test = array('i', [0] * 7)
+        self.c1_adc = None
         try:
             import _thread
             _thread.stack_size(6144)
@@ -1685,10 +1689,45 @@ class TemperatureSensor:
         st[C1_IDLE] = 1
         st[C1_RUN] = 0
 
+    def _c1_jitter(self, utime):
+        """TILAUS-O feasibility (20.10.2026): a 1 kHz integer loop on core 1 with the heap locked, reading the pressure
+        ADC like the shot loop, while core 0 collects. Records its own sample gaps; no relay is touched."""
+        r = self.c1_test
+        adc = self.c1_adc
+        prev = utime.ticks_us()
+        nxt = prev
+        end = utime.ticks_add(prev, r[0] * 1000)
+        n = gmax = g15 = g2 = g5 = 0
+        while utime.ticks_diff(end, prev) > 0:
+            nxt = utime.ticks_add(nxt, 1000)
+            while utime.ticks_diff(nxt, utime.ticks_us()) > 0:
+                pass
+            now = utime.ticks_us()
+            g = utime.ticks_diff(now, prev)
+            prev = now
+            if n:
+                if g > gmax:
+                    gmax = g
+                if g > 1500:
+                    g15 += 1
+                if g > 2000:
+                    g2 += 1
+                if g > 5000:
+                    g5 += 1
+            if adc is not None:
+                adc.read_u16()
+            n += 1
+        r[1], r[2], r[3], r[4], r[5] = n, gmax, g15, g2, g5
+        r[6] = 1
+
     def _c1_loop(self, st, ring, tab, drv, utime):
         bad = last = 0
         while st[C1_WANT] >= 0:
             st[C1_IDLE] = 0
+            if st[C1_WANT] == 2:
+                self._c1_jitter(utime)
+                st[C1_WANT] = 0
+                continue
             if st[C1_WANT] == 0:
                 st[C1_IDLE] = 1
                 bad = last = 0

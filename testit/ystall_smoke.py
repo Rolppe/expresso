@@ -148,5 +148,41 @@ except RuntimeError:
     pass
 check('bit 32: c1_off after an exception', ts2.calls == ['on', 'off'])
 
+# bit 64: core 1 jitter test is requested (WANT 2) with the ADC, and its C1J line printed when core 1 is done
+import threading  # noqa: E402
+import classes as CL  # noqa: E402
+
+
+class Ts64:
+    def __init__(self):
+        self.c1 = [0] * 11
+        self.c1[9] = 1
+        self.c1_test = [0] * 7
+        self.c1_adc = None
+
+
+ts = Ts64()
+adc = types.SimpleNamespace(read_u16=lambda: 1234)
+bd = types.SimpleNamespace(diag=None, tbusy=None, temperature_sensor=ts,
+                           pressure_sensor=types.SimpleNamespace(pressure_sensor=adc))
+
+
+def core1():
+    while ts.c1[0] != 2:
+        time.sleep(0.001)
+    CL.TemperatureSensor._c1_jitter(ts, ut)
+    ts.c1[0] = 0
+
+
+th = threading.Thread(target=core1, daemon=True)
+th.start()
+buf = io.StringIO()
+with contextlib.redirect_stdout(buf):
+    aio.run(ystall.ystall_run(bd, ut, SlowAio(), 1, 66))
+c1j = [l for l in buf.getvalue().splitlines() if l.startswith('C1J')]
+check('bit 64: C1J line from the core 1 loop', len(c1j) == 1 and 'done=1' in c1j[0] and ' adc=1' in c1j[0]
+      and 900 <= ts.c1_test[1] <= 1100, c1j)
+check('bit 64: WANT back to 0', ts.c1[0] == 0)
+
 print('RESULT: %d failed' % len(FAILED))
 sys.exit(1 if FAILED else 0)
