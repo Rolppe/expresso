@@ -58,6 +58,13 @@ SENSORIT = {
     "shot_pressure": ("Espresso uuton paine", "bar", "mdi:gauge"),
     "shot_temp": ("Espresso uuton lämpötila", "°C", "mdi:thermometer"),
     "shot_flow": ("Espresso uuton virtaus", "g/s", "mdi:water"),
+    # DIAG_MIN (käyttäjä 20.10.2026): minuuttikooste, HA:n historiaan ja pitkäaikaistilastoihin
+    "heater_on_s": ("Espresso lämmitin päällä / min", "s", "mdi:radiator"),
+    "pump_on_s": ("Espresso pumppu päällä / min", "s", "mdi:pump"),
+    "pressure_avg": ("Espresso paine keskiarvo / min", "bar", "mdi:gauge"),
+    "pressure_min": ("Espresso paine minimi / min", "bar", "mdi:gauge-low"),
+    "pressure_max": ("Espresso paine maksimi / min", "bar", "mdi:gauge-full"),
+    "boiler_temp": ("Espresso kattilan lämpötila", "°C", "mdi:thermometer"),
 }
 
 
@@ -277,6 +284,22 @@ class Keraaja:
                 if avain in self.hb:
                     ha.sensori(nimi, self.hb[avain])
             self._status()
+        elif rivi.startswith("DIAG_MIN"):
+            kv = avaimet(rivi)
+            win = luku(kv.get("win_ms"))
+            mitta = {"state_class": "measurement", "aika": aika, "boot": boot}
+            if win:
+                # Sekuntia minuutissa: ikkuna venyy, jos Picon tehtävä myöhästyy, joten skaalataan 60 s:iin
+                for nimi, avain in (("heater_on_s", "heat_ms"), ("pump_on_s", "pump_ms")):
+                    ms = luku(kv.get(avain))
+                    if ms is not None:
+                        ha.sensori(nimi, round(ms * 60.0 / win, 1),
+                                   dict(mitta, ms=int(ms), win_ms=int(win), osuus_pct=round(100.0 * ms / win, 1)))
+            for nimi, avain in (("pressure_avg", "p_avg"), ("pressure_min", "p_min"), ("pressure_max", "p_max"),
+                                ("boiler_temp", "T")):
+                arvo = luku(kv.get(avain))
+                if arvo is not None:
+                    ha.sensori(nimi, arvo, dict(mitta, p_n=kv.get("p_n"), target=kv.get("target")))
         elif rivi.startswith("DIAG_S "):
             kv = avaimet(rivi)
             for nimi, avain, jakaja in (("shot_temp", "T", 10), ("shot_pressure", "p", 100), ("shot_flow", "f", 100)):

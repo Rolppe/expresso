@@ -337,6 +337,24 @@ def main():
         ins.laheta(B, 55, 'JATKUU_VIRHEEN_JALKEEN\n')
         check('K11 keräin jatkaa virheen jälkeen', odota(lambda: 'JATKUU_VIRHEEN_JALKEEN' in ins.tekstit()))
         check('K11 keräin yhä hengissä', ins.proc.poll() is None)
+
+        # K15 DIAG_MIN: lämmittimen ja pumpun päälläolo sekunteina minuutissa (venynyt ikkuna skaalataan 60 s:iin),
+        # paineen keskiarvo/minimi/maksimi ja kattilan lämpö, state_class measurement (käyttäjä 20.10.2026)
+        time.sleep(1.6)
+        ins.laheta(B, 56, 'DIAG_MIN win_ms=90000 heat_ms=45000 pump_ms=3000 p_n=900 p_avg=1.25 p_min=-0.10 '
+                          'p_max=9.40 T=99.80 target=100.00\n')
+        hs = odota(lambda: ha.viimeinen('heater_on_s'))
+        check('K15 heater_on_s skaalattu 60 s:iin', bool(hs) and float(hs['state']) == 30.0
+              and hs['attributes']['ms'] == 45000 and hs['attributes']['osuus_pct'] == 50.0
+              and hs['attributes']['state_class'] == 'measurement' and hs['attributes']['unit_of_measurement'] == 's')
+        check('K15 pump_on_s', float((odota(lambda: ha.viimeinen('pump_on_s')) or {}).get('state', -1)) == 2.0)
+        check('K15 paine avg/min/max ja lämpö', all(
+            float((odota(lambda n=n: ha.viimeinen(n)) or {}).get('state', -99)) == v
+            for n, v in (('pressure_avg', 1.25), ('pressure_min', -0.1), ('pressure_max', 9.4), ('boiler_temp', 99.8))))
+        check('K15 rivi lokitiedostossa', any(t.startswith('DIAG_MIN win_ms=90000') for t in ins.tekstit()))
+        ins.laheta(B, 57, 'DIAG_MIN win_ms=60000 heat_ms=0 pump_ms=0 p_n=0 p_avg=- p_min=- p_max=- T=- target=-\n')
+        check('K15 tyhjä ikkuna ei kaada', odota(lambda: ins.proc.poll() is None and
+                                                any(t.startswith('DIAG_MIN win_ms=60000') for t in ins.tekstit())))
     finally:
         ins.sulje()
 
