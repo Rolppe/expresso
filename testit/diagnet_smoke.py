@@ -289,16 +289,16 @@ d.step(bd)
 hb = b''.join(p for p, a in SOCK.sent)
 check('hb fields', b'DIAG_HB up_s=3600 free=123456 alloc=98765' in hb and b'rssi=-61' in hb and b'pend=1' in hb
       and b'brew=0' in hb)
-check('hb without collect/lmax -> -1', b'lmax_us=-1 l100=-1 gc_us=-1 live_kb=-1' in hb)
-# idle HB: collection time, live heap and the 30 ms task lateness, reset after reading (EXPRESSO-GC-UUTTO)
-gc_mod.collect = lambda: None
+check('hb without lmax -> -1, no idle collection fields', b'lmax_us=-1 l100=-1' in hb and b'gc_us' not in hb)
+# idle HB: the 30 ms task lateness, reset after reading; no collection in the HB (cacb2a1: up to 771 ms at rest)
+gc_mod.collect = lambda: 1 / 0
 bd2 = types.SimpleNamespace(lmax=[123456, 2])
 n0 = len(SOCK.sent)
 d._t_hb = clk.ms
 clk.ms += 60000
 d.step(bd2)
 hb2 = b''.join(p for p, a in SOCK.sent[n0:])
-check('hb lmax, gc_us, live_kb', b'lmax_us=123456 l100=2 gc_us=' in hb2 and b'live_kb=96' in hb2 and bd2.lmax == [0, 0])
+check('hb lmax and l100, no collect', b'lmax_us=123456 l100=2' in hb2 and b'gc_us' not in hb2 and bd2.lmax == [0, 0])
 del gc_mod.collect
 d.shot_start()
 SOCK.sent.clear()

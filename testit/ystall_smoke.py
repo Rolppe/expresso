@@ -98,5 +98,28 @@ with contextlib.redirect_stdout(io.StringIO()):
     aio.run(ystall.ystall_run(bd, ut, SeeAio(g3), 1, 3))
 check('without bit 8 the guard is not paused', g3.seen and not any(g3.seen))
 
+# bit 16: radio off for the run, back on and a join afterwards
+class Wlan:
+    def __init__(self):
+        self.calls = []
+
+    def active(self, v):
+        self.calls.append(v)
+
+
+w = Wlan()
+joins = []
+dg = types.SimpleNamespace(quiet=False, wlan=w, _join=lambda now: joins.append(now))
+bd = types.SimpleNamespace(diag=dg, tbusy=['-', 0])
+buf = io.StringIO()
+with contextlib.redirect_stdout(buf):
+    aio.run(ystall.ystall_run(bd, ut, SlowAio(), 1, 16))
+check('bit 16: radio off then on, join', w.calls == [False, True] and len(joins) == 1 and 'radio_off=1' in buf.getvalue())
+w2 = Wlan()
+bd = types.SimpleNamespace(diag=types.SimpleNamespace(quiet=False, wlan=w2, _join=lambda now: None), tbusy=None)
+with contextlib.redirect_stdout(io.StringIO()):
+    aio.run(ystall.ystall_run(bd, ut, SlowAio(), 1, 2))
+check('without bit 16 the radio is untouched', w2.calls == [])
+
 print('RESULT: %d failed' % len(FAILED))
 sys.exit(1 if FAILED else 0)
