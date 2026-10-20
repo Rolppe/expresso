@@ -246,12 +246,20 @@ class DiagNet:
         self.line('DIAG_S t=%d T=%d p=%d f=%d w=%d r=%d' % (row[0], row[1], row[2], row[3], row[6], row[7]))
 
     def heartbeat(self, bd=None):
-        free = alloc = -1
+        free = alloc = gc_us = live = -1
         if not self.in_shot():
             # mem_free walks the heap (7.3 ms, functions.py) and the RSSI query waits on the radio: idle only
             try:
                 free = self.gc.mem_free()
                 alloc = self.gc.mem_alloc()
+            except Exception:
+                pass
+            # Collection time and live heap by uptime (EXPRESSO-GC-UUTTO 20.10.2026): one ~20 ms idle collection a minute
+            try:
+                g0 = self.utime.ticks_us()
+                self.gc.collect()
+                gc_us = self.utime.ticks_diff(self.utime.ticks_us(), g0)
+                live = self.gc.mem_alloc() // 1024
             except Exception:
                 pass
             try:
@@ -264,11 +272,15 @@ class DiagNet:
             wtx, wtxerr, wsmax = wl.tx, wl.txerr, wl.send_max_us
             wl.send_max_us = 0
         pend = 1 if bd is not None and getattr(bd, 'pending_brew_log', None) is not None else 0
+        lm = getattr(bd, 'lmax', None) if bd is not None else None
+        lmax, l100 = (lm[0], lm[1]) if lm is not None else (-1, -1)
+        if lm is not None:
+            lm[0] = lm[1] = 0
         self.line('DIAG_HB up_s=%d free=%d alloc=%d drop=%d txp=%d txerr=%d smax_us=%d tmax_us=%d rssi=%d '
-                  'brew=%d pend=%d err=%d wtx=%d wtxerr=%d wsmax_us=%d' % (
+                  'brew=%d pend=%d err=%d wtx=%d wtxerr=%d wsmax_us=%d lmax_us=%d l100=%d gc_us=%d live_kb=%d' % (
                       self.utime.time() - self.t_boot_s, free, alloc, self.ring.drop, self.txp, self.txerr,
                       self.send_max_us, self.tee_max_us, self.rssi, 1 if self.brew else 0, pend, self.errs,
-                      wtx, wtxerr, wsmax))
+                      wtx, wtxerr, wsmax, lmax, l100, gc_us, live))
         self.send_max_us = 0
         self.tee_max_us = 0
 
