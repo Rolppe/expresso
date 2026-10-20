@@ -389,8 +389,10 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
             cx_ok[0] = 1
             if guard is not None: guard.relays['pump'].c1_ok = cx_ok    # = RELAY_PUMP (GuardedRelay)
             # Kuten vanha polku: pumppu heti paalle ja vaihe 1 paalla; kohdat slot ja slot1 jonoon (40 ms)
+            # Paalle heti kirjoitushetkella: t0:aan kirjoitettuna se myohastyi 1,8 ms (laite c1x-20261020-hold2, lidx 0)
+            _cx_put(cx, cx_ev, cx_wt, cx_ne, utime, utime.ticks_us(), 1)
             slot1 = _c1x_next(utime, clock, slot)
-            for te in (t0, slot, slot1):
+            for te in (slot, slot1):
                 _cx_put(cx, cx_ev, cx_wt, cx_ne, utime, te, 1)
             cq = [[True, True, False], [True, True, False]]     # kohdittain [paalla, paalla ennen kohtaa, vaihe ok]
             q_dl = utime.ticks_add(slot1, EU_GAP_US)
