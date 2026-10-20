@@ -386,22 +386,31 @@ async def local_program(brew_data):
 
 async def serial_commands(brew_data):
     import sys
+    from commands import SerialLine
     poller = select.poll()
     poller.register(sys.stdin, select.POLLIN)
-    buf = ''
+    rd = getattr(sys.stdin, 'buffer', sys.stdin)    # bytes: text mode raised UnicodeError on a stray byte
+    sl = SerialLine()
     while True:
         t0 = utime.ticks_us()
-        while poller.poll(0):
-            ch = sys.stdin.read(1)
-            if ch == '\r' or ch == '\n':
-                line = buf.strip()
-                buf = ''
-                if line.startswith('CMD '):
+        # An exception in a gathered task ends all of them (relays off, watchdog reset): none may leave here
+        try:
+            while poller.poll(0):
+                b = rd.read(1)
+                if not b:
+                    break
+                v = b[0]
+                line = sl.feed(ord(v) if isinstance(v, str) else v)
+                if line is not None and line.startswith('CMD '):
                     command = line[4:].strip()
                     handle_command(brew_data, command)
                     print('%s %s' % ('CMD_OK' if brew_data.command_known else 'CMD_UNKNOWN', command))
-            elif len(buf) < 80:
-                buf += ch
+        except Exception as e:
+            sl = SerialLine()
+            try:
+                print('SER_ERR %r' % (e,))
+            except Exception:
+                pass
         task_busy('ser', t0)
         await asyncio.sleep_ms(50)
 
