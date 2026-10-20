@@ -187,9 +187,58 @@ check('bit 64: WANT back to 0', ts.c1[0] == 0)
 # core 1 runs with the heap locked: no tuple building in its code (1cd1bbf: r[1], ..., r[5] = ... ended the thread)
 import inspect  # noqa: E402
 import re  # noqa: E402
-src = inspect.getsource(CL.TemperatureSensor._c1_jitter) + inspect.getsource(CL.TemperatureSensor._c1_loop)
+src = inspect.getsource(CL.TemperatureSensor._c1_jitter) + inspect.getsource(CL.TemperatureSensor._c1_loop) + \
+    inspect.getsource(CL.TemperatureSensor._c1_exec)
+code = '\n'.join(l.split('#')[0] for l in src.splitlines() if not l.strip().startswith(('"""', 'locked', 'an event')))
+check('core 1 code: no true division (float = allocation)', not re.search(r'[^/]/[^/]', code.replace('//', '')),
+      re.findall(r'.{20}[^/]/[^/].{10}', code.replace('//', ''))[:3])
 multi = [l.strip() for l in src.splitlines() if re.match(r'^\s*[^#=]*,[^#=]*,[^#=]*,[^#=]*=[^=]', l)]
 check('core 1 code: no assignment to more than 3 targets (tuple = allocation)', not multi, multi)
+
+# bit 128: dry executor on a host thread (core 1) with the real _c1_exec; core 0 (ystall) feeds events and reads samples
+from array import array  # noqa: E402
+
+
+class TsX:
+    def __init__(self):
+        self.c1 = [0] * 11
+        self.c1[1] = self.c1[9] = 1
+        self.cx = array('i', [0] * 15)
+        self.cx_samp = array('i', [0] * (2 * CL.CX_NS))
+        self.cx_ev = array('i', [0] * (2 * CL.CX_NE))
+        self.cx_pin = types.SimpleNamespace(value=lambda v: (_ for _ in ()).throw(AssertionError('dry run set the pin')))
+        self.c1_adc = None
+
+
+P30 = 1 << 30
+utw = types.SimpleNamespace(ticks_us=lambda: int(time.perf_counter() * 1e6) % P30,
+                            ticks_diff=lambda a, b: ((a - b + P30 // 2) % P30) - P30 // 2,
+                            ticks_add=lambda a, b: (a + b) % P30, ticks_ms=lambda: int(time.perf_counter() * 1e3))
+tx = TsX()
+bd = types.SimpleNamespace(diag=None, tbusy=None, temperature_sensor=tx,
+                           pressure_sensor=types.SimpleNamespace(pressure_sensor=types.SimpleNamespace(read_u16=lambda: 20000)))
+
+
+def core1x():
+    while tx.c1[0] != 3:
+        time.sleep(0.0005)
+    tx.c1[1] = 0
+    CL.TemperatureSensor._c1_exec(tx, tx.c1, utw)
+    tx.c1[1] = 1
+
+
+thx = threading.Thread(target=core1x, daemon=True)
+thx.start()
+buf = io.StringIO()
+with contextlib.redirect_stdout(buf):
+    aio.run(ystall.ystall_run(bd, utw, SlowAio(), 1, 128))
+c1x = [l for l in buf.getvalue().splitlines() if l.startswith('C1X')]
+vals = dict(kv.split('=') for kv in c1x[0].split()[1:]) if c1x else {}
+check('bit 128: C1X line', len(c1x) == 1, buf.getvalue()[-300:])
+check('bit 128: ~1000 samples, all read as bar', vals and 800 <= int(vals['n']) <= 1100 and int(vals['bar_n']) >= int(vals['n']) - 300, vals)
+check('bit 128: events carried out in order, few pending', vals and 60 <= int(vals['nev']) <= int(vals['written'])
+      and int(vals['written']) - int(vals['nev']) <= 4, vals)
+check('bit 128: WANT back to 0, dry pin state recorded', tx.c1[0] == 0 and tx.cx[CL.CX_DRY] == 1)
 
 print('RESULT: %d failed' % len(FAILED))
 sys.exit(1 if FAILED else 0)
