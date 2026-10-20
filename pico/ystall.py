@@ -12,6 +12,8 @@
 #       ytimen 1 silmukka kay (main.py, 5.10.2026), joten pysaytys ja uudelleenkaynnistys ei ole turvallinen.
 #  16 = Wi-Fi-radio pois ajon ajan (wlan.active(False), kayttaja 20.10.2026): erottaa cyw43/lwIP:n osuuden levon
 #       100 ms:n porraskeruista. Sarjalinkki (Zero) ei kayta radiota; DIAGNET liittyy uudelleen itse (_join).
+#  32 = ydin 1 lukee lampotilaa kuten uutossa (TemperatureSensor.c1_on/c1_off, sama kuin run_shot): levossa ydin 1
+#       nukkuu 2 ms:n silmukassa, uutossa se lukee, ja uutossa keruu on ~19 ms, levossa 80-600 ms (20.10.2026)
 # Rivit: YSTALL (vuoro > YS_LOG_US), YS_GC (keruu > YS_LOG_US), YSTALL_END (yhteenveto). Releisiin ei kosketa.
 
 import gc
@@ -39,6 +41,10 @@ async def ystall_run(brew_data, utime, asyncio, seconds, mode):
     if mode & 16 and wlan is not None:
         wlan.active(False)
         radio_off = True
+    tsens = getattr(brew_data, 'temperature_sensor', None)
+    c1_run = False
+    if mode & 32 and tsens is not None:
+        c1_run = bool(tsens.c1_on())
     t0 = utime.ticks_us()
     end = utime.ticks_add(t0, int(seconds * 1000000))
     gc_t = t0
@@ -76,6 +82,8 @@ async def ystall_run(brew_data, utime, asyncio, seconds, mode):
             while utime.ticks_diff(nxt, utime.ticks_us()) > 0:
                 pass
     finally:
+        if c1_run:
+            tsens.c1_off()
         if guard_off:
             guard.paused = False
         if radio_off:
@@ -87,5 +95,6 @@ async def ystall_run(brew_data, utime, asyncio, seconds, mode):
         if diag is not None:
             diag.quiet = quiet0
         diagnet.LEGACY_SEND = legacy0
-    print('YSTALL_END s=%d mode=%d n=%d y10=%d y50=%d y_max_us=%d gc_n=%d gc_max_us=%d free=%d guard_off=%d radio_off=%d' % (
-        seconds, mode, n, y10, y50, y_max, gc_n, gc_max, gc.mem_free(), 1 if guard_off else 0, 1 if radio_off else 0))
+    print('YSTALL_END s=%d mode=%d n=%d y10=%d y50=%d y_max_us=%d gc_n=%d gc_max_us=%d free=%d guard_off=%d radio_off=%d c1=%d' % (
+        seconds, mode, n, y10, y50, y_max, gc_n, gc_max, gc.mem_free(), 1 if guard_off else 0, 1 if radio_off else 0,
+        1 if c1_run else 0))
