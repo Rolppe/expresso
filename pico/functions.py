@@ -205,6 +205,69 @@ EU_IQ_CLOSE_US = 12000       # kellon ikkunan sulku (iq_close + VKELLO-rivi 10-1
 EU_PRINT_GAP_MS = 20         # loppurivien vali: USB-CDC:n lahetysjono on 256 tavua ja ylikirjoittuu ilman DTR:aa (EU_END 278
                              # merkkia katkesi, laite ah-am), joten rivit <= 255 ja jono tyhjenee valissa
 
+# Ytimen 1 jaksot (c1x:1, EXPRESSO-C1-JAKSOT vaihe 3, paketit/C1-JAKSOT.md; VAATIMUS: TILAUS-O, TILAUS-L, TILAUS-I):
+# ydin 1 nayttee 1 kHz renkaaseen ja kaantaa pumppureleen jonon tapahtumista niiden ajassa (classes._c1_exec). Ydin 0
+# ajaa saman silmukan, mutta (1) jakso k kasitellaan, kun renkaassa on nayte t >= kohta (t = nimellinen kohta), ja
+# naytteet tulevat renkaasta omilla ajoillaan; (2) kohdan k paatos kirjoitetaan kohtaan k+2 (K1: +1 jakso hyvaksytty),
+# ja 10 ms tauko on kaksi tapahtumaa. Jokaisella kohdalla on tapahtuma, joten nalka (CX_STARVE_US) on virhe, ei tauko.
+# Etumatka = seuraavan kirjoittamattoman tapahtuman aikaisin hetki (kohdan k+2 tauon paluu) - nyt.
+# Vain esiuutto (brew=False); vanha polku on oletus.
+EU_C1X_START_MS = 150        # ydin 1 nayttaa ensimmaisen naytteen (CX_N > 0) tassa ajassa, muuten EU_C1X fail ja vanha polku
+EU_C1X_GC_LEAD_US = 35000    # hallittu keruu (~21 ms) vain, kun etumatka on vahintaan tama
+EU_C1X_YIELD_LEAD_US = 30000 # asyncio-vuoro vain, kun rengas on luettu ja etumatka vahintaan tama (pisin varaus 28 ms, laite an)
+EU_C1X_FILL_US = 22000       # tapahtumien vali enintaan tama: kellon korjaus voi venyttaa kohtien valin ~35 ms:iin
+                             # (EU_MIN_SLOT_US + T), joten valiin tayte samalla tilalla ennen ytimen 1 nalkaa (25 ms).
+                             # Yli jakson (20 ms): nimellinen vali 19,9-20,1 ms ei saa taytetta
+EU_C1X_DEAD_US = 50000       # ei uutta naytetta ytimelta 1 nain kauan -> reason=c1dead
+
+
+def _cx_put(x, ev, wt, ne, utime, t, on):
+    """Tapahtuma (t_us, 0/1) ytimen 1 jonoon. Indeksit classes.CX_*: 2 EW, 3 ER. False, jos jono on taynna."""
+    w = x[2]
+    if w - x[3] >= ne:
+        return False
+    i = (w % ne) * 2
+    ev[i] = t
+    ev[i + 1] = on
+    wt[w % ne] = utime.ticks_us()
+    x[2] = w + 1
+    return True
+
+
+def _c1x_next(utime, clock, s):
+    """Kohtaa s seuraava paatoskohta kellon seuraavasta reunasta, kuten vanhan polun slot, mutta nimellisesta kohdasta."""
+    n = utime.ticks_add(clock.edge(utime.ticks_add(s, round(clock.T) - EU_OFF_US)), EU_OFF_US)
+    while utime.ticks_diff(n, s) < EU_MIN_SLOT_US:
+        n = utime.ticks_add(n, round(clock.T))
+    return n
+
+
+async def _c1x_start(brew_data, utime, asyncio, relay, sensor):
+    """Ytimen 1 toteuttaja kayntiin (c1_on(3), lampotila naytteiden valeissa). Palauttaa TemperatureSensorin tai None
+    (EU_C1X fail -rivi, vanha polku)."""
+    import classes as CL
+    ts = getattr(brew_data, 'temperature_sensor', None)
+    x, st = getattr(ts, 'cx', None), getattr(ts, 'c1', None)
+    if x is None or st is None or st[CL.C1_RUN] != 1:
+        print('EU_C1X fail reason=noc1')
+        return None
+    for k in range(len(x)):
+        x[k] = 0
+    ts.cx_ok[0] = 0
+    ts.cx_pin = getattr(relay, 'pin', relay)     # GuardedRelayn oma pinni (turva_toimilaite_smoke A1/A2)
+    ts.c1_adc = sensor
+    if not ts.c1_on(3):
+        print('EU_C1X fail reason=want want=%d' % st[CL.C1_WANT])
+        return None
+    t0 = utime.ticks_ms()
+    while x[CL.CX_N] == 0:
+        if utime.ticks_diff(utime.ticks_ms(), t0) > EU_C1X_START_MS:
+            ts.c1_off()
+            print('EU_C1X fail reason=start')
+            return None
+        await asyncio.sleep_ms(1)
+    return ts
+
 # ============================================================================
 #  UUTTO VAIHESEURANNALLA (bim:1) - TILAUS-K vaiheet 3-4 (EXPRESSO-UUTTO-8BAR, 27.9.2026)
 # ============================================================================
@@ -281,25 +344,59 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
         await asyncio.sleep_ms(20)
 
     brew_data.set_mode('pre-infusion pressure build-up')
+    # Ytimen 1 jaksot (c1x:1, ks. EU_C1X_*): vain esiuutto. Rengas, jono ja CX_OK sidotaan paikallisiin nimiin
+    c1t = None
+    if getattr(brew_data, 'eu_c1x', 0) == 1:
+        if brew:
+            print('EU_C1X off reason=brew')
+        else:
+            c1t = await _c1x_start(brew_data, utime, asyncio, RELAY_PUMP, sensor)
+    c1x = c1t is not None
+    guard = getattr(RELAY_PUMP, 'guard', None)
     gc.collect()                  # pumppu pois: tyhja keko alkuun
     free0 = gc.mem_free()
     gc_t = utime.ticks_us()
-    print('EU_START target=%.2f hold_s=%.1f coast_s=%.3f coast_f=%.3f ff=%.2f off_us=%d vv=%d fr0=%d' % (
-        target, hold_us / 1e6, coast_s, coast_f, ff, EU_OFF_US, vv, free0 // 1024))
+    print('EU_START target=%.2f hold_s=%.1f coast_s=%.3f coast_f=%.3f ff=%.2f off_us=%d vv=%d fr0=%d c1x=%d' % (
+        target, hold_us / 1e6, coast_s, coast_f, ff, EU_OFF_US, vv, free0 // 1024, 1 if c1x else 0))
     t0 = utime.ticks_us()
     clock = Verkkokello(t0)
     clock.iq_start(t0)
     relay = [False]
+    pump_out = None if c1x else RELAY_PUMP      # c1x: ydin 1 kaantaa pinnin, set_relay vain kirjaa tilan
 
     def set_relay(on):
         if on != relay[0]:
             relay[0] = on
-            RELAY_PUMP.value(1 if on else 0)
+            if pump_out is not None: pump_out.value(1 if on else 0)
             if on: pump_ratio_calculator.set_pump_on()
             else: pump_ratio_calculator.set_pump_off()
 
-    set_relay(True)
     slot = utime.ticks_add(t0, EU_OFF_US)
+    cx = cx_ok = None
+    smp, ts_, slot1, q_dl, cq, lag_max, cyc_min, late_c1, fill_n = False, 0, 0, 0, [], 0, 9999, 0, 0
+    if c1x:
+        import classes as CL
+        cx, cx_ok, cx_ev, cx_wt, cx_sm = c1t.cx, c1t.cx_ok, c1t.cx_ev, c1t.cx_wt, c1t.cx_samp
+        cx_ne, cx_ns = CL.CX_NE, CL.CX_NS
+        i_sw, i_sr, i_late, i_starve = CL.CX_SW, CL.CX_SR, CL.CX_LATE, CL.CX_STARVE
+        # K4: CX_OK vain, jos vahti sallii pumpun (allow kaynnistaa myos 180 s:n ajorajan)
+        if guard is not None and ('all' in guard.block or not guard.allow('pump')):
+            c1t.c1_off()
+            print('EU_C1X fail reason=guard')
+            c1x, pump_out = False, RELAY_PUMP
+        else:
+            cx[i_sr] = cx[i_sw]                   # vakautuksen aikaiset naytteet pois
+            cx_ok[0] = 1
+            if guard is not None: guard.relays['pump'].c1_ok = cx_ok    # = RELAY_PUMP (GuardedRelay)
+            # Kuten vanha polku: pumppu heti paalle ja vaihe 1 paalla; kohdat slot ja slot1 jonoon (40 ms)
+            slot1 = _c1x_next(utime, clock, slot)
+            for te in (t0, slot, slot1):
+                _cx_put(cx, cx_ev, cx_wt, cx_ne, utime, te, 1)
+            cq = [[True, True, False], [True, True, False]]     # kohdittain [paalla, paalla ennen kohtaa, vaihe ok]
+            q_dl = utime.ticks_add(slot1, EU_GAP_US)
+            c1_seen = utime.ticks_us()
+            cx[CL.CX_ARMED] = 1
+    set_relay(True)
     phase, reason = 1, 'stop'
     acc, d, integ, pump_next, pend_on = 0.0, 1.0, 0.0, True, None
     cyc_s, cyc_n, hist, next_s = 0.0, 0, [], t0
@@ -327,34 +424,64 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
     try:
         while True:
             now = utime.ticks_us()
-            if pend_on is not None and utime.ticks_diff(pend_on, now) < PCAP_RATE_US:
-                while utime.ticks_diff(pend_on, utime.ticks_us()) > 0: pass
-                set_relay(True)
-                pend_on = None
-                now = utime.ticks_us()
-            if utime.ticks_diff(slot, now) < PCAP_RATE_US:
-                while utime.ticks_diff(slot, utime.ticks_us()) > 0: pass
-                t = utime.ticks_us()
-                lateness = utime.ticks_diff(t, slot)
-                pend_on = None
-                # Rele heti: paatos tehtiin edellisessa kohdassa. Kaikki laskenta (myos sd_us:n 3x3-
-                # matriisit) vasta taman jalkeen, jottei se viivasta tauon alkua vahdin ohi.
-                cur, was_on = pump_next, relay[0]
-                skip_late = not cur and was_on and lateness > EU_LATE_MAX_US
-                if cur: set_relay(True)
-                elif not skip_late: set_relay(False)
-                if lateness > late_max: late_max = lateness
-                if lateness > EU_STALL_US:
-                    stall_n += 1
-                    out.append('EU_STALL t_ms=%d sec=l us=%d rel=%d' % (
-                        utime.ticks_diff(t, t0) // 1000, lateness, 1 if was_on else 0))
-                if lateness > clock.T / 2:
-                    # Pysahdys (toinen tehtava) ohitti kokonaisia jaksoja: rele pysyi ennallaan
-                    extra = int((lateness + clock.T / 2) // clock.T)
-                    miss += extra
-                    if was_on: strokes += extra
-                    else: removed += extra
+            if c1x:
+                # Seuraava rengasnayte: kohta kasitellaan ensimmaisen kohdan jalkeisen naytteen kohdalla
+                due = False
+                smp = cx[i_sr] != cx[i_sw]
+                if smp:
+                    ts_ = cx_sm[(cx[i_sr] % cx_ns) * 2]
+                    due = utime.ticks_diff(ts_, slot) >= 0
+                    c1_seen = now
+                elif utime.ticks_diff(now, c1_seen) > EU_C1X_DEAD_US:
+                    reason = 'c1dead'; break
+            else:
+                if pend_on is not None and utime.ticks_diff(pend_on, now) < PCAP_RATE_US:
+                    while utime.ticks_diff(pend_on, utime.ticks_us()) > 0: pass
+                    set_relay(True)
+                    pend_on = None
+                    now = utime.ticks_us()
+                due = utime.ticks_diff(slot, now) < PCAP_RATE_US
+            if due:
+                if c1x:
+                    t = slot
+                    lag = utime.ticks_diff(now, slot)
+                    if lag > lag_max: lag_max = lag
+                    if cx[i_starve]:
+                        reason, miss = 'starve', cx[i_starve]
+                        out.append('EU_STARVE t_ms=%d starve=%d lag_us=%d' % (utime.ticks_diff(t, t0) // 1000, miss, lag))
+                        break
+                    if cx_ok[0] == 0:
+                        reason = 'guard'; break
+                    # Kohdassa k toteutunut: jonon FIFO (ydin 1 kaantaa ajallaan; myohassa > CX_LATE_US = late)
+                    qe = cq.pop(0)
+                    cur, was_on, skip_late = qe[0], qe[1], False
+                    if cx[i_late] != late_c1:
+                        late += cx[i_late] - late_c1; late_c1 = cx[i_late]
+                    set_relay(cur)
+                else:
+                    while utime.ticks_diff(slot, utime.ticks_us()) > 0: pass
+                    t = utime.ticks_us()
+                    lateness = utime.ticks_diff(t, slot)
+                    pend_on = None
+                    # Rele heti: paatos tehtiin edellisessa kohdassa. Kaikki laskenta (myos sd_us:n 3x3-
+                    # matriisit) vasta taman jalkeen, jottei se viivasta tauon alkua vahdin ohi.
+                    cur, was_on = pump_next, relay[0]
+                    skip_late = not cur and was_on and lateness > EU_LATE_MAX_US
+                    if cur: set_relay(True)
+                    elif not skip_late: set_relay(False)
+                    if lateness > late_max: late_max = lateness
+                    if lateness > EU_STALL_US:
+                        stall_n += 1
+                        out.append('EU_STALL t_ms=%d sec=l us=%d rel=%d' % (
+                            utime.ticks_diff(t, t0) // 1000, lateness, 1 if was_on else 0))
+                    if lateness > clock.T / 2:
+                        # Pysahdys (toinen tehtava) ohitti kokonaisia jaksoja: rele pysyi ennallaan
+                        extra = int((lateness + clock.T / 2) // clock.T)
+                        miss += extra
+                        if was_on: strokes += extra
+                        else: removed += extra
                 # Jaksokeskipaine: naytteet edellisesta paatoskohdasta tahan = yksi kellojakso
+                if c1x and cyc_n < cyc_min: cyc_min = cyc_n
                 p = cyc_s / cyc_n if cyc_n else (hist[-1] if hist else 0.0)
                 cyc_s, cyc_n = 0.0, 0
                 brew_data.pressure = p
@@ -603,32 +730,68 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                     if pump_next: acc -= 1.0
                 # sd_us(t) kerran jaksossa ja vain, kun sita kaytetaan (EXPRESSO-GC-UUTTO): tauon ok ja EU-rivi
                 sd_t = None
-                if cur:
-                    strokes += 1
-                elif skip_late:
-                    # Myohassa: tauko jai tekematta, isku meni lapi, velka siirtyy seuraaviin jaksoihin
-                    late += 1; strokes += 1; acc -= 1.0
-                else:
-                    ok = False
-                    if was_on or pump_next:
+                if c1x:
+                    # Sama kirjanpito kuin alla, mutta kohdan k tauon vaihe (ok) paatettiin jo kohdassa k-1
+                    if cur:
+                        strokes += 1
+                    else:
+                        removed += 1
+                        if was_on:
+                            if qe[2]: skips10 += 1
+                            else: skips20 += 1
+                    # Kohta k+1 on jonossa. Sen 10 ms tauko paatetaan nyt, kun k+2:n paatos (pump_next) tiedetaan,
+                    # ja k+2 kirjoitetaan jonoon. Jokaisella kohdalla on tapahtuma (nalka = virhe).
+                    qe = cq[0]
+                    gap = False
+                    if not qe[0] and (qe[1] or pump_next):
                         sd_t = clock.sd_us(t)
-                        ok = 2.5 * sd_t < EU_PHASE_OK_US
-                    removed += 1
-                    if was_on:                # tauko alkoi; perakkainen poisto jatkaa samaa taukoa
-                        if ok: skips10 += 1
-                        else: skips20 += 1
-                    if pump_next and ok:      # 10 ms tauko; muuten rele palaa seuraavassa kohdassa (20 ms)
-                        pend_on = utime.ticks_add(slot, EU_GAP_US)
+                        qe[2] = 2.5 * sd_t < EU_PHASE_OK_US
+                        gap = pump_next and qe[2]
+                    s2 = _c1x_next(utime, clock, slot1)
+                    te, on = slot1, 1 if qe[0] else 0
+                    if gap:
+                        te, on = utime.ticks_add(slot1, EU_GAP_US), 1
+                        put_ok = _cx_put(cx, cx_ev, cx_wt, cx_ne, utime, te, 1)
+                    else:
+                        put_ok = True
+                    if put_ok and utime.ticks_diff(s2, te) > EU_C1X_FILL_US:
+                        fill_n += 1
+                        put_ok = _cx_put(cx, cx_ev, cx_wt, cx_ne, utime, utime.ticks_add(te, utime.ticks_diff(s2, te) // 2), on)
+                    if not (put_ok and _cx_put(cx, cx_ev, cx_wt, cx_ne, utime, s2, 1 if pump_next else 0)):
+                        reason = 'c1full'; break
+                    # Vahti jokaisesta paalle-tapahtumasta (ajoraja ja pump_last_want, K4); kielto nollasi CX_OK:n (_trip)
+                    if (pump_next or gap) and guard is not None and ('all' in guard.block or not guard.allow('pump')):
+                        cx_ok[0] = 0
+                    cq.append([pump_next, qe[0] or gap, False])
+                    slot, slot1 = slot1, s2
+                    q_dl = utime.ticks_add(s2, EU_GAP_US)
+                else:
+                    if cur:
+                        strokes += 1
+                    elif skip_late:
+                        # Myohassa: tauko jai tekematta, isku meni lapi, velka siirtyy seuraaviin jaksoihin
+                        late += 1; strokes += 1; acc -= 1.0
+                    else:
+                        ok = False
+                        if was_on or pump_next:
+                            sd_t = clock.sd_us(t)
+                            ok = 2.5 * sd_t < EU_PHASE_OK_US
+                        removed += 1
+                        if was_on:                # tauko alkoi; perakkainen poisto jatkaa samaa taukoa
+                            if ok: skips10 += 1
+                            else: skips20 += 1
+                        if pump_next and ok:      # 10 ms tauko; muuten rele palaa seuraavassa kohdassa (20 ms)
+                            pend_on = utime.ticks_add(slot, EU_GAP_US)
 
-                # Seuraava paatoskohta kellon seuraavasta reunasta. Vali mitataan nimelliseen kohtaan, jolle
-                # tama paatos kuului, ei myohastyneeseen t:hen: 5-10 ms myohastyminen siirsi seuraavan
-                # paatoksen jaksolla eteenpain, rele pysyi paalla laskematta iskua ja delta-sigma ei tiennyt
-                # siita (EXPRESSO-ESIUUTTO-PITO: sovitetussa mallissa 14-24 laskematonta iskua ajossa)
-                cur_n = utime.ticks_add(clock.edge(utime.ticks_add(t, -EU_OFF_US)), EU_OFF_US)
-                nxt = utime.ticks_add(clock.edge(utime.ticks_add(t, round(clock.T) - EU_OFF_US)), EU_OFF_US)
-                while utime.ticks_diff(nxt, cur_n) < EU_MIN_SLOT_US:
-                    nxt = utime.ticks_add(nxt, round(clock.T))
-                slot = nxt
+                    # Seuraava paatoskohta kellon seuraavasta reunasta. Vali mitataan nimelliseen kohtaan, jolle
+                    # tama paatos kuului, ei myohastyneeseen t:hen: 5-10 ms myohastyminen siirsi seuraavan
+                    # paatoksen jaksolla eteenpain, rele pysyi paalla laskematta iskua ja delta-sigma ei tiennyt
+                    # siita (EXPRESSO-ESIUUTTO-PITO: sovitetussa mallissa 14-24 laskematonta iskua ajossa)
+                    cur_n = utime.ticks_add(clock.edge(utime.ticks_add(t, -EU_OFF_US)), EU_OFF_US)
+                    nxt = utime.ticks_add(clock.edge(utime.ticks_add(t, round(clock.T) - EU_OFF_US)), EU_OFF_US)
+                    while utime.ticks_diff(nxt, cur_n) < EU_MIN_SLOT_US:
+                        nxt = utime.ticks_add(nxt, round(clock.T))
+                    slot = nxt
 
                 if n_slot % EU_LOG_SLOTS == 0:
                     out.append('EU %d %.2f %.2f %d %.2f %d p5=%.2f sd_us=%.0f rm=%d sk10=%d sk20=%d late=%d %s' % (
@@ -661,10 +824,12 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                 # Hallittu keruu: rele pois ja seuraava jakso tauko, joten keruun pysahdys vain pidentaa taukoa.
                 # Vaiheissa 3-4 myos, kun rele on paalla ja seuraava jakso iskee (on_run, ks. vuoronvaraus EB_RATIO_MS:n alla)
                 on_run = stage_b and relay[0] and pump_next and pend_on is None
+                # c1x: releen tilaehdot pois, keruu aina riittavalla etumatkalla (ydin 1 kaantaa jonosta keruun ajan)
                 if vv and utime.ticks_diff(t, gc_t) >= EU_GC_MS * 1000 and \
-                        ((phase == 1 and p5 < target * EU_GC_RISE_FRAC) or
+                        ((c1x and utime.ticks_diff(q_dl, utime.ticks_us()) >= EU_C1X_GC_LEAD_US) or
+                         (not c1x and phase == 1 and p5 < target * EU_GC_RISE_FRAC) or
                          (phase == 3 and cut_t is None and p5 < tgt_pre + EB_GC_RISE_FRAC * (target - tgt_pre)) or
-                         (ds and (on_run or not (relay[0] or pump_next or pend_on is not None)))):
+                         (not c1x and ds and (on_run or not (relay[0] or pump_next or pend_on is not None)))):
                     c0 = utime.ticks_us()
                     gc.collect()
                     gc_t = utime.ticks_us()
@@ -674,33 +839,41 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                     out.append('EU_GC t_ms=%d us=%d rel=%d' % (utime.ticks_diff(c0, t0) // 1000, c1, 1 if relay[0] else 0))
                 now = utime.ticks_us()
 
-            if utime.ticks_diff(now, next_s) >= 0:
+            # c1x: rengasnayte omalla ajallaan tq (ei, jos se kuuluu jo seuraavaan kohtaan: kasitellaan ensin)
+            if (c1x and smp and utime.ticks_diff(ts_, slot) < 0) or (not c1x and utime.ticks_diff(now, next_s) >= 0):
                 s0 = now
-                next_s = utime.ticks_add(next_s, PCAP_RATE_US)
-                if utime.ticks_diff(now, next_s) > 0: next_s = utime.ticks_add(now, PCAP_RATE_US)
-                bar = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset
+                if c1x:
+                    r = cx[i_sr]
+                    j = (r % cx_ns) * 2
+                    tq, raw = cx_sm[j], cx_sm[j + 1]
+                    cx[i_sr] = r + 1
+                else:
+                    next_s = utime.ticks_add(next_s, PCAP_RATE_US)
+                    if utime.ticks_diff(now, next_s) > 0: next_s = utime.ticks_add(now, PCAP_RATE_US)
+                    tq, raw = now, sensor.read_u16()
+                bar = gain * (raw * PCAP_RAW_A + PCAP_RAW_B) + offset
                 cyc_s += bar; cyc_n += 1
-                clock.iq_add(now, bar)
-                if clock.iq_ready(now) and not (vv and ds and (relay[0] or pump_next or pend_on is not None) and
-                                                utime.ticks_diff(slot, now) < EU_IQ_CLOSE_US):
+                clock.iq_add(tq, bar)
+                if clock.iq_ready(tq) and not (not c1x and vv and ds and (relay[0] or pump_next or pend_on is not None) and
+                                               utime.ticks_diff(slot, now) < EU_IQ_CLOSE_US):
                     lrn = phase == 2
                     if stage_b:
                         # Vaiheet 3-4: ikkuna opettaa vain, kun sen keskipaine nousi edellisesta alle EB_CLK_RATE bar/s
                         # (ks. EB_CLK_RATE: nousunopeuden viiveharha). Vaiheen 3 taysi nousu jaa lokiin gate=-1.
                         pw = clock.iq_sum / clock.iq_n if clock.iq_n else 0.0
-                        lrn = p_wp is not None and (pw - p_wp) * 1e6 < EB_CLK_RATE * utime.ticks_diff(now, t_wp)
-                        p_wp, t_wp = pw, now
-                    res = clock.iq_close(now, learn=lrn)
-                    clock.iq_start(now)
+                        lrn = p_wp is not None and (pw - p_wp) * 1e6 < EB_CLK_RATE * utime.ticks_diff(tq, t_wp)
+                        p_wp, t_wp = pw, tq
+                    res = clock.iq_close(tq, learn=lrn)
+                    clock.iq_start(tq)
                     if res is None:
                         win_low += 1          # amplitudi alle AMP_MIN: harvat iskut, ei kellopaivitysta
                     else:
                         z, amp, p_bar, g = res; windows += 1
                         if g == 0: learned += 1
-                        sd_w = clock.sd_us(now)
+                        sd_w = clock.sd_us(tq)
                         out.append('VKELLO w=%d t_ms=%d z_us=%.1f T_us=%.3f d=%.5f sd_us=%.1f amp=%.3f lock=%d p_bar=%.2f gate=%d' % (
-                            windows, utime.ticks_diff(now, t0) // 1000, z, clock.T, clock.d,
-                            sd_w, amp, 1 if clock.locked(now, sd_w) else 0, p_bar, g))
+                            windows, utime.ticks_diff(tq, t0) // 1000, z, clock.T, clock.d,
+                            sd_w, amp, 1 if clock.locked(tq, sd_w) else 0, p_bar, g))
                 now = utime.ticks_us()
                 s0 = utime.ticks_diff(now, s0)
                 if s0 > s_max: s_max = s0
@@ -708,13 +881,18 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                     stall_n += 1
                     out.append('EU_STALL t_ms=%d sec=s us=%d rel=%d' % (
                         utime.ticks_diff(now, t0) // 1000, s0, 1 if relay[0] else 0))
-            wait = utime.ticks_diff(slot, now)
-            if pend_on is not None: wait = min(wait, utime.ticks_diff(pend_on, now))
-            # vv=1: vaiheessa 2 vuoro vain, kun rele on pois eika seuraava jakso iske. Vuoron yli venyva toinen tehtava
-            # vain pidentaa taukoa; ennen rele jai paalle ja isku meni lapi (late). Vaiheessa 1 rele on paalla joka tapauksessa.
-            # Vaiheissa 3-4 myos, kun rele on paalla ja seuraavakin jakso iskee (ks. vuoronvaraus EB_RATIO_MS:n alla).
-            if wait > EU_YIELD_US and (not vv or not ds or not (relay[0] or pump_next or pend_on is not None) or
-                                       (stage_b and relay[0] and pump_next and pend_on is None)):
+            if c1x:
+                # Vuoro, kun rengas on luettu ja etumatka riittaa toisen tehtavan varaukseen; releen tila ei rajaa
+                yld = cx[i_sr] == cx[i_sw] and utime.ticks_diff(q_dl, now) >= EU_C1X_YIELD_LEAD_US
+            else:
+                wait = utime.ticks_diff(slot, now)
+                if pend_on is not None: wait = min(wait, utime.ticks_diff(pend_on, now))
+                # vv=1: vaiheessa 2 vuoro vain, kun rele on pois eika seuraava jakso iske. Vuoron yli venyva toinen tehtava
+                # vain pidentaa taukoa; ennen rele jai paalle ja isku meni lapi (late). Vaiheessa 1 rele on paalla joka tapauksessa.
+                # Vaiheissa 3-4 myos, kun rele on paalla ja seuraavakin jakso iskee (ks. vuoronvaraus EB_RATIO_MS:n alla).
+                yld = wait > EU_YIELD_US and (not vv or not ds or not (relay[0] or pump_next or pend_on is not None) or
+                                              (stage_b and relay[0] and pump_next and pend_on is None))
+            if yld:
                 if tb is not None:
                     tb[0] = '-'
                     tb[1] = 0
@@ -728,6 +906,15 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                         utime.ticks_diff(c0, t0) // 1000, c1, 1 if relay[0] else 0,
                         tb[0] if tb is not None else '?', tb[1] if tb is not None else 0))
     finally:
+        if c1x:
+            # Lupa ensin (ydin 1 ei kaanna enaa paalle), sitten pinni ja toteuttaja pois (_c1_exec kaantaa pinnin 0:aan
+            # ennen kesken jaaneen lampotilaluvun loppua)
+            cx_ok[0] = 0
+            cx[CL.CX_ARMED] = 0
+            RELAY_PUMP.value(0)
+            c1t.c1_off()
+            c1t.cx_pin = None             # _c1_mainin virhepolku ei kaanna pumppua lepoluvun aikana (exec sitoi pinnin)
+            if guard is not None: guard.relays['pump'].c1_ok = None
         set_relay(False)
         RELAY_PUMP.value(0)
         if stage_b: RELAY_HEATER.value(0)
@@ -735,6 +922,8 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
         for line in out:
             print(line)
             await asyncio.sleep_ms(EU_PRINT_GAP_MS)
+        if c1x:
+            late_max = cx[CL.CX_LMAX]
         now = utime.ticks_us()
         l1, l2, _ = _eu_end(brew_data, clock, now, reason, target, hold_t, l_s0, l_r0, strokes, removed, rate_cut, p_cut,
                             g_cut, coast_s, coast_f, h_s, h_ss, h_n, dh_s, dh_n, p_max, rise_max, skips10, skips20, late, miss,
@@ -746,6 +935,14 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
         await asyncio.sleep_ms(EU_PRINT_GAP_MS)
         print('EU_VV vv=%d stall=%d gc_n=%d gc_max_us=%d fr0=%d fr_end=%d k_max_us=%d s_max_us=%d y_max_us=%d late_max_us=%d' % (
             vv, stall_n, gc_n, gc_max, free0 // 1024, gc.mem_free() // 1024, k_max, s_max, y_max, late_max))
+        if c1x:
+            await asyncio.sleep_ms(EU_PRINT_GAP_MS)
+            # Ytimen 1 kirjanpito (classes.CX_*): naytteet, pisin nayteval, ylivuodot, tapahtumat (tehty / kirjoitettu),
+            # myohastymat, nalka, ytimen 0 pisin kasittelyviive kohdasta, pienin naytemaara jaksossa, taytteet
+            print('EU_C1X n=%d gmax_us=%d ovf=%d nev=%d written=%d lmax_us=%d late=%d starve=%d lidx=%d lwr_us=%d '
+                  'lag_max_us=%d cyc_min=%d fill=%d' % (cx[CL.CX_N], cx[CL.CX_GMAX], cx[CL.CX_OVF], cx[CL.CX_NEV], cx[CL.CX_EW],
+                                                       cx[CL.CX_LMAX], cx[CL.CX_LATE], cx[CL.CX_STARVE], cx[CL.CX_LIDX],
+                                                       cx[CL.CX_LWR], lag_max, cyc_min, fill_n))
         return (0, 0) if brew else None
     # Uuton loppu (vaiheet 3-4). Jonoon jaaneet esiuuton rivit ensin.
     for line in q + out:
