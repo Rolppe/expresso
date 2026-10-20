@@ -10,6 +10,8 @@
 #   8 = releen vahdin kutsu (Timer -1, 100 ms) palaa heti ajon ajan (kayttajan lupa 20.10.2026; dev_run on jo
 #       sammuttanut lammittimen eika pumppu kay). Ajastin jaa kayntiin: uusi Timer(-1) voi saada ENOMEMin, kun
 #       ytimen 1 silmukka kay (main.py, 5.10.2026), joten pysaytys ja uudelleenkaynnistys ei ole turvallinen.
+#  16 = Wi-Fi-radio pois ajon ajan (wlan.active(False), kayttaja 20.10.2026): erottaa cyw43/lwIP:n osuuden levon
+#       100 ms:n porraskeruista. Sarjalinkki (Zero) ei kayta radiota; DIAGNET liittyy uudelleen itse (_join).
 # Rivit: YSTALL (vuoro > YS_LOG_US), YS_GC (keruu > YS_LOG_US), YSTALL_END (yhteenveto). Releisiin ei kosketa.
 
 import gc
@@ -32,6 +34,11 @@ async def ystall_run(brew_data, utime, asyncio, seconds, mode):
     if mode & 8 and guard is not None:
         guard.paused = True
         guard_off = True
+    wlan = getattr(diag, 'wlan', None) if diag is not None else None
+    radio_off = False
+    if mode & 16 and wlan is not None:
+        wlan.active(False)
+        radio_off = True
     t0 = utime.ticks_us()
     end = utime.ticks_add(t0, int(seconds * 1000000))
     gc_t = t0
@@ -71,8 +78,14 @@ async def ystall_run(brew_data, utime, asyncio, seconds, mode):
     finally:
         if guard_off:
             guard.paused = False
+        if radio_off:
+            try:
+                wlan.active(True)
+                diag._join(utime.ticks_ms())
+            except Exception:
+                pass
         if diag is not None:
             diag.quiet = quiet0
         diagnet.LEGACY_SEND = legacy0
-    print('YSTALL_END s=%d mode=%d n=%d y10=%d y50=%d y_max_us=%d gc_n=%d gc_max_us=%d free=%d guard_off=%d' % (
-        seconds, mode, n, y10, y50, y_max, gc_n, gc_max, gc.mem_free(), 1 if guard_off else 0))
+    print('YSTALL_END s=%d mode=%d n=%d y10=%d y50=%d y_max_us=%d gc_n=%d gc_max_us=%d free=%d guard_off=%d radio_off=%d' % (
+        seconds, mode, n, y10, y50, y_max, gc_n, gc_max, gc.mem_free(), 1 if guard_off else 0, 1 if radio_off else 0))
