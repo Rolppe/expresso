@@ -23,6 +23,9 @@ HB_IDLE_MS = 60000
 HB_BREW_MS = 5000
 JOIN_RETRY_MS = 30000
 SEND_PERIOD_MS = 100
+# EXPRESSO-WIFI-AIKAIKKUNA (20.10.2026): during a shot the sender wakes at 500 ms and sends full packets
+# (~1 kB per wake at ~1.9 kB/s, the ring holds 8 kB): ~2 packets/s instead of ~9
+SEND_PERIOD_BREW_MS = 500
 SEND_PKTS_PER_STEP = 2
 
 
@@ -137,6 +140,7 @@ class DiagNet:
         self.tee_max_us = 0
         self.rssi = 0
         self.brew = False
+        self.quiet = False      # run_shot: any pump run, also test shots (EXPRESSO-WIFI-AIKAIKKUNA)
         self._t_join = None
         self._t_hb = None
         self._t_min = None
@@ -189,6 +193,10 @@ class DiagNet:
         except Exception:
             pass
 
+    def in_shot(self):
+        """A shot with a log (brew) or any pump run (quiet): the radio keeps to its minimum."""
+        return self.brew or self.quiet
+
     def shot_start(self):
         self.brew = True
         self._t_hb = None       # first brew heartbeat right away
@@ -196,6 +204,7 @@ class DiagNet:
 
     def shot_end(self, reason, n):
         self.brew = False
+        self._t_hb = None       # the full heartbeat (heap) that the shot skipped, right away
         self.line('DIAG_SHOT end reason=%s n=%d' % (reason, n))
 
     def sample(self, row):
@@ -204,21 +213,28 @@ class DiagNet:
 
     def heartbeat(self, bd=None):
         free = alloc = -1
-        try:
-            free = self.gc.mem_free()
-            alloc = self.gc.mem_alloc()
-        except Exception:
-            pass
-        if not self.brew:
+        if not self.in_shot():
+            # mem_free walks the heap (7.3 ms, functions.py) and the RSSI query waits on the radio: idle only
+            try:
+                free = self.gc.mem_free()
+                alloc = self.gc.mem_alloc()
+            except Exception:
+                pass
             try:
                 self.rssi = self.wlan.status('rssi')
             except Exception:
                 pass
+        wtx = wtxerr = wsmax = -1
+        wl = getattr(bd, 'wifi_link', None) if bd is not None else None
+        if wl is not None:
+            wtx, wtxerr, wsmax = wl.tx, wl.txerr, wl.send_max_us
+            wl.send_max_us = 0
         pend = 1 if bd is not None and getattr(bd, 'pending_brew_log', None) is not None else 0
         self.line('DIAG_HB up_s=%d free=%d alloc=%d drop=%d txp=%d txerr=%d smax_us=%d tmax_us=%d rssi=%d '
-                  'brew=%d pend=%d err=%d' % (
+                  'brew=%d pend=%d err=%d wtx=%d wtxerr=%d wsmax_us=%d' % (
                       self.utime.time() - self.t_boot_s, free, alloc, self.ring.drop, self.txp, self.txerr,
-                      self.send_max_us, self.tee_max_us, self.rssi, 1 if self.brew else 0, pend, self.errs))
+                      self.send_max_us, self.tee_max_us, self.rssi, 1 if self.brew else 0, pend, self.errs,
+                      wtx, wtxerr, wsmax))
         self.send_max_us = 0
         self.tee_max_us = 0
 
@@ -265,7 +281,7 @@ class DiagNet:
         """One sender pass. Never raises."""
         try:
             now = self.utime.ticks_ms()
-            if self._t_hb is None or self.utime.ticks_diff(now, self._t_hb) >= (HB_BREW_MS if self.brew else HB_IDLE_MS):
+            if self._t_hb is None or self.utime.ticks_diff(now, self._t_hb) >= (HB_BREW_MS if self.in_shot() else HB_IDLE_MS):
                 self._t_hb = now
                 self.heartbeat(bd)
             if self._t_min is None:
@@ -276,7 +292,7 @@ class DiagNet:
                 self._t_min = now
                 self.minute(bd)
             if not self.wlan.isconnected():
-                if not self.brew and (self._t_join is None or
+                if not self.in_shot() and (self._t_join is None or
                                       self.utime.ticks_diff(now, self._t_join) >= JOIN_RETRY_MS):
                     self._join(now)
                 return
@@ -286,10 +302,13 @@ class DiagNet:
         except Exception:
             self.errs += 1
 
-    async def run(self, bd, asyncio):
+    async def run(self, bd, asyncio, task_busy=None):
         while True:
+            t0 = self.utime.ticks_us()
             self.step(bd)
-            await asyncio.sleep_ms(SEND_PERIOD_MS)
+            if task_busy is not None:
+                task_busy('diag', t0)     # EU_STALL task=diag (WIFI-APPI.md: planned, missing until 20.10.2026)
+            await asyncio.sleep_ms(SEND_PERIOD_BREW_MS if self.in_shot() else SEND_PERIOD_MS)
 
     def flush(self, max_pkts=8):
         """Crash path (main.py): send what the ring holds now, without the task loop. Never raises."""

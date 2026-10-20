@@ -81,7 +81,8 @@ class Sock:
 SOCK = Sock()
 socket_mod = types.SimpleNamespace(AF_INET=2, SOCK_DGRAM=2, socket=lambda a, b: SOCK)
 wlan = types.SimpleNamespace(up=True, isconnected=lambda: wlan.up, ifconfig=lambda: ('192.0.2.13', '', '', ''))
-diag = types.SimpleNamespace(boot='abcd1234', wlan=wlan)
+diag = types.SimpleNamespace(boot='abcd1234', wlan=wlan, brew=False)
+diag.in_shot = lambda: diag.brew
 clk = Clock()
 
 
@@ -203,11 +204,11 @@ send('sub', 50)
 got = SOCK.take(APP)
 kinds = [('ack' if d.get('type') == 'ack' else 'live' if 'boiler_temperature' in d else 'scale' if 'weight_g' in d
           else 'setB' if 'brew_pressure' in d else 'setA' if 'fast_heatup_mode' in d else '?') for d in got]
-check('sub -> ack, live, scale, settings A+B at once', kinds == ['ack', 'live', 'scale', 'setA', 'setB'], kinds)
-scale = [d for d in got if 'weight_g' in d][0]
-check('scale packet = BLE scale_payload', scale == BH.scale_payload(bd), scale)
+check('sub -> ack, live (weight inside), settings A+B at once', kinds == ['ack', 'live', 'setA', 'setB'], kinds)
 live = [d for d in got if 'boiler_temperature' in d][0]
-check('live packet = BLE live_payload', live == json.loads(json.dumps(BH.live_payload(bd))))
+want = BH.live_payload(bd)
+want.update(BH.scale_payload(bd))
+check('live packet = BLE live_payload + scale_payload (WIFI-AIKAIKKUNA)', live == json.loads(json.dumps(want)), live)
 n_live = 0
 for _ in range(20):         # 1 s in 50 ms steps
     clk.ms += 50
@@ -223,6 +224,31 @@ SOCK.take()
 clk.ms += 400
 L.step()
 check('sub expires after 15 s', SOCK.take() == [] and APP not in L.subs)
+
+# ---- shot window (EXPRESSO-WIFI-AIKAIKKUNA 20.10.2026) ---------------------------------------------
+check('no subscriber -> idle step', L.step_ms() == W.STEP_IDLE_MS, L.step_ms())
+send('sub', 60)
+SOCK.take()
+check('subscriber -> 50 ms step', L.step_ms() == W.STEP_MS, L.step_ms())
+diag.brew = True
+check('shot -> 100 ms step', L.step_ms() == W.STEP_BREW_MS, L.step_ms())
+n_live = n_set = 0
+for _ in range(30):         # 3 s in 100 ms steps: covers the 2 s settings period
+    clk.ms += W.STEP_BREW_MS
+    L.step()
+    for d in SOCK.take(APP):
+        n_live += 'boiler_temperature' in d
+        n_set += 'brew_pressure' in d or 'fast_heatup_mode' in d and 'boiler_temperature' not in d
+check('shot: live 5 Hz at 100 ms steps', n_live == 15, n_live)
+check('shot: no settings packets', n_set == 0, n_set)
+check('send_max_us measured', L.send_max_us >= 0)
+diag.brew = False
+clk.ms += W.SETTINGS_MS
+L.step()
+check('after shot: settings again', any('brew_pressure' in d for d in SOCK.take(APP)))
+clk.ms += W.SUB_MS
+L.step()
+SOCK.take()
 
 # ---- two subscribers, third evicts the oldest ----------------------------------------------------------
 send('sub', 60)

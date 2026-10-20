@@ -22,6 +22,10 @@ SETTINGS_MS = 2000
 BLOG_FRAME_MS = 100
 RX_PER_STEP = 4
 STEP_MS = 50
+# EXPRESSO-WIFI-AIKAIKKUNA (20.10.2026): during a shot (diag.brew) the task wakes at 100 ms, which still
+# keeps live at 5 Hz, and the settings packets stay home; with no subscriber it only listens for hello/sub.
+STEP_BREW_MS = 100
+STEP_IDLE_MS = 500
 KEY_FILE = 'link_key.txt'
 DENY_LOG_MS = 10000
 
@@ -79,6 +83,7 @@ class WifiLink:
         self.subs = {}                      # addr -> ticks_ms of the last sub
         self.last_seq = {}                  # addr -> (seq, ack dict)
         self.rx = self.tx = self.txerr = self.denied = self.errs = 0
+        self.send_max_us = 0                # longest sendto since the last DIAG_HB (diagnet reads and resets it)
         self._t_live = None
         self._t_set = None
         self._t_blog = None
@@ -119,11 +124,15 @@ class WifiLink:
             self.errs += 1
             return
         for addr in self.subs:
+            t0 = self.utime.ticks_us()
             try:
                 self.sock.sendto(raw, addr)
                 self.tx += 1
             except OSError:
                 self.txerr += 1
+            dt = self.utime.ticks_diff(self.utime.ticks_us(), t0)
+            if dt > self.send_max_us:
+                self.send_max_us = dt
 
     # ---- receive ----------------------------------------------------------------------------------
     def _deny(self, addr, why, seq=None):
@@ -213,16 +222,19 @@ class WifiLink:
         bd = self.bd
         if self._due(self._t_live, now, LIVE_MS):
             self._t_live = now
-            self._send_subs(self.p.live_payload(bd))
+            # Weight rides in the live packet: UDP has no 240 B notify limit, and the app reads each key on
+            # its own (machine_data_notifier.dart), so one json.dumps and one sendto instead of two
+            live = self.p.live_payload(bd)
             sp = self.p.scale_payload(bd)
             if sp is not None:
-                self._send_subs(sp)
+                live.update(sp)
+            self._send_subs(live)
             if getattr(bd, 'pcal_state', 'idle') != 'idle':
                 self._send_subs(bd.get_pressure_calibration_status())
             sc = getattr(bd, 'scale_cal', None)
             if sc is not None and sc.active():
                 self._send_subs(sc.status())
-        if self._due(self._t_set, now, SETTINGS_MS):
+        if not self.diag.in_shot() and self._due(self._t_set, now, SETTINGS_MS):
             self._t_set = now
             for packet in self.p.settings_payloads(bd):
                 self._send_subs(packet)
@@ -280,4 +292,9 @@ class WifiLink:
             self.step()
             if task_busy is not None:
                 task_busy('wifi', t0)
-            await asyncio.sleep_ms(STEP_MS)
+            await asyncio.sleep_ms(self.step_ms())
+
+    def step_ms(self):
+        if not self.subs:
+            return STEP_IDLE_MS
+        return STEP_BREW_MS if self.diag.in_shot() else STEP_MS

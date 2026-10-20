@@ -23,7 +23,7 @@ from classes            import BrewData, HeatingSpeedCalculator, Thermostat, Tem
 from bluetooth_handler  import BLEHandler
 from brew_logger        import BrewSessionLogger, brew_log_service
 from secrets            import ssid, password
-from preset             import FEATURES, PINS, MAX31865_CONFIG, TARGET_TEMPERATURES, DIAGNET
+from preset             import FEATURES, PINS, MAX31865_CONFIG, TARGET_TEMPERATURES, DIAGNET, BLE
 from backflush          import run_backflush
 
 
@@ -94,6 +94,7 @@ brew_data.brew_logger = BrewSessionLogger(utime)
 brew_data.tray_scale = tray_scale
 # The app straight over Wi-Fi (wifilink.py, EXPRESSO-WIFI-APPI vaihe 1): needs DIAGNET's radio and boot id
 brew_data.wifi_link = None
+brew_data.diag = diag                   # run_shot sets diag.quiet (EXPRESSO-WIFI-AIKAIKKUNA)
 if diag is not None:
     try:
         import wifilink, hashlib, os as _os
@@ -140,8 +141,19 @@ async def ble_communication(brew_data):
         task_busy('ble', t0)
 
         await asyncio.sleep_ms(30)
-        
-        
+
+
+# BLE off (preset BLE, EXPRESSO-WIFI-AIKAIKKUNA 20.10.2026): the brew log still samples at the BLE task's pace,
+# and the Wi-Fi link sends the finished shot. The radio's BLE side is never activated.
+async def brew_log_only(brew_data):
+    while True:
+        t0 = utime.ticks_us()
+        brew_log_service(brew_data, utime)
+        task_busy('log', t0)
+        await asyncio.sleep_ms(30)
+
+
+
 # ============================================================================
 # LOCAL PROGRAM
 # ============================================================================
@@ -488,10 +500,11 @@ async def watchdog_feeder():
 # ============================================================================
 
 async def async_main():
-    tasks = [ble_communication(brew_data), local_program(brew_data),
+    print('BLE %s' % ('on' if BLE.get('enabled') else 'off'))
+    tasks = [ble_communication(brew_data) if BLE.get('enabled') else brew_log_only(brew_data), local_program(brew_data),
              serial_commands(brew_data), watchdog_feeder(), scale_reader(brew_data)]
     if diag is not None:
-        tasks.append(diag.run(brew_data, asyncio))
+        tasks.append(diag.run(brew_data, asyncio, task_busy))
     if brew_data.wifi_link is not None:
         tasks.append(brew_data.wifi_link.run(asyncio, task_busy))
     await asyncio.gather(*tasks)
