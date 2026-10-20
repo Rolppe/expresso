@@ -1418,6 +1418,16 @@ def main():
             check('%s: |pidon keskiarvo − 8| ≤ vanha polku + siemenhajonta' % lab, mn <= mo + so + 1e-9,
                   'c1x %.3f, vanha %.3f ± %.3f' % (mn, mo, so))
 
+    # Jalkinousun oppi polusta riippumaton (EU_C1X_LAG_S): sama kohinaton ajo c1x:lla ja ilman -> eb_coast_s lahes sama
+    co = {}
+    for path in (0, 1):
+        bd = brew_bd('25b', 160, False)
+        if path: c1x_brew(bd)
+        run_brew(bd, 16.0, bim=1, seed=160)
+        co[path] = bd.eb_coast_s
+    check('24 c1x: opittu jälkinousu (eb_coast_s) sama kuin vanhalla polulla (±0,015 s)', abs(co[1] - co[0]) <= 0.015,
+          'c1x %.3f, vanha %.3f' % (co[1], co[0]))
+
     r24 = []
     for seed in range(170, 170 + N8_NOISE):
         bd = c1x_brew(brew_bd('kaanto', seed, True, turns=[(4000000, TURN8[0.6]), (7000000, TURN8[0.2])]))
@@ -1428,9 +1438,10 @@ def main():
     for i, name in ((0, '0,3 → 0,6'), (1, '0,6 → 0,2')):
         xs = [r[0][i][0] for r in r24]
         stat(check, '24 c1x kuristimen kääntö %s: kaistalle 8 ± 0,3 ≤ 1,0 s' % name, xs, 1.0, share=NOISE_SHARE, fmt='%.2f')
+        # Vertailu vanhaan vain tulosteena (kayttajan paatos 20.10.2026): c1x:n hajonta siemenittain 0,45-1,12 s, ja ka
+        # vaihteli muunnelmien valilla 0,61-0,67 s vs vanha 0,60 +- 0,03; ehdoton 1,0 s:n raja tarkistetaan yllä
         mo, so = mean_sd([r[i][0] for r in r17[1]])
-        check('24 c1x kuristimen kääntö %s: kaistalle ≤ vanha polku + siemenhajonta' % name, sum(xs) / len(xs) <= mo + so,
-              'c1x %.2f s, vanha %.2f ± %.2f s' % (sum(xs) / len(xs), mo, so))
+        print('     kääntö %s kaistalle: c1x %.2f s, vanha (c1x:0) %.2f ± %.2f s' % (name, sum(xs) / len(xs), mo, so))
         stat(check, '24 c1x kuristimen kääntö %s: ei lukkiutumista (ka 1,5–3 s käännöstä 8 ± 0,15)' % name,
              [r[0][i][1] for r in r24], 0.15, lo=-0.15, share=NOISE_SHARE)
 
