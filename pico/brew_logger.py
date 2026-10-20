@@ -19,6 +19,8 @@ MAX_SESSION_MS = 65000      # hard cap on a session (pre + brew + soft release)
 MIN_SESSION_MS = 15000      # shorter = accidental tap: discarded, no BLE log, no app prompt
 SAMPLE_INTERVAL_MS = 100    # 10 Hz
 MAX_EVENTS = 40
+# diagnet.DiagNet or None (EXPRESSO-DIAGNET 20.10.2026): main.py sets it; every row also goes to the network
+SINK = None
 
 _ST_IDLE = 0
 _ST_RECORDING = 1
@@ -68,6 +70,8 @@ class BrewSessionLogger:
         self._scale_meta = scale_meta
         self._state = _ST_RECORDING
         print('BREW_LOG start id=%d v=3' % self._id)
+        if SINK is not None:
+            SINK.shot_start()
 
     def _event(self, name, t_ms):
         if len(self._events) < MAX_EVENTS:
@@ -101,7 +105,7 @@ class BrewSessionLogger:
             self._next_sample = self.utime.ticks_add(self._next_sample, SAMPLE_INTERVAL_MS)
             while self.utime.ticks_diff(now, self._next_sample) >= 0:
                 self._next_sample = self.utime.ticks_add(self._next_sample, SAMPLE_INTERVAL_MS)
-            self._samples.append([
+            row = [
                 t_ms,
                 int(round((temp_c or 0.0) * 10.0)),
                 int(round((press_bar or 0.0) * 100.0)),
@@ -110,7 +114,10 @@ class BrewSessionLogger:
                 int(hx_b),
                 int(round(self.session_weight(weight_g) * 10.0)),
                 (1 if pump_on else 0) | ((1 if heater_on else 0) << 1),
-            ])
+            ]
+            self._samples.append(row)
+            if SINK is not None:
+                SINK.sample(row)
         return False
 
     def end_session(self, now, weight_g, reason='spr_end'):
@@ -155,6 +162,8 @@ class BrewSessionLogger:
         return out
 
     def abandon(self):
+        if SINK is not None and self._state == _ST_RECORDING:
+            SINK.shot_end('abandon', len(self._samples))
         self._samples = []
         self._events = []
         self._scale_meta = None
@@ -166,8 +175,11 @@ class BrewSessionLogger:
 
     def _finalize(self, now, weight_g, reason):
         t_ms = self._rel_ms(now)
+        if SINK is not None:
+            SINK.shot_end(reason, len(self._samples))
         if t_ms < MIN_SESSION_MS or not self._samples:
             print('BREW_LOG discard id=%d t=%d < %d reason=%s' % (self._id, t_ms, MIN_SESSION_MS, reason))
+            self._state = _ST_IDLE      # shot_end already went out above
             self.abandon()
             return False
         self._event('session_end', t_ms)
