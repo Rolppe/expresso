@@ -27,6 +27,8 @@ SEND_PERIOD_MS = 100
 # (~1 kB per wake at ~1.9 kB/s, the ring holds 8 kB): ~2 packets/s instead of ~9
 SEND_PERIOD_BREW_MS = 500
 SEND_PKTS_PER_STEP = 2
+# ystall.py bit 4 (EXPRESSO-GC-UUTTO A/B): the pre-28c6685 send path, take() + head + data
+LEGACY_SEND = False
 
 
 def _f2(x):
@@ -294,6 +296,20 @@ class DiagNet:
             s.setblocking(False)
             self.sock = s
         head = ('EXD1 %s %d %d %d\n' % (self.boot, self.seq, self.utime.ticks_ms(), self.ring.drop)).encode()
+        if LEGACY_SEND:
+            data = self.ring.take(PKT_BYTES - len(head))
+            self.seq += 1
+            t0 = self.utime.ticks_us()
+            try:
+                self.sock.sendto(head + data, self.addr)
+                self.txp += 1
+            except OSError:
+                self.txerr += 1
+                self.ring.drop += len(data)
+            dt = self.utime.ticks_diff(self.utime.ticks_us(), t0)
+            if dt > self.send_max_us:
+                self.send_max_us = dt
+            return True
         # One preallocated packet (EXPRESSO-GC-UUTTO): no take() copy and no head + data concatenation
         pkt = self._pkt
         h = len(head)
