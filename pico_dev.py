@@ -366,7 +366,9 @@ def hold(hold_s, out_path=None):
     out = open(out_path, 'ab') if out_path else None
     link.send(b'CMD pvent\r\n')
     end, buf = time.time() + 150, b''       # 200 sykliä x 0,7 s = karkausraja
-    while time.time() < end and b'PVENT_END' not in buf:
+    # Rivin loppuun asti: PVENT_END ja reason= voivat tulla eri lohkoissa (c1x-20261020-hold1: 'bar=-1.33 r' -> HOLD_ABORT)
+    vent_done = lambda b: b'PVENT_END' in b and b'\n' in b[b.find(b'PVENT_END'):]
+    while time.time() < end and not vent_done(buf):
         try:
             d = link.s.recv(65536)
         except socket.timeout:
