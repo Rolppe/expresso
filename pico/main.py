@@ -92,6 +92,9 @@ brew_data.tbusy = ['-', 0]
 # task samples it at 10 Hz and sends the finished shot to the app as the August brew_log multipack
 brew_data.brew_logger = BrewSessionLogger(utime)
 brew_data.tray_scale = tray_scale
+if tray_scale is not None:
+    import scalecal
+    brew_data.scale_cal = scalecal.ScaleCal(tray_scale, utime, lambda: brew_data.mode == 'IDLE')
 
 
 def task_busy(name, t0):
@@ -428,6 +431,10 @@ def scale_poll_once():
             brew_data.weight_ms = utime.ticks_ms()
             brew_data.weight_a = tray_scale.last_a
             brew_data.weight_b = tray_scale.last_b
+            if brew_data.scale_cal is not None:
+                brew_data.scale_cal.on_sample(tray_scale.raw_a, tray_scale.raw_b)
+        if brew_data.scale_cal is not None:
+            brew_data.scale_cal.tick()
         # Every iteration, not only when a new sample arrived: flow() reads no sensor, and it is
         # the call that turns a frozen reading into None once the samples go stale.
         brew_data.flow = tray_scale.flow(brew_data.flow_window_ms)

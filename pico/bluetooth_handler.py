@@ -21,7 +21,7 @@ MAX_NOTIFY = 240
 # Dropped in this order when a packet does not fit: the newest and least critical field first.
 # Adding weight pushed the longest mode string to 246 B and the whole packet - pressure,
 # temperature, mode - was lost exactly during a shot (18.9.2026).
-NOTIFY_DROP_ORDER = ('weight',)
+NOTIFY_DROP_ORDER = ()     # weight moved to scale_payload (V-210, 20.10.2026): nothing left to drop
 
 # Brew log multipack (EXPRESSO-UUTTOLOKI, 5.10.2026), the August firmware's protocol unchanged for the app:
 # meta (header + events) -> samples parts of BREW_LOG_CHUNK_ROWS rows -> end, one frame per transmission
@@ -67,10 +67,6 @@ def frame_pieces(json_data, chunk):
 def live_payload(brew_data):
     """The live telemetry packet. Cached values only: reading the sensors here blocked the asyncio
     loop for >= 90 ms every 200 ms (MAX31865 time.sleep + 20 ms pressure window, 17.9.2026)."""
-    weight = brew_data.get_weight()
-    if weight is not None:
-        weight = round(weight, 1)      # 0.1 g is below the measured noise; the full float cost
-                                       # 18 characters of a 240 B packet
     data = {
         'boiler_temperature'         : brew_data.boiler_temperature,
         'pressure'                   : brew_data.pressure,
@@ -80,7 +76,6 @@ def live_payload(brew_data):
         'pressure_soft_release_mode' : brew_data.get_pressure_soft_release_mode(),
         'fast_heatup_mode'           : brew_data.get_fast_heatup_mode(),
         'pump_ratio'                 : brew_data.get_pump_ratio(),
-        'weight'                     : weight
     }
     if brew_data.standby:
         # VALMIUSTILA (5.10.2026): the key rides only while standby holds - standby is IDLE-only, so the
@@ -89,17 +84,21 @@ def live_payload(brew_data):
     return data
 
 
-def flow_payload(brew_data):
-    """Flow gets a packet of its own, ~35 B (18.9.2026). It does not fit in the live packet: with the
-    longest mode string that one is 250 B before flow and already has to drop weight to fit 240.
-    Weight rides along so a consumer gets the pair from one packet even then. None when there is no
-    flow to report - no scale, or samples too stale to differentiate."""
-    flow = brew_data.get_flow()
-    if flow is None:
+def scale_payload(brew_data):
+    """Weight and flow in the app's keys (V-210, 20.10.2026: the firmware sent `weight`/`flow`, the app reads
+    `weight_g`/`weight_abs_g`/`flow_g_s`, so weight, flow, the tray check and auto-tare never worked). Own
+    packet, ~70 B: it never fit in the live one with the longest mode string. weight_abs_g is the calibrated
+    absolute mass (tray check: |abs| < 200 g = no tray), weight_g the same minus the app's tare. A stale flow
+    is 0.0, not null: the app keeps its last value on null. None without a scale or a reading."""
+    if getattr(brew_data, 'tray_scale', None) is None:
         return None
     weight = brew_data.get_weight()
-    return {'flow': round(flow, 2),        # the fit's own noise is 0.2 g/s, so 0.01 g/s is plenty
-            'weight': None if weight is None else round(weight, 1)}
+    if weight is None:
+        return None
+    flow = brew_data.get_flow()
+    return {'weight_g': round(weight - (getattr(brew_data, 'tare_abs_g', None) or 0.0), 1),   # 0.1 g is below the noise
+            'weight_abs_g': round(weight, 1),
+            'flow_g_s': 0.0 if flow is None else round(flow, 2)}   # the fit's own noise is 0.2 g/s
 
 
 def trim_payload(data, json_module, max_len=MAX_NOTIFY):
@@ -131,6 +130,12 @@ class BLEHandler:
                 (_COMMAND_CHAR_UUID, bluetooth.FLAG_WRITE),
             )),
         ))
+        # Command writes up to 128 B (EXPRESSO-WIFI-APPI vaihe 0): the default 20 B buffer cut longer
+        # commands such as cal:quick:<g> or pcal:m:<stage>:<bar>; serial accepts 80 characters
+        try:
+            self._ble.gatts_set_buffer(self._handle_rx, 128)
+        except Exception as e:
+            print('BLE rx buffer %r' % (e,))
 
         self._connections = set()
         self._mtus = {}             # conn_handle -> ATT MTU from _IRQ_MTU_EXCHANGED (default 23)
@@ -253,9 +258,14 @@ class BLEHandler:
             return
 
         self._notify(live_payload(self.brew_data))
-        flow = flow_payload(self.brew_data)
-        if flow is not None:
-            self._notify(flow)
+        sp = scale_payload(self.brew_data)
+        if sp is not None:
+            self._notify(sp)
+
+        # Scale calibration wizard state (scalecal.py), only while it is in use
+        sc = getattr(self.brew_data, 'scale_cal', None)
+        if sc is not None and sc.active():
+            self._notify(sc.status())
 
         # Pressure calibration wizard state, only while it is in use
         if self.brew_data.pcal_state != 'idle':
