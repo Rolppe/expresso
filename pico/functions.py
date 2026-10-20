@@ -211,7 +211,7 @@ EU_PRINT_GAP_MS = 20         # loppurivien vali: USB-CDC:n lahetysjono on 256 ta
 # naytteet tulevat renkaasta omilla ajoillaan; (2) kohdan k paatos kirjoitetaan kohtaan k+2 (K1: +1 jakso hyvaksytty),
 # ja 10 ms tauko on kaksi tapahtumaa. Jokaisella kohdalla on tapahtuma, joten nalka (CX_STARVE_US) on virhe, ei tauko.
 # Etumatka = seuraavan kirjoittamattoman tapahtuman aikaisin hetki (kohdan k+2 tauon paluu) - nyt.
-# Vain esiuutto (brew=False); vanha polku on oletus.
+# Esiuutto (vaihe 3) ja uutto bim:1 (vaihe 4, siirtyma ei koske jonoon); vanha polku on oletus.
 EU_C1X_START_MS = 150        # ydin 1 nayttaa ensimmaisen naytteen (CX_N > 0) tassa ajassa, muuten EU_C1X fail ja vanha polku
 EU_C1X_GC_LEAD_US = 35000    # hallittu keruu (~21 ms) vain, kun etumatka on vahintaan tama
 EU_C1X_YIELD_LEAD_US = 30000 # asyncio-vuoro vain, kun rengas on luettu ja etumatka vahintaan tama (pisin varaus 28 ms, laite an)
@@ -219,6 +219,10 @@ EU_C1X_FILL_US = 22000       # tapahtumien vali enintaan tama: kellon korjaus vo
                              # (EU_MIN_SLOT_US + T), joten valiin tayte samalla tilalla ennen ytimen 1 nalkaa (25 ms).
                              # Yli jakson (20 ms): nimellinen vali 19,9-20,1 ms ei saa taytetta
 EU_C1X_DEAD_US = 50000       # ei uutta naytetta ytimelta 1 nain kauan -> reason=c1dead
+EB_C1X_KP_TAIL = 0.2         # uuton pidon 1. s:n P c1x:lla (vanha polku max(EB_KP, EU_KP_TAIL) = 0,4): paatos toteutuu
+                             # jakson myohemmin, ja korotettu P varahtelee pidon alussa (malli 25b kohina, 8 siementa: ylitys
+                             # 0,26 -> 0,22, vanha 0,20 +- 0,06; kaanto 0,3 -> 0,6 kaistalle 0,67 -> 0,61 s, vanha 0,60 +- 0,03).
+                             # Katkaisun ennusteen +20 ms ja virheen ennuste jakson eteenpain kokeiltiin: ylitys 0,28-0,35
 
 
 def _cx_put(x, ev, wt, ne, utime, t, on):
@@ -344,13 +348,10 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
         await asyncio.sleep_ms(20)
 
     brew_data.set_mode('pre-infusion pressure build-up')
-    # Ytimen 1 jaksot (c1x:1, ks. EU_C1X_*): vain esiuutto. Rengas, jono ja CX_OK sidotaan paikallisiin nimiin
+    # Ytimen 1 jaksot (c1x:1, ks. EU_C1X_*): esiuutto ja uutto. Rengas, jono ja CX_OK sidotaan paikallisiin nimiin
     c1t = None
     if getattr(brew_data, 'eu_c1x', 0) == 1:
-        if brew:
-            print('EU_C1X off reason=brew')
-        else:
-            c1t = await _c1x_start(brew_data, utime, asyncio, RELAY_PUMP, sensor)
+        c1t = await _c1x_start(brew_data, utime, asyncio, RELAY_PUMP, sensor)
     c1x = c1t is not None
     guard = getattr(RELAY_PUMP, 'guard', None)
     gc.collect()                  # pumppu pois: tyhja keko alkuun
@@ -528,6 +529,7 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                                                           late_max)]
                     stage_b, phase, tag, ramp_r, reason = True, 3, 'EB', EB_RAMP_BAR_PER_S, 'stop'
                     kp_n, ki_n, kp_t, ki_t = EB_KP, EB_KI_X, max(EB_KP, EU_KP_TAIL), max(EB_KI_X, EU_KI_TAIL_X)
+                    if c1x: kp_t = EB_C1X_KP_TAIL
                     target = brew_data.get_brew_pressure()
                     # Uuton tarpeen ensiarvio taman ajon esiuuton tarpeesta (sama kuristin samassa ajossa): tarve ~ p^0,8
                     # (testit/uutto8_sovitus.py, EB_LEAK_N). Edellisen uuton suhde uuton ja esiuuton tarpeen valilla (eb_x)
@@ -830,7 +832,7 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                 if vv and utime.ticks_diff(t, gc_t) >= EU_GC_MS * 1000 and \
                         ((c1x and utime.ticks_diff(q_dl, utime.ticks_us()) >= EU_C1X_GC_LEAD_US) or
                          (not c1x and phase == 1 and p5 < target * EU_GC_RISE_FRAC) or
-                         (phase == 3 and cut_t is None and p5 < tgt_pre + EB_GC_RISE_FRAC * (target - tgt_pre)) or
+                         (not c1x and phase == 3 and cut_t is None and p5 < tgt_pre + EB_GC_RISE_FRAC * (target - tgt_pre)) or
                          (not c1x and ds and (on_run or not (relay[0] or pump_next or pend_on is not None)))):
                     c0 = utime.ticks_us()
                     gc.collect()
@@ -979,8 +981,19 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
         getattr(brew_data, 'eb_x', 0.0), getattr(brew_data, 'eb_g', 0.0), getattr(brew_data, 'eb_tau', 0.0), coast_c, need,
         u_mean, kd))
     await asyncio.sleep_ms(EU_PRINT_GAP_MS)
+    if c1x:
+        late_max = cx[CL.CX_LMAX]
     print('EB_VV vv=%d stall=%d gc_n=%d gc_max_us=%d fr_end=%d k_max_us=%d s_max_us=%d y_max_us=%d late_max_us=%d' % (
         vv, stall_n, gc_n, gc_max, gc.mem_free() // 1024, k_max, s_max, y_max, late_max))
+    if c1x:
+        # Kuten EU_C1X, koko ajo (esiuutto + uutto). TS_ENDin max_loop_ms = ytimen 0 pisin kasittelyviive: c1x:lla jakson
+        # vali nimellisista kohdista on aina ~20 ms, eika se kerro silmukan pysahdyksista
+        await asyncio.sleep_ms(EU_PRINT_GAP_MS)
+        print('EB_C1X n=%d gmax_us=%d ovf=%d nev=%d written=%d lmax_us=%d late=%d starve=%d lidx=%d lwr_us=%d '
+              'lag_max_us=%d cyc_min=%d fill=%d' % (cx[CL.CX_N], cx[CL.CX_GMAX], cx[CL.CX_OVF], cx[CL.CX_NEV], cx[CL.CX_EW],
+                                                   cx[CL.CX_LMAX], cx[CL.CX_LATE], cx[CL.CX_STARVE], cx[CL.CX_LIDX],
+                                                   cx[CL.CX_LWR], lag_max, cyc_min, fill_n))
+        return (b_slots, lag_max // 1000)
     return (b_slots, b_gap)
 
 
