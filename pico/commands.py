@@ -15,6 +15,19 @@ def handle_command(brew_data, command):
     stby_report = False
     wake = True     # stby:on sets the standby latch itself, so it must not count as activity
 
+    # App tare and scale calibration (scalecal.py, EXPRESSO-WIFI-APPI vaihe 0): the app sent these all along
+    if command == 'tare':
+        import scalecal
+        print('TARE %s abs=%s' % ('ok' if scalecal.tare(brew_data) else 'no_reading', brew_data.tare_abs_g))
+        return False
+    if command.startswith('cal:'):
+        sc = getattr(brew_data, 'scale_cal', None)
+        if sc is None:
+            print('SCALE_CAL no_scale')
+        elif not sc.command(command[4:]):
+            print('SCALE_CAL unknown %s' % command)
+        return False
+
     if command.startswith('pre:'):
         if command == 'pre:on':
             brew_data.set_pre_infusion_mode(True)

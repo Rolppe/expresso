@@ -539,21 +539,26 @@ bdp.boiler_temperature = 123.456789
 payload = bh.live_payload(bdp)
 raw_len = len(_json.dumps(payload))
 sent = bh.trim_payload(payload, _json)
-check('the worst-case live packet still fits 240 B by dropping weight', sent is not None
-      and len(sent) <= 240 and '"weight"' not in sent, '%d B raakana' % raw_len)
-check('flow is not in the live packet', 'flow' not in payload)
+check('the worst-case live packet fits 240 B without dropping anything', sent is not None
+      and len(sent) <= 240, '%d B raakana' % raw_len)
+check('no weight or flow in the live packet (V-210: own packet)', 'flow' not in payload and 'weight' not in payload)
 
-fp = bh.flow_payload(bdp)
+bdp.tray_scale = object()
+bdp.tare_abs_g = 4000.0
+fp = bh.scale_payload(bdp)
 fsent = bh.trim_payload(fp, _json)
-check('the flow packet carries flow and weight and fits 240 B',
-      fsent is not None and len(fsent) <= 240 and '"flow"' in fsent and '"weight"' in fsent,
+check('the scale packet carries the app keys and fits 240 B',
+      fsent is not None and len(fsent) <= 240 and set(fp) == {'weight_g', 'weight_abs_g', 'flow_g_s'},
       '%d B: %s' % (len(fsent), fsent))
-check('flow is rounded to 0.01 g/s and weight to 0.1 g',
-      fp['flow'] in (-12.35, -12.34) and fp['weight'] == 4999.9, str(fp))
+check('weight_g is tared, weight_abs_g absolute, rounding 0.1 g / 0.01 g/s',
+      fp['weight_g'] == 999.9 and fp['weight_abs_g'] == 4999.9 and fp['flow_g_s'] in (-12.35, -12.34), str(fp))
 bdp2 = make_brew_data()
-check('no flow means no extra packet', bh.flow_payload(bdp2) is None)
-bdp3 = make_brew_data(); bdp3.flow = 2.3
-check('a flow with no weight is still reported', bh.flow_payload(bdp3) == {'flow': 2.3, 'weight': None})
+check('no scale means no scale packet', bh.scale_payload(bdp2) is None)
+bdp3 = make_brew_data(); bdp3.tray_scale = object(); bdp3.weight = 700.04
+check('a stale flow is 0.0, not null (the app keeps the old value on null)',
+      bh.scale_payload(bdp3) == {'weight_g': 700.0, 'weight_abs_g': 700.0, 'flow_g_s': 0.0})
+bdp4 = make_brew_data(); bdp4.tray_scale = object()
+check('no reading means no scale packet', bh.scale_payload(bdp4) is None)
 over = bh.trim_payload(dict(payload), _json, max_len=40)
 check('a packet that cannot be trimmed to fit returns None', over is None)
 

@@ -239,6 +239,9 @@ class BrewData:
         # multipack and are set by commands (sync, brew_log?, brew_log:ack) and brew_logger.brew_log_service.
         self.brew_logger             = None
         self.tray_scale              = None
+        # App tare and scale calibration (scalecal.py, EXPRESSO-WIFI-APPI vaihe 0): weight_g = weight - tare_abs_g
+        self.tare_abs_g              = None
+        self.scale_cal               = None
         self.pending_brew_log        = None
         self.brew_log_send_requested = False
         self.brew_log_tx_reset       = False
