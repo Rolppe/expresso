@@ -515,8 +515,10 @@ async def watchdog_feeder():
     brew_data.relay_guard.start()
     devsafe.start_watchdog()
     # Core 1 only now: with its sleep loop already running, the guard's Timer(-1) found the rp2 default alarm
-    # pool full at boot (OSError ENOMEM, main exited, 5.10.2026 flash on the Zero). Idle until run_shot's c1_on.
+    # pool full at boot (OSError ENOMEM, main exited, 5.10.2026 flash on the Zero). It reads the temperature from
+    # here on, at rest too (C1-JAKSOT vaihe 2): core 0's read_rtd slept 75 ms twice a main loop round.
     temperature_sensor.c1_start(utime)
+    temperature_sensor.c1_rest_on()
     while True:
         t0 = utime.ticks_us()
         devsafe.feed()

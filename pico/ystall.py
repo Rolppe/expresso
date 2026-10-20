@@ -82,6 +82,11 @@ async def ystall_run(brew_data, utime, asyncio, seconds, mode):
         c1_run = bool(tsens.c1_on())
     c1j = False
     st = getattr(tsens, 'c1', None) if tsens is not None else None
+    # Levossa ydin 1 lukee lampotilaa (c1_rest, WANT 1, C1-JAKSOT vaihe 2): 64 ja 128 ilman 512:ta vievat ytimen 1, joten
+    # anturi palaa ensin ytimelle 0 (c1_take) ja lepoluku jatkuu lopussa (c1_rest_on)
+    rest = st is not None and getattr(tsens, 'c1_rest', 0) == 1
+    if rest and not c1_run and st[0] == 1 and (mode & 64 or (mode & 128 and not mode & 512)):
+        tsens.c1_take()
     if mode & 64 and not c1_run and st is not None and st[9] == 1 and st[0] == 0:     # C1_RUN, C1_WANT
         ps = getattr(brew_data, 'pressure_sensor', None)
         tsens.c1_adc = getattr(ps, 'pressure_sensor', None)
@@ -92,7 +97,7 @@ async def ystall_run(brew_data, utime, asyncio, seconds, mode):
         st[0] = 2
         c1j = True
     cx = None
-    if mode & 128 and not c1_run and not c1j and st is not None and st[9] == 1 and st[0] == 0:
+    if mode & 128 and not c1_run and not c1j and st is not None and st[9] == 1 and (st[0] == 0 or rest and st[0] == 1):
         import classes as CL
         cx = tsens.cx
         for k in range(len(cx)):
@@ -175,7 +180,7 @@ async def ystall_run(brew_data, utime, asyncio, seconds, mode):
         diagnet.LEGACY_SEND = legacy0
     if cx is not None:
         if cx_temp:
-            t_n = st[2] - tsens.c1_seq0                                         # C1_SEQ
+            t_n = st[2] - tsens.c1_log0                                         # C1_SEQ
             t_c = tsens.c1_temperature()
             tsens.c1_off()
         else:
@@ -197,6 +202,12 @@ async def ystall_run(brew_data, utime, asyncio, seconds, mode):
         r = tsens.c1_test
         print('C1J done=%d n=%d gmax_us=%d g15=%d g2=%d g5=%d adc=%d' % (r[6], r[1], r[2], r[3], r[4], r[5],
                                                                         0 if tsens.c1_adc is None else 1))
+    if rest:
+        w0 = utime.ticks_us()
+        while st[0] == 2 and utime.ticks_diff(utime.ticks_us(), w0) < 100000:              # C1_WANT: jitter loppuu
+            await asyncio.sleep_ms(1)
+        if st[0] == 0:
+            tsens.c1_rest_on()
     print('YSTALL_END s=%d mode=%d n=%d y10=%d y50=%d y_max_us=%d gc_n=%d gc_max_us=%d free=%d guard_off=%d radio_off=%d c1=%d' % (
         seconds, mode, n, y10, y50, y_max, gc_n, gc_max, gc.mem_free(), 1 if guard_off else 0, 1 if radio_off else 0,
         1 if c1_run else 0))
