@@ -384,7 +384,7 @@ def handle_command(brew_data, command):
     elif command.startswith('c1x:'):
         # Ytimen 1 jaksot pim:1:n esiuutossa ja bim:1:n uutossa (EXPRESSO-C1-JAKSOT vaiheet 3-4, TILAUS-O): 1 = ydin 1
         # nayttee ja kaantaa pumppureleen jonosta, 0 = vanha polku. bim:0:n vanha uuttosilmukka ei kayta sita.
-        # RAM only, oletus 0: uudelleenkaynnistys ja flash palauttavat vanhan polun.
+        # RAM only, oletus 1 (classes.BrewData, kayttaja 20.10.2026): uudelleenkaynnistys ja flash palauttavat c1x:1:n.
         try:
             brew_data.eu_c1x = 1 if int(_float_arg(command)) == 1 else 0
             updated = True
