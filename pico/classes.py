@@ -1526,22 +1526,31 @@ TEMP_C1_RAW_N    = 48
 TEMP_C1_MIN_CDEG = 200        # read_temperature's 2..200 C
 TEMP_C1_MAX_CDEG = 20000
 # c1 state (array 'i'), shared by the cores: every field one word, written by one core only (WANT, T0 core 0; the rest
-# core 1, RI and GAP also core 0 while core 1 is idle)
-C1_WANT, C1_IDLE, C1_SEQ, C1_CDEG, C1_MS, C1_BAD, C1_GAP, C1_ERR, C1_RI, C1_RUN, C1_T0 = range(11)
+# core 1, RI and GAP also core 0 while core 1 is idle). NBAD and LAST: bad readings in a row and the time of the last good
+# one, kept here so that the reading loop and the executor share _c1_put.
+C1_WANT, C1_IDLE, C1_SEQ, C1_CDEG, C1_MS, C1_BAD, C1_GAP, C1_ERR, C1_RI, C1_RUN, C1_T0, C1_NBAD, C1_LAST = range(13)
+# Core 1 never sleeps (EXPRESSO-C1-JAKSOT vaihe 2): a sleep_ms on core 1 stretched core 0's collections at rest from
+# ~20 ms to 80-600 ms and its sleep_ms(0) turns to 65 ms during a reading (GC-UUTTO, 20.10.2026), so every wait on core 1
+# spins on ticks_us.
 # Core 1 executor (EXPRESSO-C1-JAKSOT vaihe 1, paketit/C1-JAKSOT.md; WANT 3): 1 kHz samples into a ring that core 0
 # reads, relay events from a queue that core 0 fills ahead. Rings in array('i'): samples (t_us, raw) and events
 # (t_us, on). Indices only grow; position = index % size. Writer of each field in brackets.
 CX_NS = 256                   # samples: 256 ms of slack for core 0
 CX_NE = 64                    # events
 CX_SW, CX_SR, CX_EW, CX_ER, CX_N, CX_GMAX, CX_OVF, CX_NEV, CX_LMAX, CX_LATE, CX_STARVE, CX_ARMED, CX_LAST, \
-    CX_DRY, CX_PIN, CX_LIDX, CX_LWR = range(17)
+    CX_DRY, CX_PIN, CX_LIDX, CX_LWR, CX_TEMP, CX_TS, CX_TC, CX_TR = range(21)
 # SW (1) sample write, SR (0) sample read, EW (0) event write, ER (1) event read, N/GMAX/OVF (1) samples, gap max us,
 # ring overruns, NEV/LMAX/LATE (1) events done, lateness max us, events > CX_LATE_US late, STARVE (1) cycles without
 # an event, ARMED (0) starvation counted from the first event, LAST (1) time of the last event, DRY (0) 1 = record
 # only, PIN (1) the relay state the executor last set (dry: the state it would have set), LIDX/LWR (1) the latest
-# event's index and its write time minus its due time (us; > 0 = core 0 wrote it late), from cx_wt (0)
+# event's index and its write time minus its due time (us; > 0 = core 0 wrote it late), from cx_wt (0), TEMP (0)
+# 1 = the executor also reads the boiler temperature (c1_on(3)), TS/TC/TR (1) the longest rtd_start, rtd_convert and
+# rtd_result + average (us, K3)
 CX_LATE_US = 300              # = EU_LATE_MAX_US
 CX_STARVE_US = 25000          # a mains cycle and a margin without an event
+# Temperature between samples (vaihe 2): a MAX31865 step runs only when the next sample and the next relay event are
+# both further than this, so it delays neither (K3: each step must take < 0.5 ms)
+CX_TROOM_US = 700
 
 
 #### Class for reading pt100 sensor temperature with max31865 ####
@@ -1612,14 +1621,14 @@ class TemperatureSensor:
         self.c1_tab = array('i', [int(drv.temperature_from_rtd(TEMP_C1_RAW_LO + (k << 8)) * 100 + 0.5)
                                   for k in range(TEMP_C1_RAW_N + 1)])
         self.c1_seq0 = 0
-        st = array('i', [0] * 11)
+        st = array('i', [0] * 13)
         st[C1_IDLE] = st[C1_RUN] = 1
         self.c1 = st
         # ystall bit 64 (EXPRESSO-GC-UUTTO, TILAUS-O): core 1 jitter test, WANT 2. [0] ms asked; core 1 writes
         # [1] n, [2] max gap us, [3] gaps > 1.5 ms, [4] > 2 ms, [5] > 5 ms, [6] done
         self.c1_test = array('i', [0] * 7)
         self.c1_adc = None
-        self.cx = array('i', [0] * 17)
+        self.cx = array('i', [0] * 21)
         self.cx_wt = array('i', [0] * CX_NE)       # core 0's write time of each event slot
         self.cx_samp = array('i', [0] * (2 * CX_NS))
         self.cx_ev = array('i', [0] * (2 * CX_NE))
@@ -1633,14 +1642,19 @@ class TemperatureSensor:
             self.c1 = None
             print('TEMP_C1 none: %s' % e)
 
-    def c1_active(self):
+    def c1_reads(self):
+        """True while core 1 owns the sensor: the reading loop (WANT 1) or the executor with TEMP (WANT 3)."""
         st = self.c1
-        return st is not None and st[C1_WANT] == 1 and st[C1_RUN] == 1
+        return st is not None and (st[C1_WANT] == 1 or (st[C1_WANT] == 3 and self.cx[CX_TEMP] == 1))
 
-    def c1_on(self):
-        """Hands the sensor to core 1 (run_shot start). Its average goes on from core 0's readings."""
+    def c1_active(self):
+        return self.c1_reads() and self.c1[C1_RUN] == 1
+
+    def c1_on(self, want=1):
+        """Hands the sensor to core 1 (run_shot start). Its average goes on from core 0's readings. want 3: the
+        executor reads it between its samples (cx set up by the caller, TEMP set here)."""
         st = self.c1
-        if st is None or st[C1_RUN] == 0:
+        if st is None or st[C1_RUN] == 0 or st[C1_WANT] != 0:
             return False
         ring = self.c1_ring
         for k in range(7):
@@ -1648,14 +1662,18 @@ class TemperatureSensor:
         st[C1_RI], st[C1_GAP], st[C1_BAD] = self.temps_i, 0, 0
         st[C1_T0] = self.c1_utime.ticks_ms()
         self.c1_seq0 = st[C1_SEQ]
-        st[C1_WANT] = 1
+        if want == 3:
+            self.cx[CX_TEMP] = 1
+            st[C1_WANT] = 3
+        else:
+            st[C1_WANT] = 1
         return True
 
     def c1_off(self):
         """Takes the sensor back (run_shot end): waits for a reading in progress, then core 0 goes on from core 1's
-        average."""
+        average. Also ends the executor if it was reading."""
         st = self.c1
-        if st is None or st[C1_WANT] != 1:
+        if not self.c1_reads():
             return
         utime = self.c1_utime
         st[C1_WANT] = 0
@@ -1670,18 +1688,19 @@ class TemperatureSensor:
         for k in range(7):
             self.temps[k] = ring[k] / 100
         self.temps_i = st[C1_RI]
+        self.cx[CX_TEMP] = 0
 
     def c1_temperature(self):
         """Core 1's latest average (C) since c1_on, else None."""
         st = self.c1
-        if st is None or st[C1_WANT] != 1 or st[C1_SEQ] == self.c1_seq0:
+        if not self.c1_reads() or st[C1_SEQ] == self.c1_seq0:
             return None
         return st[C1_CDEG] / 100
 
     def c1_ms(self):
         """ticks_ms of core 1's latest reading since c1_on, else None."""
         st = self.c1
-        if st is None or st[C1_WANT] != 1 or st[C1_SEQ] == self.c1_seq0:
+        if not self.c1_reads() or st[C1_SEQ] == self.c1_seq0:
             return None
         return st[C1_MS]
 
@@ -1745,23 +1764,71 @@ class TemperatureSensor:
         r[5] = g5
         r[6] = 1
 
+    def _c1_put(self, st, ring, tab, raw, now):
+        """One MAX31865 result into core 1's 7-reading average (0.01 C). Returns 1 for a good reading, 0 for a bad one
+        (as read_temperature: the caller retries at once, and the sixth bad one in a row reads 200 C = heater guard
+        overtemp). Shared by the reading loop and the executor."""
+        c = -1
+        if TEMP_C1_RAW_LO <= raw < TEMP_C1_RAW_LO + (TEMP_C1_RAW_N << 8):
+            j = (raw - TEMP_C1_RAW_LO) >> 8
+            a = tab[j]
+            c = a + (((tab[j + 1] - a) * (raw - TEMP_C1_RAW_LO - (j << 8)) + 128) >> 8)
+        if c < TEMP_C1_MIN_CDEG or c > TEMP_C1_MAX_CDEG:
+            st[C1_BAD] += 1
+            b = st[C1_NBAD] + 1
+            if b > 5:
+                b = 0
+                st[C1_CDEG] = TEMP_C1_MAX_CDEG
+                st[C1_MS] = now
+                st[C1_SEQ] += 1
+            st[C1_NBAD] = b
+            return 0
+        st[C1_NBAD] = 0
+        i = st[C1_RI]
+        ring[i] = c
+        i += 1
+        if i >= 7:
+            i = 0
+        st[C1_RI] = i
+        s = 0
+        for k in range(7):
+            s += ring[k]
+        last = st[C1_LAST]
+        gap = self.c1_utime.ticks_diff(now, last if last else st[C1_T0])
+        if gap > st[C1_GAP]:
+            st[C1_GAP] = gap
+        st[C1_LAST] = now
+        st[C1_CDEG] = (s + 3) // 7
+        st[C1_MS] = now
+        st[C1_SEQ] += 1
+        return 1
+
     def _c1_exec(self, st, utime):
-        """EXPRESSO-C1-JAKSOT: samples at 1 kHz and carries out relay events at their times while WANT is 3. Heap
-        locked: integers, array stores and calls that return small ints only (no tuples, no floats)."""
+        """EXPRESSO-C1-JAKSOT: samples at 1 kHz and carries out relay events at their times while WANT is 3; with TEMP
+        also reads the boiler temperature in steps between them (vaihe 2). Heap locked: integers, array stores and
+        calls that return small ints only (no tuples, no floats)."""
         x = self.cx
         sm = self.cx_samp
         ev = self.cx_ev
         wt = self.cx_wt
         adc = self.c1_adc
         pin = None if x[CX_DRY] else self.cx_pin
+        tt = x[CX_TEMP]
+        drv = self.temperature_sensor
+        ring = self.c1_ring
+        tab = self.c1_tab
+        tph = 0                       # next MAX31865 step: 0 rtd_start, 1 rtd_convert, 2 rtd_result
         prev = utime.ticks_us()
         nxt = prev
+        tdue = prev                   # the next step not before this
+        tst = prev                    # start of the reading in progress (TEMP_C1_EVERY_MS from here)
         x[CX_LAST] = prev
         while st[C1_WANT] == 3:
             nxt = utime.ticks_add(nxt, 1000)
             now = utime.ticks_us()
             while utime.ticks_diff(nxt, now) > 0:
                 r = x[CX_ER]
+                room = CX_TROOM_US + 1
                 if r != x[CX_EW]:
                     i = (r % CX_NE) * 2
                     d = utime.ticks_diff(now, ev[i])
@@ -1779,9 +1846,31 @@ class TemperatureSensor:
                         x[CX_ER] = r + 1
                         x[CX_NEV] += 1
                         x[CX_LAST] = now
+                        now = utime.ticks_us()
+                        continue
+                    room = -d
                 elif x[CX_ARMED] and utime.ticks_diff(now, x[CX_LAST]) > CX_STARVE_US:
                     x[CX_STARVE] += 1
                     x[CX_LAST] = now
+                if tt and room > CX_TROOM_US and utime.ticks_diff(now, tdue) >= 0 and \
+                        utime.ticks_diff(nxt, now) > CX_TROOM_US:
+                    if tph == 0:
+                        drv.rtd_start()
+                        tst = now
+                        tdue = utime.ticks_add(now, TEMP_C1_BIAS_MS * 1000)
+                        k = CX_TS
+                    elif tph == 1:
+                        drv.rtd_convert()
+                        tdue = utime.ticks_add(now, TEMP_C1_CONV_MS * 1000)
+                        k = CX_TC
+                    else:
+                        if self._c1_put(st, ring, tab, drv.rtd_result(), utime.ticks_ms()):
+                            tdue = utime.ticks_add(tst, TEMP_C1_EVERY_MS * 1000)
+                        k = CX_TR
+                    tph = tph + 1 if tph < 2 else 0
+                    d = utime.ticks_diff(utime.ticks_us(), now)
+                    if d > x[k]:
+                        x[k] = d
                 now = utime.ticks_us()
             raw = adc.read_u16() if adc is not None else 0
             w = x[CX_SW]
@@ -1796,12 +1885,20 @@ class TemperatureSensor:
             if x[CX_N] and g > x[CX_GMAX]:
                 x[CX_GMAX] = g
             x[CX_N] += 1
+        if tt and tph:
+            # A reading left half way: let its conversion end before core 0 takes the chip (c1_off waits for IDLE,
+            # which core 1 sets only after this returns); the result is dropped
+            if tph == 1:
+                drv.rtd_convert()
+                tdue = utime.ticks_add(utime.ticks_us(), TEMP_C1_CONV_MS * 1000)
+            while utime.ticks_diff(tdue, utime.ticks_us()) > 0:
+                pass
+            drv.rtd_result()
         if pin is not None:
             pin.value(0)
         x[CX_PIN] = 0
 
     def _c1_loop(self, st, ring, tab, drv, utime):
-        bad = last = 0
         while st[C1_WANT] >= 0:
             st[C1_IDLE] = 0
             if st[C1_WANT] == 2:
@@ -1812,50 +1909,22 @@ class TemperatureSensor:
                 self._c1_exec(st, utime)
                 continue
             if st[C1_WANT] == 0:
+                st[C1_NBAD] = 0
+                st[C1_LAST] = 0
                 st[C1_IDLE] = 1
-                bad = last = 0
-                utime.sleep_ms(2)
+                while st[C1_WANT] == 0:
+                    pass
                 continue
-            t0 = utime.ticks_ms()
+            t0 = utime.ticks_us()
             drv.rtd_start()
-            utime.sleep_ms(TEMP_C1_BIAS_MS)
+            while utime.ticks_diff(utime.ticks_us(), t0) < TEMP_C1_BIAS_MS * 1000:
+                pass
+            t = utime.ticks_us()
             drv.rtd_convert()
-            utime.sleep_ms(TEMP_C1_CONV_MS)
-            raw = drv.rtd_result()
-            now = utime.ticks_ms()
-            c = -1
-            if TEMP_C1_RAW_LO <= raw < TEMP_C1_RAW_LO + (TEMP_C1_RAW_N << 8):
-                j = (raw - TEMP_C1_RAW_LO) >> 8
-                a = tab[j]
-                c = a + (((tab[j + 1] - a) * (raw - TEMP_C1_RAW_LO - (j << 8)) + 128) >> 8)
-            if c < TEMP_C1_MIN_CDEG or c > TEMP_C1_MAX_CDEG:
-                # As read_temperature: retry at once, and the sixth bad reading in a row reads 200 C (heater guard:
-                # overtemp)
-                st[C1_BAD] += 1
-                bad += 1
-                if bad > 5:
-                    bad = 0
-                    st[C1_CDEG], st[C1_MS] = TEMP_C1_MAX_CDEG, now
-                    st[C1_SEQ] += 1
+            while utime.ticks_diff(utime.ticks_us(), t) < TEMP_C1_CONV_MS * 1000:
+                pass
+            if not self._c1_put(st, ring, tab, drv.rtd_result(), utime.ticks_ms()):
                 continue
-            bad = 0
-            i = st[C1_RI]
-            ring[i] = c
-            i += 1
-            if i >= 7:
-                i = 0
-            st[C1_RI] = i
-            s = 0
-            for k in range(7):
-                s += ring[k]
-            gap = utime.ticks_diff(now, last if last else st[C1_T0])
-            if gap > st[C1_GAP]:
-                st[C1_GAP] = gap
-            last = now
-            st[C1_CDEG], st[C1_MS] = (s + 3) // 7, now
-            st[C1_SEQ] += 1
-            wait = TEMP_C1_EVERY_MS - utime.ticks_diff(utime.ticks_ms(), t0)
-            while wait > 0 and st[C1_WANT] == 1:
-                utime.sleep_ms(wait if wait < 10 else 10)
-                wait = TEMP_C1_EVERY_MS - utime.ticks_diff(utime.ticks_ms(), t0)
+            while st[C1_WANT] == 1 and utime.ticks_diff(utime.ticks_us(), t0) < TEMP_C1_EVERY_MS * 1000:
+                pass
 

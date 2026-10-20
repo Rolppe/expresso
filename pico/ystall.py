@@ -20,6 +20,8 @@
 #       releen tapahtumat jonosta kirjaten ajat (rele ei kaanny); ydin 0 lukee renkaan ja muuntaa baareiksi kuten uutto,
 #       ja kirjoittaa 20 ms:n jaksot (joka toinen 10 ms tauko) 40 ms etukateen. C1X-rivi kertoo tuloksen.
 # 256 = bitin 128 kanssa jono vain 20 ms (yksi jakso) etukateen
+# 512 = bitin 128 kanssa toteuttaja lukee myos kattilan lampotilan naytteiden valeissa (C1-JAKSOT vaihe 2,
+#       TemperatureSensor.c1_on(3)/c1_off): C1X-rivin t_n, ts/tc/tr_us (K3: vaiheiden pisin kesto) ja cdeg
 # Rivit: YSTALL (vuoro > YS_LOG_US), YS_GC (keruu > YS_LOG_US), YSTALL_END (yhteenveto). Releisiin ei kosketa.
 
 import gc
@@ -103,7 +105,9 @@ async def ystall_run(brew_data, utime, asyncio, seconds, mode):
         look = 20000 if mode & 256 else 40000
         fill = [utime.ticks_add(utime.ticks_us(), 20000), 0]
         cx_bar_n = 0
-        st[0] = 3
+        cx_temp = bool(mode & 512) and bool(tsens.c1_on(3))
+        if not cx_temp:
+            st[0] = 3
     t0 = utime.ticks_us()
     end = utime.ticks_add(t0, int(seconds * 1000000))
     gc_t = t0
@@ -170,13 +174,22 @@ async def ystall_run(brew_data, utime, asyncio, seconds, mode):
             diag.quiet = quiet0
         diagnet.LEGACY_SEND = legacy0
     if cx is not None:
-        st[0] = 0
-        w0 = utime.ticks_us()
-        while st[1] == 0 and utime.ticks_diff(utime.ticks_us(), w0) < 1000000:
-            await asyncio.sleep_ms(5)
+        if cx_temp:
+            t_n = st[2] - tsens.c1_seq0                                         # C1_SEQ
+            t_c = tsens.c1_temperature()
+            tsens.c1_off()
+        else:
+            st[0] = 0
+            w0 = utime.ticks_us()
+            while st[1] == 0 and utime.ticks_diff(utime.ticks_us(), w0) < 1000000:
+                await asyncio.sleep_ms(5)
         print('C1X look_ms=%d n=%d exp=%d gmax_us=%d ovf=%d nev=%d written=%d lmax_us=%d late=%d starve=%d bar_n=%d '
               'lidx=%d lwr_us=%d' % (look // 1000, cx[4], int(seconds * 1000), cx[5], cx[6], cx[7], cx[2], cx[8], cx[9],
                                      cx[10], cx_bar_n, cx[15], cx[16]))
+        if cx_temp:
+            # Indeksit classes.CX_*: 18 TS, 19 TC, 20 TR; C1_*: 5 BAD, 6 GAP (ms)
+            print('C1T t_n=%d exp=%d ts_us=%d tc_us=%d tr_us=%d bad=%d gap_ms=%d cdeg=%s' % (
+                t_n, int(seconds * 4), cx[18], cx[19], cx[20], st[5], st[6], 'None' if t_c is None else '%.2f' % t_c))
     if c1j:
         w0 = utime.ticks_us()
         while tsens.c1_test[6] == 0 and utime.ticks_diff(utime.ticks_us(), w0) < 3000000:

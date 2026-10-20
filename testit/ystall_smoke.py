@@ -155,7 +155,7 @@ import classes as CL  # noqa: E402
 
 class Ts64:
     def __init__(self):
-        self.c1 = [0] * 11
+        self.c1 = [0] * 13
         self.c1[9] = 1
         self.c1_test = [0] * 7
         self.c1_adc = None
@@ -188,7 +188,7 @@ check('bit 64: WANT back to 0', ts.c1[0] == 0)
 import inspect  # noqa: E402
 import re  # noqa: E402
 src = inspect.getsource(CL.TemperatureSensor._c1_jitter) + inspect.getsource(CL.TemperatureSensor._c1_loop) + \
-    inspect.getsource(CL.TemperatureSensor._c1_exec)
+    inspect.getsource(CL.TemperatureSensor._c1_exec) + inspect.getsource(CL.TemperatureSensor._c1_put)
 code = '\n'.join(l.split('#')[0] for l in src.splitlines() if not l.strip().startswith(('"""', 'locked', 'an event')))
 check('core 1 code: no true division (float = allocation)', not re.search(r'[^/]/[^/]', code.replace('//', '')),
       re.findall(r'.{20}[^/]/[^/].{10}', code.replace('//', ''))[:3])
@@ -201,14 +201,15 @@ from array import array  # noqa: E402
 
 class TsX:
     def __init__(self):
-        self.c1 = [0] * 11
+        self.c1 = [0] * 13
         self.c1[1] = self.c1[9] = 1
-        self.cx = array('i', [0] * 17)
+        self.cx = array('i', [0] * 21)
         self.cx_wt = array('i', [0] * CL.CX_NE)
         self.cx_samp = array('i', [0] * (2 * CL.CX_NS))
         self.cx_ev = array('i', [0] * (2 * CL.CX_NE))
         self.cx_pin = types.SimpleNamespace(value=lambda v: (_ for _ in ()).throw(AssertionError('dry run set the pin')))
         self.c1_adc = None
+        self.temperature_sensor = self.c1_ring = self.c1_tab = None      # TEMP 0: not used
 
 
 P30 = 1 << 30
@@ -242,6 +243,111 @@ check('bit 128: events carried out in order, few pending', vals and 60 <= int(va
 # SlowAio stops core 0 for 60 ms, longer than the 40 ms queue: the worst event was written after its due time
 check('bit 128: worst late event shows it was written late', vals and int(vals['late']) > 0 and int(vals['lwr_us']) > 0, vals)
 check('bit 128: WANT back to 0, dry pin state recorded', tx.c1[0] == 0 and tx.cx[CL.CX_DRY] == 1)
+
+# C1-JAKSOT vaihe 2: core 1 never sleeps (a sleep_ms there stretched core 0's collections to 80-600 ms, 20.10.2026)
+check('core 1 code: no sleep', 'sleep' not in code, [l for l in code.splitlines() if 'sleep' in l][:3])
+
+
+class Drv:
+    """MAX31865 steps: each takes STEP s; rtd_result gives RAW. Records the order of the steps."""
+    STEP = 0.0002
+    RAW = CL.TEMP_C1_RAW_LO + 9 * 256          # table below: 90.00 C
+
+    def __init__(self):
+        self.seq = []
+
+    def _step(self, k):
+        self.seq.append(k)
+        t = time.perf_counter()
+        while time.perf_counter() - t < self.STEP:
+            pass
+
+    def rtd_start(self):
+        self._step('s')
+
+    def rtd_convert(self):
+        self._step('c')
+
+    def rtd_result(self):
+        self._step('r')
+        return self.RAW
+
+
+def real_ts(ut_):
+    """A TemperatureSensor without the chip: the real c1_* methods and core 1 code on host arrays."""
+    t = CL.TemperatureSensor.__new__(CL.TemperatureSensor)
+    t.temperature_sensor = Drv()
+    t.temps = [93.0] * 7
+    t.temps_i = 3
+    t.c1_utime = ut_
+    t.c1_ring = array('i', [0] * 7)
+    t.c1_tab = array('i', [k * 1000 for k in range(CL.TEMP_C1_RAW_N + 1)])
+    t.c1_seq0 = 0
+    t.c1 = array('i', [0] * 13)
+    t.c1[CL.C1_IDLE] = t.c1[CL.C1_RUN] = 1
+    t.c1_test = array('i', [0] * 7)
+    t.c1_adc = None
+    t.cx = array('i', [0] * 21)
+    t.cx_wt = array('i', [0] * CL.CX_NE)
+    t.cx_samp = array('i', [0] * (2 * CL.CX_NS))
+    t.cx_ev = array('i', [0] * (2 * CL.CX_NE))
+    t.cx_pin = types.SimpleNamespace(value=lambda v: (_ for _ in ()).throw(AssertionError('dry run set the pin')))
+    return t
+
+
+# bit 512 (with 128): the executor reads the temperature between samples; c1_off ends it and hands the average back
+tt = real_ts(utw)
+th5 = threading.Thread(target=lambda: CL.TemperatureSensor._c1_loop(tt, tt.c1, tt.c1_ring, tt.c1_tab,
+                                                                     tt.temperature_sensor, utw), daemon=True)
+th5.start()
+bd = types.SimpleNamespace(diag=None, tbusy=None, temperature_sensor=tt,
+                           pressure_sensor=types.SimpleNamespace(pressure_sensor=types.SimpleNamespace(read_u16=lambda: 20000)))
+buf = io.StringIO()
+with contextlib.redirect_stdout(buf):
+    aio.run(ystall.ystall_run(bd, utw, SlowAio(), 1, 640))
+out5 = buf.getvalue().splitlines()
+c1x = [l for l in out5 if l.startswith('C1X')]
+c1t = [l for l in out5 if l.startswith('C1T')]
+vx = dict(kv.split('=') for kv in c1x[0].split()[1:]) if c1x else {}
+vt = dict(kv.split('=') for kv in c1t[0].split()[1:]) if c1t else {}
+check('bit 512: C1X and C1T lines', len(c1x) == 1 and len(c1t) == 1, out5[-4:])
+def avg_after(n):
+    """core 0's 93.0 x 7 (temps_i 3) after n readings of 90.0: the average and the list c1_off hands back"""
+    r = [93.0] * 7
+    for k in range(n):
+        r[(3 + k) % 7] = 90.0
+    return '%.2f' % (sum(r) / 7), r
+
+
+check('bit 512: readings every ~250 ms between samples', vt and 2 <= int(vt['t_n']) <= 5
+      and vt['cdeg'] == avg_after(int(vt['t_n']))[0], vt)
+check('bit 512: step durations recorded (K3)', vt and all(0 < int(vt[k]) < 50000 for k in ('ts_us', 'tc_us', 'tr_us')), vt)
+check('bit 512: samples and events go on', vx and int(vx['n']) >= 700 and int(vx['nev']) >= 60, vx)
+seq = ''.join(tt.temperature_sensor.seq)
+check('bit 512: steps in order start, convert, result; a reading left half way is finished',
+      seq.replace('scr', '') == '' and seq.endswith('r'), seq[-12:])
+check('bit 512: c1_off handed the sensor back', tt.c1[CL.C1_WANT] == 0 and tt.cx[CL.CX_TEMP] == 0
+      and vt and tt.temps == avg_after(tt.c1[CL.C1_SEQ])[1] and not tt.c1_active(),
+      (tt.c1[CL.C1_WANT], tt.cx[CL.CX_TEMP], tt.temps))
+
+# the reading loop (WANT 1) on core 1 without sleep_ms: utime here has none, a call would raise and end the thread
+t1 = real_ts(utw)
+th6 = threading.Thread(target=lambda: CL.TemperatureSensor._c1_main(t1), daemon=True)
+sys.modules['micropython'] = types.SimpleNamespace(heap_lock=lambda: None, heap_unlock=lambda: None)
+th6.start()
+time.sleep(0.05)
+check('WANT 0: core 1 idle', t1.c1[CL.C1_IDLE] == 1 and t1.c1[CL.C1_RUN] == 1)
+t1.c1_on()
+time.sleep(0.6)
+n1 = t1.c1[CL.C1_SEQ]
+check('WANT 1: readings every ~250 ms, no sleep', 2 <= n1 <= 4 and '%.2f' % t1.c1_temperature() == avg_after(n1)[0]
+      and t1.c1[CL.C1_ERR] == 0, (n1, t1.c1_temperature(), t1.c1[CL.C1_ERR]))
+t1.c1_off()
+check('c1_off: back to WANT 0 and core 0', t1.c1[CL.C1_IDLE] == 1 and not t1.c1_active()
+      and t1.temps == avg_after(t1.c1[CL.C1_SEQ])[1], t1.temps)
+t1.c1[CL.C1_WANT] = -1
+th6.join(1)
+check('WANT -1 ends the thread without an error', not th6.is_alive() and t1.c1[CL.C1_ERR] == 0 and t1.c1[CL.C1_RUN] == 0)
 
 print('RESULT: %d failed' % len(FAILED))
 sys.exit(1 if FAILED else 0)
