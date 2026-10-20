@@ -108,6 +108,22 @@ if tray_scale is not None:
     brew_data.scale_cal = scalecal.ScaleCal(tray_scale, utime, lambda: brew_data.mode == 'IDLE')
 
 
+# 30 ms task lateness since the last DIAG_HB: max us and count over 100 ms (EXPRESSO-GC-UUTTO 20.10.2026: the user saw
+# delays of up to ~0.5 s after the machine had been on for long, maybe also without the Zero; the HB tracks it by uptime)
+brew_data.lmax = [0, 0]
+
+
+def task_late(t_sl):
+    if t_sl is None:
+        return
+    l = utime.ticks_diff(utime.ticks_us(), t_sl) - 30000
+    lm = brew_data.lmax
+    if l > lm[0]:
+        lm[0] = l
+    if l > 100000:
+        lm[1] += 1
+
+
 def task_busy(name, t0):
     d = utime.ticks_diff(utime.ticks_us(), t0)
     tb = brew_data.tbusy
@@ -126,7 +142,9 @@ async def ble_communication(brew_data):
 
     last_transmission_time = utime.ticks_ms()
 
+    t_sl = None
     while True:
+        task_late(t_sl)
         t0 = utime.ticks_us()
         # Lähetetään data max 5 kertaa sekunnissa
         if utime.ticks_diff(utime.ticks_ms(), last_transmission_time) >= 200:
@@ -140,16 +158,20 @@ async def ble_communication(brew_data):
         ble_handler.advertise_if_needed()
         task_busy('ble', t0)
 
+        t_sl = utime.ticks_us()
         await asyncio.sleep_ms(30)
 
 
 # BLE off (preset BLE, EXPRESSO-WIFI-AIKAIKKUNA 20.10.2026): the brew log still samples at the BLE task's pace,
 # and the Wi-Fi link sends the finished shot. The radio's BLE side is never activated.
 async def brew_log_only(brew_data):
+    t_sl = None
     while True:
+        task_late(t_sl)
         t0 = utime.ticks_us()
         brew_log_service(brew_data, utime)
         task_busy('log', t0)
+        t_sl = utime.ticks_us()
         await asyncio.sleep_ms(30)
 
 
