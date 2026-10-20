@@ -323,6 +323,27 @@ with tempfile.TemporaryDirectory() as d:
     k1 = W.load_key(types.SimpleNamespace(urandom=os.urandom), p)
     k2 = W.load_key(types.SimpleNamespace(urandom=lambda n: b'x' * n), p)
     check('key made once, reloaded', len(k1) == 32 and k1 == k2 and len(open(p).read().strip()) == 64)
+# ipoll before recvfrom (EXPRESSO-GC-UUTTO): CPython's poll has no ipoll -> fallback (_poll None, used above);
+# with a MicroPython-style poller an empty queue never reaches recvfrom
+class _Poll:
+    def __init__(self, sock): self.sock = sock
+    def ipoll(self, t): return iter([(self.sock, 1)] if self.sock.inbox else [])
+class _CountSock(Sock):
+    def __init__(self):
+        Sock.__init__(self); self.calls = 0
+    def recvfrom(self, n):
+        self.calls += 1; return Sock.recvfrom(self, n)
+check('fallback without ipoll', L._poll is None)
+_old = (L.sock, L._poll)
+L.sock = _CountSock(); L._poll = _Poll(L.sock)
+L.step()
+idle_calls = L.sock.calls
+L.sock.inbox.append((b'EXA1 hello', ('192.0.2.14', 5000)))
+rx0 = L.rx
+L.step()
+check('ipoll: no recvfrom when empty, one per packet', idle_calls == 0 and L.sock.calls == 1 and L.rx == rx0 + 1,
+      (idle_calls, L.sock.calls, L.rx - rx0))
+L.sock, L._poll = _old
 kp = L.key_packet()
 check('key packet', kp == {'type': 'wifi_key', 'key': KEY.hex(), 'host': '192.0.2.13', 'port': 47211}, kp)
 

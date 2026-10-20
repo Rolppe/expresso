@@ -473,6 +473,24 @@ def shot_series(rng, flow=2.3, quiet_s=3.0, run_s=12.0, glitch_at=None):
 rng = random.Random(7)
 sc = make_scale()
 f = feed(sc, shot_series(rng))
+
+# flow() cache (EXPRESSO-GC-UUTTO): a repeat call without a new sample returns the cached fit, a new span or
+# sample recomputes it, and a stale reading is still None
+h = sc._flow_raw
+v1 = sc.flow()
+hit = sc.flow() is v1 and v1 == sc._flow_fit(h, h[-1][0], sc.flow_window_ms)
+v_span = sc.flow(sc.flow_window_ms // 2)
+fresh_span = v_span == sc._flow_fit(h, h[-1][0], sc.flow_window_ms // 2)
+clock[0] += DT
+sc._shift = lambda: (h[-1][1] + 0.2, 0.0)
+sc.update()
+v2 = sc.flow()
+fresh_new = v2 == sc._flow_fit(sc._flow_raw, sc._flow_raw[-1][0], sc.flow_window_ms)
+clock[0] += (scale.FLOW_STALE_MS + 50) / 1000.0
+stale = sc.flow() is None
+check('flow cache: hit, new span, new sample, stale', hit and fresh_span and fresh_new and stale,
+      'hit=%s span=%s new=%s stale=%s' % (hit, fresh_span, fresh_new, stale))
+clock[0] -= (scale.FLOW_STALE_MS + 50) / 1000.0
 steady = [x for x in f[int(6.0 / DT):] if x is not None]
 check('flow follows a steady 2.3 g/s', abs(st.mean(steady) - 2.3) < 0.25, 'mean %.2f g/s' % st.mean(steady))
 check('flow noise at a 1 s window stays under 0.35 g/s', st.pstdev(steady) < 0.35, 'sd %.2f g/s' % st.pstdev(steady))

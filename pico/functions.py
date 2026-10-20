@@ -363,9 +363,17 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                 if len(hist) > 2 * EU_AVG_N: hist.pop(0)
                 # Paatokset 5 jakson keskiarvosta: yksittaisen jakson keskiarvo heiluu taytossa +-0,5 bar
                 # (esiuutto-20260924-c: katkaisu piikista 1,37 bar, rate 16,5 bar/s, todellinen ~0,3 bar)
-                p5 = sum(hist[-EU_AVG_N:]) / min(len(hist), EU_AVG_N)
-                rate = ((p5 - sum(hist[:EU_AVG_N]) / EU_AVG_N) / (EU_AVG_N * 0.02)
-                        if len(hist) == 2 * EU_AVG_N else 0.0)
+                # Summat indekseilla, ei viipaleilla (EXPRESSO-GC-UUTTO): kaksi listaa jaksoa kohden pois keosta.
+                # Sama summausjarjestys kuin sum():lla, joten p5 ja rate eivat muutu.
+                nh = len(hist)
+                s5 = 0
+                for i in range(nh - EU_AVG_N if nh > EU_AVG_N else 0, nh): s5 += hist[i]
+                p5 = s5 / min(nh, EU_AVG_N)
+                rate = 0.0
+                if nh == 2 * EU_AVG_N:
+                    s5 = 0
+                    for i in range(EU_AVG_N): s5 += hist[i]
+                    rate = (p5 - s5 / EU_AVG_N) / (EU_AVG_N * 0.02)
                 dt = 0.02 if last_slot is None else min(0.1, utime.ticks_diff(t, last_slot) / 1e6)
                 if stage_b:
                     b_slots += 1
@@ -593,13 +601,18 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                     acc = max(-1.0, acc + us)
                     pump_next = acc >= 1.0
                     if pump_next: acc -= 1.0
+                # sd_us(t) kerran jaksossa ja vain, kun sita kaytetaan (EXPRESSO-GC-UUTTO): tauon ok ja EU-rivi
+                sd_t = None
                 if cur:
                     strokes += 1
                 elif skip_late:
                     # Myohassa: tauko jai tekematta, isku meni lapi, velka siirtyy seuraaviin jaksoihin
                     late += 1; strokes += 1; acc -= 1.0
                 else:
-                    ok = 2.5 * clock.sd_us(t) < EU_PHASE_OK_US
+                    ok = False
+                    if was_on or pump_next:
+                        sd_t = clock.sd_us(t)
+                        ok = 2.5 * sd_t < EU_PHASE_OK_US
                     removed += 1
                     if was_on:                # tauko alkoi; perakkainen poisto jatkaa samaa taukoa
                         if ok: skips10 += 1
@@ -620,7 +633,8 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                 if n_slot % EU_LOG_SLOTS == 0:
                     out.append('EU %d %.2f %.2f %d %.2f %d p5=%.2f sd_us=%.0f rm=%d sk10=%d sk20=%d late=%d %s' % (
                         utime.ticks_diff(t, t0) // 1000, p, sp, 1 if relay[0] else 0, d, phase, p5,
-                        clock.sd_us(t), removed, skips10, skips20, late, weight_flow_log(brew_data)))
+                        clock.sd_us(t) if sd_t is None else sd_t, removed, skips10, skips20, late,
+                        weight_flow_log(brew_data)))
                 if stage_b:
                     # Uuton sivutoimet kuten vanhassa uuttosilmukassa: lammitin pois 100 ms / paalla 50 ms ja
                     # set_pump_ratio 1 s valein. Kattilan lampotilaa (MAX31865 blokkaa >= 75 ms) ei lueta vaiheissa 3-4:
@@ -683,9 +697,10 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                     else:
                         z, amp, p_bar, g = res; windows += 1
                         if g == 0: learned += 1
+                        sd_w = clock.sd_us(now)
                         out.append('VKELLO w=%d t_ms=%d z_us=%.1f T_us=%.3f d=%.5f sd_us=%.1f amp=%.3f lock=%d p_bar=%.2f gate=%d' % (
                             windows, utime.ticks_diff(now, t0) // 1000, z, clock.T, clock.d,
-                            clock.sd_us(now), amp, 1 if clock.locked(now) else 0, p_bar, g))
+                            sd_w, amp, 1 if clock.locked(now, sd_w) else 0, p_bar, g))
                 now = utime.ticks_us()
                 s0 = utime.ticks_diff(now, s0)
                 if s0 > s_max: s_max = s0

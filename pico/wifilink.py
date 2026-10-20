@@ -80,6 +80,7 @@ class WifiLink:
         self.p = payloads                   # bluetooth_handler: live/scale/settings payloads, brew_log_frame
         self.key = key
         self.sock = None
+        self._poll = None                   # select.poll with ipoll (MicroPython), else None: recvfrom straight away
         self.subs = {}                      # addr -> ticks_ms of the last sub
         self.last_seq = {}                  # addr -> (seq, ack dict)
         self.rx = self.tx = self.txerr = self.denied = self.errs = 0
@@ -107,6 +108,16 @@ class WifiLink:
         s.setblocking(False)
         s.bind(('0.0.0.0', PORT))
         self.sock = s
+        # EXPRESSO-GC-UUTTO (20.10.2026): recvfrom(512) allocates its buffer before it finds the queue empty, and
+        # EAGAIN allocates an OSError on top, 10-20 times a second. ipoll(0) asks first and allocates nothing.
+        try:
+            import select
+            pl = select.poll()
+            if hasattr(pl, 'ipoll'):
+                pl.register(s, select.POLLIN)
+                self._poll = pl
+        except Exception:
+            self._poll = None
 
     def _send(self, obj, addr):
         try:
@@ -272,6 +283,8 @@ class WifiLink:
                 self._open()
             now = self.utime.ticks_ms()
             for _ in range(RX_PER_STEP):
+                if self._poll is not None and not self._readable():
+                    break
                 try:
                     data, addr = self.sock.recvfrom(512)
                 except OSError:
@@ -285,6 +298,11 @@ class WifiLink:
                 print('WIFI_ERR %r' % (e,))
             except Exception:
                 pass
+
+    def _readable(self):
+        for _ in self._poll.ipoll(0):
+            return True
+        return False
 
     async def run(self, asyncio, task_busy=None):
         while True:
