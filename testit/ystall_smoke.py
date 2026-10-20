@@ -249,7 +249,7 @@ check('core 1 code: no sleep', 'sleep' not in code, [l for l in code.splitlines(
 
 
 class Drv:
-    """MAX31865 steps: each takes STEP s; rtd_result gives RAW. Records the order of the steps."""
+    """MAX31865 steps and parts: each takes STEP s; rtd_result and rtd_part 6 give RAW. Records the order."""
     STEP = 0.0002
     RAW = CL.TEMP_C1_RAW_LO + 9 * 256          # table below: 90.00 C
 
@@ -271,6 +271,10 @@ class Drv:
     def rtd_result(self):
         self._step('r')
         return self.RAW
+
+    def rtd_part(self, k):
+        self._step(str(k))
+        return self.RAW if k == 6 else -1
 
 
 def real_ts(ut_):
@@ -324,8 +328,8 @@ check('bit 512: readings every ~250 ms between samples', vt and 2 <= int(vt['t_n
 check('bit 512: step durations recorded (K3)', vt and all(0 < int(vt[k]) < 50000 for k in ('ts_us', 'tc_us', 'tr_us')), vt)
 check('bit 512: samples and events go on', vx and int(vx['n']) >= 700 and int(vx['nev']) >= 60, vx)
 seq = ''.join(tt.temperature_sensor.seq)
-check('bit 512: steps in order start, convert, result; a reading left half way is finished',
-      seq.replace('scr', '') == '' and seq.endswith('r'), seq[-12:])
+check('bit 512: parts 0-6 in order, one byte each (K3); a reading left half way is finished',
+      seq.replace('0123456', '') == '' and seq.endswith('6'), seq[-12:])
 check('bit 512: c1_off handed the sensor back', tt.c1[CL.C1_WANT] == 0 and tt.cx[CL.CX_TEMP] == 0
       and vt and tt.temps == avg_after(tt.c1[CL.C1_SEQ])[1] and not tt.c1_active(),
       (tt.c1[CL.C1_WANT], tt.cx[CL.CX_TEMP], tt.temps))
