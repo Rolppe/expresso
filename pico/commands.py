@@ -382,8 +382,8 @@ def handle_command(brew_data, command):
             pass
 
     elif command.startswith('c1x:'):
-        # Ytimen 1 jaksot pim:1:n esiuutossa (EXPRESSO-C1-JAKSOT vaihe 3, TILAUS-O): 1 = ydin 1 nayttee ja kaantaa
-        # pumppureleen jonosta, 0 = vanha polku. Vain esiuutto (bim:1:n uutto ajaa vanhan, EU_C1X off reason=brew).
+        # Ytimen 1 jaksot pim:1:n esiuutossa ja bim:1:n uutossa (EXPRESSO-C1-JAKSOT vaiheet 3-4, TILAUS-O): 1 = ydin 1
+        # nayttee ja kaantaa pumppureleen jonosta, 0 = vanha polku. bim:0:n vanha uuttosilmukka ei kayta sita.
         # RAM only, oletus 0: uudelleenkaynnistys ja flash palauttavat vanhan polun.
         try:
             brew_data.eu_c1x = 1 if int(_float_arg(command)) == 1 else 0

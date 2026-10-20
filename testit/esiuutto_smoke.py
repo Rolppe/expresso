@@ -1362,16 +1362,95 @@ def main():
     check('23 c1x ydin 1 lakkaa: reason=c1dead, pumppu pois', field(out, 'EU_END', 'reason') == 'c1dead' and bd.pump.v == 0,
           field(out, 'EU_END', 'reason'))
 
-    # Vain esiuutto: bim:1 (brew=True) ajaa vanhan polun; ilman ytimen 1 toteuttajaa vanha polku
-    bd = brew_bd('25b', 230, False)
-    bd.eu_c1x = 1
-    txt, _ = run_brew(bd, 3.0, bim=1, seed=230)
-    check('23 c1x bim:1: EU_C1X off reason=brew, vanha polku', 'EU_C1X off reason=brew' in txt and 'c1x=0' in txt)
+    # Ilman ytimen 1 toteuttajaa vanha polku
     bd = BrewData(phi_us=7300.0)
     bd.eu_c1x = 1
     out = run(bd)
     check('23 c1x ilman ydintä 1: EU_C1X fail, vanha polku loppuun', 'EU_C1X fail reason=noc1' in out and
           field(out, 'EU_START', 'c1x') == '0' and field(out, 'EU_END', 'reason') == 'done')
+
+    # 24 uutto ytimen 1 jaksoilla (c1x:1 + bim:1, EXPRESSO-C1-JAKSOT vaihe 4, TILAUS-O): tapausten 16, 17, 19 ja 22 versiot.
+    # Vaatimukset: miss = late = 0 ja nalka 0 koko ajossa; siirtyman ja pidon suureet tapauksen 16/17 rajoilla ja enintaan
+    # vanhan polun (c1x:0, bim:1, tapaus 16/17) keskiarvo + siemenhajonta; lammittimen lukeman ika <= 1 s.
+    def c1x_brew(bd):
+        bd.temperature_sensor, bd.eu_c1x = C1Exec(), 1
+        return bd
+
+    def c1x_ok(txt):
+        v = c1x_vals(txt.replace('EB_C1X', 'EU_C1X'))
+        return (field(txt, 'EU_START', 'c1x') == '1' and field(txt, 'EU_END', 'late') == '0' and
+                field(txt, 'EU_END', 'miss') == '0' and field(txt, 'EB_END', 'late') == '0' and
+                field(txt, 'EB_END', 'miss') == '0' and v.get('starve') == '0' and v.get('late') == '0' and
+                v.get('ovf') == '0'), v
+
+    def mean_sd(xs):
+        m = sum(xs) / len(xs)
+        return m, (math.sqrt(sum((x - m) ** 2 for x in xs) / (len(xs) - 1)) if len(xs) > 1 else 0.0)
+
+    for st in ('25b', '26b'):
+        s25, tau25 = STATES8[st]
+        stroke = s25 / kappa8(8.0)
+        for noisy in (False, True):
+            seeds = range(160, 160 + N8_PHASE) if not noisy else range(260, 260 + N8_NOISE)
+            rs, bad = [], []
+            for seed in seeds:
+                bd = c1x_brew(brew_bd(st, seed, noisy))
+                txt, stamps = run_brew(bd, 16.0, bim=1, seed=seed, stall_hz=5.0 if noisy else 0.0)
+                if seed == seeds[0]: open('/tmp/esiuutto_smoke_24_%s_%d.log' % (st, noisy), 'w').write(txt)
+                ok, v = c1x_ok(txt)
+                if not ok: bad.append((seed, field(txt, 'EB_END', 'late'), field(txt, 'EB_END', 'miss'), v.get('starve')))
+                rs.append(brew_metrics(bd, txt, stamps, 1))
+            lab = '24 c1x uutto %s %s' % (st, 'kohina' if noisy else 'kohinaton')
+            sh = NOISE_SHARE if noisy else STAT_SHARE
+            check('%s: late = miss = nälkä = 0 koko ajossa' % lab, not bad, str(bad))
+            old = t16[(st, noisy, 1)]
+            for key, name, hi, lo in (('over', 'vaiheen 3 ylitys < yksi 8 barin isku (%.2f bar)' % stroke, stroke, None),
+                                      ('drop', 'ei pudotusta pidon 1. s:ssa (p ≥ tavoite − 0,5)', None, -0.5),
+                                      ('m25', 'pidon 2–5 s keskiarvo 8 ± 0,15', 0.15, -0.15)):
+                stat(check, '%s: %s' % (lab, name), [m[key] for m in rs], 99.0 if hi is None else hi, lo=lo, share=sh)
+            # Ylitys vain tulosteena (kayttajan paatos 20.10.2026): jakson lisaviive nostaa sita 0-0,03 bar (26b kohinaton
+            # 0,146 vs 0,118 +- 0,025), raja yksi isku tarkistetaan yllä; laiteajo ratkaisee
+            mn, _ = mean_sd([m['over'] for m in rs])
+            mo, so = mean_sd([m['over'] for m in old])
+            print('     ylitys: c1x %.3f, vanha (c1x:0) %.3f ± %.3f' % (mn, mo, so))
+            mn, _ = mean_sd([abs(m['m25']) for m in rs])
+            mo, so = mean_sd([abs(m['m25']) for m in old])
+            check('%s: |pidon keskiarvo − 8| ≤ vanha polku + siemenhajonta' % lab, mn <= mo + so + 1e-9,
+                  'c1x %.3f, vanha %.3f ± %.3f' % (mn, mo, so))
+
+    r24 = []
+    for seed in range(170, 170 + N8_NOISE):
+        bd = c1x_brew(brew_bd('kaanto', seed, True, turns=[(4000000, TURN8[0.6]), (7000000, TURN8[0.2])]))
+        txt, stamps = run_brew(bd, 19.0, bim=1, seed=seed, stall_hz=5.0)
+        pr = p100(bd.plant.probe)
+        r24.append(([turn_metrics(pr, t) for t, _ in bd.plant.turn_at], c1x_ok(txt)[0]))
+    check('24 c1x kuristimen kääntö: late = miss = nälkä = 0', all(r[1] for r in r24), str([r[1] for r in r24]))
+    for i, name in ((0, '0,3 → 0,6'), (1, '0,6 → 0,2')):
+        xs = [r[0][i][0] for r in r24]
+        stat(check, '24 c1x kuristimen kääntö %s: kaistalle 8 ± 0,3 ≤ 1,0 s' % name, xs, 1.0, share=NOISE_SHARE, fmt='%.2f')
+        mo, so = mean_sd([r[i][0] for r in r17[1]])
+        check('24 c1x kuristimen kääntö %s: kaistalle ≤ vanha polku + siemenhajonta' % name, sum(xs) / len(xs) <= mo + so,
+              'c1x %.2f s, vanha %.2f ± %.2f s' % (sum(xs) / len(xs), mo, so))
+        stat(check, '24 c1x kuristimen kääntö %s: ei lukkiutumista (ka 1,5–3 s käännöstä 8 ± 0,15)' % name,
+             [r[0][i][1] for r in r24], 0.15, lo=-0.15, share=NOISE_SHARE)
+
+    r24g = []
+    for seed in range(190, 190 + N8_NOISE):
+        bd = c1x_brew(brew_bd('25b', seed, True))
+        txt, stamps = run_brew(bd, 16.0, bim=1, seed=seed, stall_hz=5.0, stall_ms=(13, 28), gc=True, iq_cost=10500)
+        ok, v = c1x_ok(txt)
+        r24g.append((ok, int(field(txt, 'TS_END', 'max_loop_ms') or -1), v.get('lag_max_us')))
+    check('24 c1x keruu + varaukset 13-28 ms 5/s + ikkunan sulku 10,5 ms: late = miss = nälkä = 0',
+          all(r[0] for r in r24g), str(r24g))
+    check('24 c1x TS_END max_loop_ms = ytimen 0 pisin käsittelyviive (< 30 ms)', all(0 <= r[1] < 30 for r in r24g),
+          str([r[1] for r in r24g]))
+
+    bd = c1x_brew(brew_bd('25b', 220, False))
+    txt, _ = run_brew(bd, 16.0, bim=1, seed=220)
+    ages, ts = bd.heat_age, bd.temperature_sensor
+    check('24 c1x: lämmitin päällä vain tuoreella lukemalla (ikä ≤ 1 s), toteuttaja pois lopussa, EB_C1X',
+          len(ages) > 10 and None not in ages and max(ages) <= 1000 and not ts.run and C1X[0] is None and 'EB_C1X' in txt
+          and bd.pump.v == 0, 'n %d, max %s ms' % (len(ages), max(ages) if ages and None not in ages else ages[:3]))
 
     print('RESULT: %d failed' % len(failed))
     return 1 if failed else 0
