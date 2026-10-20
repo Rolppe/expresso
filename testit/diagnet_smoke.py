@@ -257,6 +257,15 @@ check('header EXD1 boot seq', all(h[0] == b'EXD1' and h[1] == b'abcd1234' for h 
 data = b''.join(p.split(b'\n', 1)[1] for p in pk)
 check('payload reassembles', data == payload)
 check('two packets per step', len(pk) == 3)
+# LEGACY_SEND (ystall bit 4): the old path sends the same bytes
+n0 = len(SOCK.sent)
+d.ring.put(payload)
+D.LEGACY_SEND = True
+for _ in range(4):
+    d.step(None)
+D.LEGACY_SEND = False
+pl = [p for p, a in SOCK.sent[n0:]]
+check('legacy send same payload', b''.join(p.split(b'\n', 1)[1] for p in pl) == payload and len(pl) == 3)
 
 # ---- send error ------------------------------------------------------------------------------------
 SOCK.fail = True

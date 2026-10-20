@@ -283,6 +283,15 @@ def handle_command(brew_data, command):
             except Exception:
                 pass
 
+    elif command.startswith('ystall:'):
+        # ystall:<s 5-120>[:<mode>] — asyncio-vuoron katkot ilman pumppua (ystall.py, EXPRESSO-GC-UUTTO)
+        try:
+            parts = command.split(':')
+            if not brew_data.dev_safe:
+                brew_data.ystall_request = (min(120, max(5, int(parts[1]))), int(parts[2]) if len(parts) > 2 else 3)
+        except Exception:
+            pass
+
     elif command.startswith('klamp:'):
         # Throttle warm-up (24.9.2026): klamp:<s 10-120> | klamp:stop. Continuous pump to the
         # plateau, then that pressure is held until the pump no longer needs limiting.

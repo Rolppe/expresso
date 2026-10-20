@@ -311,6 +311,13 @@ async def local_program(brew_data):
             await dev_run(pressure_hold_run(brew_data, utime, asyncio, phold_s))
             continue
 
+        ys = getattr(brew_data, 'ystall_request', None)
+        if ys:
+            brew_data.ystall_request = None
+            from ystall import ystall_run
+            await dev_run(ystall_run(brew_data, utime, asyncio, ys[0], ys[1]))
+            continue
+
         klamp_s = brew_data.take_throttle_warmup_request()
         if klamp_s:
             from functions import throttle_warmup_run
