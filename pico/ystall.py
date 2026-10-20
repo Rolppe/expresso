@@ -7,6 +7,9 @@
 #   1 = DIAGNET uuttotahdissa (diag.quiet, 500 ms, taydet paketit) kuten run_shot
 #   2 = hallittu gc.collect() 300 ms valein kuten EU_GC_MS
 #   4 = DIAGNETin vanha lahetys (take + head + data) A/B-vertailuun
+#   8 = releen vahdin kutsu (Timer -1, 100 ms) palaa heti ajon ajan (kayttajan lupa 20.10.2026; dev_run on jo
+#       sammuttanut lammittimen eika pumppu kay). Ajastin jaa kayntiin: uusi Timer(-1) voi saada ENOMEMin, kun
+#       ytimen 1 silmukka kay (main.py, 5.10.2026), joten pysaytys ja uudelleenkaynnistys ei ole turvallinen.
 # Rivit: YSTALL (vuoro > YS_LOG_US), YS_GC (keruu > YS_LOG_US), YSTALL_END (yhteenveto). Releisiin ei kosketa.
 
 import gc
@@ -24,6 +27,11 @@ async def ystall_run(brew_data, utime, asyncio, seconds, mode):
     if diag is not None and mode & 1:
         diag.quiet = True
     diagnet.LEGACY_SEND = bool(mode & 4)
+    guard = getattr(brew_data, 'relay_guard', None)
+    guard_off = False
+    if mode & 8 and guard is not None:
+        guard.paused = True
+        guard_off = True
     t0 = utime.ticks_us()
     end = utime.ticks_add(t0, int(seconds * 1000000))
     gc_t = t0
@@ -61,8 +69,10 @@ async def ystall_run(brew_data, utime, asyncio, seconds, mode):
             while utime.ticks_diff(nxt, utime.ticks_us()) > 0:
                 pass
     finally:
+        if guard_off:
+            guard.paused = False
         if diag is not None:
             diag.quiet = quiet0
         diagnet.LEGACY_SEND = legacy0
-    print('YSTALL_END s=%d mode=%d n=%d y10=%d y50=%d y_max_us=%d gc_n=%d gc_max_us=%d free=%d' % (
-        seconds, mode, n, y10, y50, y_max, gc_n, gc_max, gc.mem_free()))
+    print('YSTALL_END s=%d mode=%d n=%d y10=%d y50=%d y_max_us=%d gc_n=%d gc_max_us=%d free=%d guard_off=%d' % (
+        seconds, mode, n, y10, y50, y_max, gc_n, gc_max, gc.mem_free(), 1 if guard_off else 0))

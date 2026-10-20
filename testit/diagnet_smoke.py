@@ -380,6 +380,15 @@ try:
     check('accumulate error cannot trip guard', g.block.get('all') != 'guarderror')
 except Exception:
     check('accumulate error cannot trip guard', False)
+# paused (ystall bit 8, EXPRESSO-GC-UUTTO): poll does nothing, and works again once resumed
+calls = []
+g.read_pressure = lambda: (calls.append(1), (2.0, 2.0))[1]
+g.paused = True
+g.poll()
+paused_none = calls == []
+g.paused = False
+g.poll()
+check('guard paused poll does nothing, resumed reads again', paused_none and calls == [1] and g.pressure == 2.0)
 WLAN.connected = False
 d.ring.take(100000)
 bd2 = types.SimpleNamespace(relay_guard=types.SimpleNamespace(take_minute=lambda: (61000, 30500, 2000, 610, 1.234, -0.05, 9.5)),
