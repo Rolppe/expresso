@@ -16,6 +16,10 @@
 #       nukkuu 2 ms:n silmukassa, uutossa se lukee, ja uutossa keruu on ~19 ms, levossa 80-600 ms (20.10.2026)
 #  64 = ydin 1 ajaa 1 kHz:n kokonaislukusilmukan muisti lukittuna ja lukee paineen ADC:ta (TILAUS-O-koe):
 #       C1J-rivi kertoo sen omat naytevalit, kun ydin 0 samaan aikaan keraa. Ei yhdessa bitin 32 kanssa.
+# 128 = ytimen 1 toteuttaja kuivana (EXPRESSO-C1-JAKSOT vaihe 1): ydin 1 nayttee 1 kHz renkaaseen ja toteuttaa
+#       releen tapahtumat jonosta kirjaten ajat (rele ei kaanny); ydin 0 lukee renkaan ja muuntaa baareiksi kuten uutto,
+#       ja kirjoittaa 20 ms:n jaksot (joka toinen 10 ms tauko) 40 ms etukateen. C1X-rivi kertoo tuloksen.
+# 256 = bitin 128 kanssa jono vain 20 ms (yksi jakso) etukateen
 # Rivit: YSTALL (vuoro > YS_LOG_US), YS_GC (keruu > YS_LOG_US), YSTALL_END (yhteenveto). Releisiin ei kosketa.
 
 import gc
@@ -58,6 +62,22 @@ async def ystall_run(brew_data, utime, asyncio, seconds, mode):
         r[0] = int(seconds * 1000)
         st[0] = 2
         c1j = True
+    cx = None
+    if mode & 128 and not c1_run and not c1j and st is not None and st[9] == 1 and st[0] == 0:
+        import classes as CL
+        cx = tsens.cx
+        for k in range(len(cx)):
+            cx[k] = 0
+        cx[CL.CX_DRY] = 1
+        ps = getattr(brew_data, 'pressure_sensor', None)
+        tsens.c1_adc = getattr(ps, 'pressure_sensor', None)
+        cx_ne, cx_ns = CL.CX_NE, CL.CX_NS
+        ev, sm = tsens.cx_ev, tsens.cx_samp
+        look = 20000 if mode & 256 else 40000
+        t_ev = utime.ticks_add(utime.ticks_us(), 20000)
+        k_ev = 0
+        cx_bar_n = 0
+        st[0] = 3
     t0 = utime.ticks_us()
     end = utime.ticks_add(t0, int(seconds * 1000000))
     gc_t = t0
@@ -90,6 +110,32 @@ async def ystall_run(brew_data, utime, asyncio, seconds, mode):
                     gc_max = g1
                 if g1 > YS_LOG_US:
                     print('YS_GC t_ms=%d us=%d' % (utime.ticks_diff(g0, t0) // 1000, g1))
+            if cx is not None:
+                # Ydin 0 kuten uutossa: naytteet baareiksi (liukuluvut varaavat muistia) ja jaksot jonoon etukateen.
+                # Indeksit classes.CX_*: 0 SW, 1 SR, 2 EW, 3 ER, 11 ARMED
+                r = cx[1]
+                while r != cx[0]:
+                    i = (r % cx_ns) * 2
+                    bar = (sm[i + 1] * 0.000314936 - 3.522929) * 1.0
+                    r += 1
+                    cx_bar_n += 1
+                cx[1] = r
+                lim = utime.ticks_add(utime.ticks_us(), look)
+                while utime.ticks_diff(lim, t_ev) > 0 and cx[2] - cx[3] < cx_ne - 2:
+                    w = cx[2]
+                    i = (w % cx_ne) * 2
+                    ev[i] = t_ev
+                    ev[i + 1] = 0 if k_ev & 1 else 1
+                    w += 1
+                    if k_ev & 1:
+                        i = (w % cx_ne) * 2
+                        ev[i] = utime.ticks_add(t_ev, 10000)
+                        ev[i + 1] = 1
+                        w += 1
+                    cx[2] = w
+                    cx[11] = 1
+                    k_ev += 1
+                    t_ev = utime.ticks_add(t_ev, 20000)
             # EU-silmukan tapaan pyoritaan seuraavaan naytteeseen asti (1 kHz), vuoro vasta sen jalkeen
             nxt = utime.ticks_add(utime.ticks_us(), YS_TICK_US)
             while utime.ticks_diff(nxt, utime.ticks_us()) > 0:
@@ -108,6 +154,14 @@ async def ystall_run(brew_data, utime, asyncio, seconds, mode):
         if diag is not None:
             diag.quiet = quiet0
         diagnet.LEGACY_SEND = legacy0
+    if cx is not None:
+        st[0] = 0
+        w0 = utime.ticks_us()
+        while st[1] == 0 and utime.ticks_diff(utime.ticks_us(), w0) < 1000000:
+            await asyncio.sleep_ms(5)
+        print('C1X look_ms=%d n=%d exp=%d gmax_us=%d ovf=%d nev=%d written=%d lmax_us=%d late=%d starve=%d bar_n=%d' % (
+            look // 1000, cx[4], int(seconds * 1000), cx[5], cx[6], cx[7], cx[2], cx[8], cx[9], cx[10],
+            cx_bar_n))
     if c1j:
         w0 = utime.ticks_us()
         while tsens.c1_test[6] == 0 and utime.ticks_diff(utime.ticks_us(), w0) < 3000000:

@@ -1528,6 +1528,19 @@ TEMP_C1_MAX_CDEG = 20000
 # c1 state (array 'i'), shared by the cores: every field one word, written by one core only (WANT, T0 core 0; the rest
 # core 1, RI and GAP also core 0 while core 1 is idle)
 C1_WANT, C1_IDLE, C1_SEQ, C1_CDEG, C1_MS, C1_BAD, C1_GAP, C1_ERR, C1_RI, C1_RUN, C1_T0 = range(11)
+# Core 1 executor (EXPRESSO-C1-JAKSOT vaihe 1, paketit/C1-JAKSOT.md; WANT 3): 1 kHz samples into a ring that core 0
+# reads, relay events from a queue that core 0 fills ahead. Rings in array('i'): samples (t_us, raw) and events
+# (t_us, on). Indices only grow; position = index % size. Writer of each field in brackets.
+CX_NS = 256                   # samples: 256 ms of slack for core 0
+CX_NE = 64                    # events
+CX_SW, CX_SR, CX_EW, CX_ER, CX_N, CX_GMAX, CX_OVF, CX_NEV, CX_LMAX, CX_LATE, CX_STARVE, CX_ARMED, CX_LAST, \
+    CX_DRY, CX_PIN = range(15)
+# SW (1) sample write, SR (0) sample read, EW (0) event write, ER (1) event read, N/GMAX/OVF (1) samples, gap max us,
+# ring overruns, NEV/LMAX/LATE (1) events done, lateness max us, events > CX_LATE_US late, STARVE (1) cycles without
+# an event, ARMED (0) starvation counted from the first event, LAST (1) time of the last event, DRY (0) 1 = record
+# only, PIN (1) the relay state the executor last set (dry: the state it would have set)
+CX_LATE_US = 300              # = EU_LATE_MAX_US
+CX_STARVE_US = 25000          # a mains cycle and a margin without an event
 
 
 #### Class for reading pt100 sensor temperature with max31865 ####
@@ -1605,6 +1618,10 @@ class TemperatureSensor:
         # [1] n, [2] max gap us, [3] gaps > 1.5 ms, [4] > 2 ms, [5] > 5 ms, [6] done
         self.c1_test = array('i', [0] * 7)
         self.c1_adc = None
+        self.cx = array('i', [0] * 15)
+        self.cx_samp = array('i', [0] * (2 * CX_NS))
+        self.cx_ev = array('i', [0] * (2 * CX_NE))
+        self.cx_pin = None            # the pump's raw Pin (not GuardedRelay); dry runs leave it alone
         try:
             import _thread
             _thread.stack_size(6144)
@@ -1726,6 +1743,58 @@ class TemperatureSensor:
         r[5] = g5
         r[6] = 1
 
+    def _c1_exec(self, st, utime):
+        """EXPRESSO-C1-JAKSOT: samples at 1 kHz and carries out relay events at their times while WANT is 3. Heap
+        locked: integers, array stores and calls that return small ints only (no tuples, no floats)."""
+        x = self.cx
+        sm = self.cx_samp
+        ev = self.cx_ev
+        adc = self.c1_adc
+        pin = None if x[CX_DRY] else self.cx_pin
+        prev = utime.ticks_us()
+        nxt = prev
+        x[CX_LAST] = prev
+        while st[C1_WANT] == 3:
+            nxt = utime.ticks_add(nxt, 1000)
+            now = utime.ticks_us()
+            while utime.ticks_diff(nxt, now) > 0:
+                r = x[CX_ER]
+                if r != x[CX_EW]:
+                    i = (r % CX_NE) * 2
+                    d = utime.ticks_diff(now, ev[i])
+                    if d >= 0:
+                        on = ev[i + 1]
+                        if pin is not None:
+                            pin.value(on)
+                        x[CX_PIN] = on
+                        if d > x[CX_LMAX]:
+                            x[CX_LMAX] = d
+                        if d > CX_LATE_US:
+                            x[CX_LATE] += 1
+                        x[CX_ER] = r + 1
+                        x[CX_NEV] += 1
+                        x[CX_LAST] = now
+                elif x[CX_ARMED] and utime.ticks_diff(now, x[CX_LAST]) > CX_STARVE_US:
+                    x[CX_STARVE] += 1
+                    x[CX_LAST] = now
+                now = utime.ticks_us()
+            raw = adc.read_u16() if adc is not None else 0
+            w = x[CX_SW]
+            if w - x[CX_SR] >= CX_NS:
+                x[CX_OVF] += 1
+            i = (w % CX_NS) * 2
+            sm[i] = now
+            sm[i + 1] = raw
+            x[CX_SW] = w + 1
+            g = utime.ticks_diff(now, prev)
+            prev = now
+            if x[CX_N] and g > x[CX_GMAX]:
+                x[CX_GMAX] = g
+            x[CX_N] += 1
+        if pin is not None:
+            pin.value(0)
+        x[CX_PIN] = 0
+
     def _c1_loop(self, st, ring, tab, drv, utime):
         bad = last = 0
         while st[C1_WANT] >= 0:
@@ -1733,6 +1802,9 @@ class TemperatureSensor:
             if st[C1_WANT] == 2:
                 self._c1_jitter(utime)
                 st[C1_WANT] = 0
+                continue
+            if st[C1_WANT] == 3:
+                self._c1_exec(st, utime)
                 continue
             if st[C1_WANT] == 0:
                 st[C1_IDLE] = 1
