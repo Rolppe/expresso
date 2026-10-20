@@ -29,7 +29,7 @@ YS_GC_MS = 300
 YS_TICK_US = 1000
 
 
-def _cx_fill(cx, ev, ne, utime, look, f):
+def _cx_fill(cx, ev, ne, utime, look, f, wt=None):
     """Ytimen 1 jono taytetaan look us etukateen (bitti 128). f = [t_ev, k_ev]: seuraavan jakson aika ja numero;
     joka toinen jakso on 10 ms tauko. Indeksit classes.CX_*: 2 EW, 3 ER, 11 ARMED."""
     lim = utime.ticks_add(utime.ticks_us(), look)
@@ -39,11 +39,15 @@ def _cx_fill(cx, ev, ne, utime, look, f):
         i = (w % ne) * 2
         ev[i] = t_ev
         ev[i + 1] = 0 if k_ev & 1 else 1
+        if wt is not None:
+            wt[w % ne] = utime.ticks_us()
         w += 1
         if k_ev & 1:
             i = (w % ne) * 2
             ev[i] = utime.ticks_add(t_ev, 10000)
             ev[i + 1] = 1
+            if wt is not None:
+                wt[w % ne] = utime.ticks_us()
             w += 1
         cx[2] = w
         cx[11] = 1
@@ -124,12 +128,12 @@ async def ystall_run(brew_data, utime, asyncio, seconds, mode):
                                                           tb[0] if tb is not None else '?', tb[1] if tb is not None else 0))
             if mode & 2 and utime.ticks_diff(utime.ticks_us(), gc_t) >= YS_GC_MS * 1000:
                 if cx is not None:
-                    _cx_fill(cx, ev, cx_ne, utime, look, fill)      # jono taynna juuri ennen keruuta
+                    _cx_fill(cx, ev, cx_ne, utime, look, fill, tsens.cx_wt)      # jono taynna juuri ennen keruuta
                 g0 = utime.ticks_us()
                 gc.collect()
                 gc_t = utime.ticks_us()
                 if cx is not None:
-                    _cx_fill(cx, ev, cx_ne, utime, look, fill)      # ja heti sen jalkeen
+                    _cx_fill(cx, ev, cx_ne, utime, look, fill, tsens.cx_wt)      # ja heti sen jalkeen
                 g1 = utime.ticks_diff(gc_t, g0)
                 gc_n += 1
                 if g1 > gc_max:
@@ -146,7 +150,7 @@ async def ystall_run(brew_data, utime, asyncio, seconds, mode):
                     r += 1
                     cx_bar_n += 1
                 cx[1] = r
-                _cx_fill(cx, ev, cx_ne, utime, look, fill)
+                _cx_fill(cx, ev, cx_ne, utime, look, fill, tsens.cx_wt)
             # EU-silmukan tapaan pyoritaan seuraavaan naytteeseen asti (1 kHz), vuoro vasta sen jalkeen
             nxt = utime.ticks_add(utime.ticks_us(), YS_TICK_US)
             while utime.ticks_diff(nxt, utime.ticks_us()) > 0:
@@ -170,9 +174,9 @@ async def ystall_run(brew_data, utime, asyncio, seconds, mode):
         w0 = utime.ticks_us()
         while st[1] == 0 and utime.ticks_diff(utime.ticks_us(), w0) < 1000000:
             await asyncio.sleep_ms(5)
-        print('C1X look_ms=%d n=%d exp=%d gmax_us=%d ovf=%d nev=%d written=%d lmax_us=%d late=%d starve=%d bar_n=%d' % (
-            look // 1000, cx[4], int(seconds * 1000), cx[5], cx[6], cx[7], cx[2], cx[8], cx[9], cx[10],
-            cx_bar_n))
+        print('C1X look_ms=%d n=%d exp=%d gmax_us=%d ovf=%d nev=%d written=%d lmax_us=%d late=%d starve=%d bar_n=%d '
+              'lidx=%d lwr_us=%d' % (look // 1000, cx[4], int(seconds * 1000), cx[5], cx[6], cx[7], cx[2], cx[8], cx[9],
+                                     cx[10], cx_bar_n, cx[15], cx[16]))
     if c1j:
         w0 = utime.ticks_us()
         while tsens.c1_test[6] == 0 and utime.ticks_diff(utime.ticks_us(), w0) < 3000000:

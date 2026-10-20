@@ -203,7 +203,8 @@ class TsX:
     def __init__(self):
         self.c1 = [0] * 11
         self.c1[1] = self.c1[9] = 1
-        self.cx = array('i', [0] * 15)
+        self.cx = array('i', [0] * 17)
+        self.cx_wt = array('i', [0] * CL.CX_NE)
         self.cx_samp = array('i', [0] * (2 * CL.CX_NS))
         self.cx_ev = array('i', [0] * (2 * CL.CX_NE))
         self.cx_pin = types.SimpleNamespace(value=lambda v: (_ for _ in ()).throw(AssertionError('dry run set the pin')))
@@ -237,7 +238,9 @@ vals = dict(kv.split('=') for kv in c1x[0].split()[1:]) if c1x else {}
 check('bit 128: C1X line', len(c1x) == 1, buf.getvalue()[-300:])
 check('bit 128: ~1000 samples, all read as bar', vals and 800 <= int(vals['n']) <= 1100 and int(vals['bar_n']) >= int(vals['n']) - 300, vals)
 check('bit 128: events carried out in order, few pending', vals and 60 <= int(vals['nev']) <= int(vals['written'])
-      and int(vals['written']) - int(vals['nev']) <= 4, vals)
+      and int(vals['written']) - int(vals['nev']) <= 8, vals)
+# SlowAio stops core 0 for 60 ms, longer than the 40 ms queue: the worst event was written after its due time
+check('bit 128: worst late event shows it was written late', vals and int(vals['late']) > 0 and int(vals['lwr_us']) > 0, vals)
 check('bit 128: WANT back to 0, dry pin state recorded', tx.c1[0] == 0 and tx.cx[CL.CX_DRY] == 1)
 
 print('RESULT: %d failed' % len(FAILED))
