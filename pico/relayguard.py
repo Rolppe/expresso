@@ -154,6 +154,11 @@ class RelayGuard:
     def _trip(self, name, reason, now):
         relay = self.relays.get(name)
         if relay is not None:
+            # Core 1's permission first (EXPRESSO-C1-JAKSOT vaihe 3, K4): it reads c1_ok just before every switch-on,
+            # so with c1_ok 0 the pin below stays off
+            ok = getattr(relay, 'c1_ok', None)
+            if ok is not None:
+                ok[0] = 0
             relay.pin.value(0)
         if self.block.get(name) != reason:
             self.block[name] = reason
@@ -196,11 +201,16 @@ class RelayGuard:
                 if r is None:
                     self.block.pop(name, None)
                     continue
-                if relay.pin.value():
+                # With core 1 switching the pump the pin can be off for a 10 ms gap while core 1 may still switch it on
+                ok = getattr(relay, 'c1_ok', None)
+                if relay.pin.value() or (ok is not None and ok[0]):
                     self._trip(name, r, now)
         except Exception as e:
             # A guard that cannot check fails safe: everything it guards goes off
             for relay in self.relays.values():
+                ok = getattr(relay, 'c1_ok', None)
+                if ok is not None:
+                    ok[0] = 0
                 relay.pin.value(0)
             self.block['all'] = 'guarderror'
             try:
@@ -331,6 +341,7 @@ class GuardedRelay:
         self.pin = pin
         self.guard = guard
         self.name = name
+        self.c1_ok = None         # core 1's CX_OK (TemperatureSensor.cx_ok) while core 1 switches this pin, else None
         guard.relays[name] = self
 
     def value(self, v=None):

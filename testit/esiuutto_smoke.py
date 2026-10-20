@@ -35,6 +35,7 @@ class Utime:
     def ticks_us(self):
         self.us += 20
         if GC.period is not None: GC.tick()
+        if C1X[0] is not None: C1X[0].catch_up(self.us)
         return self.us
 
     def ticks_ms(self):
@@ -89,9 +90,11 @@ class Gc:
 
 U = Utime()
 GC = Gc()
+C1X = [None]         # kaynnissa oleva ytimen 1 toteuttaja (C1Exec), jota kello kuroo kiinni
 sys.modules['utime'] = U
 sys.modules.setdefault('devsafe', types.SimpleNamespace(feed=lambda: None))
 import functions as F   # noqa: E402
+import classes as CL    # noqa: E402
 F.gc = GC
 
 IQ_CLOSE_US = [0]    # kellon ikkunan sulun hinta virtuaaliaikana; tapaus 14: laite ao/ap 10-11 ms naytteenotossa
@@ -272,6 +275,90 @@ class C1Model:
     def read_temperature(self): return 93.0
 
 
+class C1Exec(C1Model):
+    """Ytimen 1 toteuttaja virtuaaliajassa (EXPRESSO-C1-JAKSOT vaihe 3, classes.TemperatureSensor._c1_exec): c1_on(3):sta
+    nayte 1 kHz renkaaseen (sama Adc kuin ytimella 0) ja jonon tapahtumat pumpun pinniin niiden ajassa, tai kirjoitushetkella
+    (cx_wt), jos ydin 0 kirjoitti myohassa. CX_OK ennen jokaista paallekytkentaa; tyhja jono yli CX_STARVE_US ARMEDina ->
+    pinni 0 ja nalka lukitsee. Utime.ticks_us kuroo kiinni kaiken edellisesta kutsusta aikajarjestyksessa, myos keruun ja
+    toisen tehtavan varauksen ajan, jolloin ydin 0 seisoo mutta ydin 1 ei. dead_at: ydin 1 lakkaa (ei naytteita, pinni jaa)."""
+    def __init__(self):
+        C1Model.__init__(self)
+        from array import array
+        self.c1 = array('i', [0] * 14)
+        self.c1[CL.C1_IDLE] = self.c1[CL.C1_RUN] = 1
+        self.cx = array('i', [0] * 21)
+        self.cx_ok = array('i', [0])
+        self.cx_wt = array('i', [0] * CL.CX_NE)
+        self.cx_samp = array('i', [0] * (2 * CL.CX_NS))
+        self.cx_ev = array('i', [0] * (2 * CL.CX_NE))
+        self.cx_pin, self.c1_adc = None, None
+        self.run, self.busy, self.ts, self.dead_at = False, False, 0, None
+        self.pin_log = []           # (us, tila) jokaisesta pinnin kaannosta
+
+    def c1_on(self, want=1):
+        if want != 3: return C1Model.c1_on(self)
+        self.run, self.ts = True, U.us + 1000
+        self.cx[CL.CX_LAST] = U.us
+        C1X[0] = self
+        return True
+
+    def c1_off(self):
+        if not self.run: return C1Model.c1_off(self)
+        self.catch_up(U.us)
+        if self.dead_at is None: self._pin(0)
+        self.run = False
+        C1X[0] = None
+
+    def _pin(self, on):
+        if self.cx_pin is not None and not self.cx[CL.CX_DRY]:
+            if not self.pin_log or self.pin_log[-1][1] != on: self.pin_log.append((U.us, on))
+            self.cx_pin.value(on)
+        self.cx[CL.CX_PIN] = on
+
+    def catch_up(self, now):
+        if not self.run or self.busy: return
+        self.busy, save = True, U.us
+        x, ev, wt, ne, ns = self.cx, self.cx_ev, self.cx_wt, CL.CX_NE, CL.CX_NS
+        while True:
+            te = tst = None
+            if x[CL.CX_ER] != x[CL.CX_EW]:
+                r = x[CL.CX_ER]
+                te = max(ev[(r % ne) * 2], wt[r % ne])
+            elif x[CL.CX_ARMED]:
+                tst = x[CL.CX_LAST] + CL.CX_STARVE_US + 1
+            tn = min(v for v in (self.ts, te, tst) if v is not None)
+            if self.dead_at is not None and tn >= self.dead_at: break
+            if tn > now: break
+            U.us = tn
+            if te == tn:
+                r = x[CL.CX_ER]
+                i = (r % ne) * 2
+                on = ev[i + 1]
+                if on and (self.cx_ok[0] == 0 or x[CL.CX_STARVE]): on = 0
+                self._pin(on)
+                d = tn - ev[i]
+                if d > x[CL.CX_LMAX]:
+                    x[CL.CX_LMAX], x[CL.CX_LIDX], x[CL.CX_LWR] = d, r, wt[r % ne] - ev[i]
+                if d > CL.CX_LATE_US: x[CL.CX_LATE] += 1
+                x[CL.CX_ER] = r + 1
+                x[CL.CX_NEV] += 1
+                x[CL.CX_LAST] = tn
+            elif tst == tn:
+                self._pin(0)
+                x[CL.CX_STARVE] += 1
+                x[CL.CX_LAST] = tn
+            else:
+                w = x[CL.CX_SW]
+                if w - x[CL.CX_SR] >= ns: x[CL.CX_OVF] += 1
+                i = (w % ns) * 2
+                self.cx_samp[i], self.cx_samp[i + 1] = tn, self.c1_adc.read_u16()
+                x[CL.CX_SW] = w + 1
+                x[CL.CX_N] += 1
+                self.ts = tn + 1000
+        U.us = save
+        self.busy = False
+
+
 def temp_sensor():
     return C1Model()
 
@@ -355,7 +442,7 @@ class Asyncio:
             U.us += random.randint(*self.stall_ms) * 1000   # toinen tehtava (BLE, vaaka) varaa vuoron
 
 
-def run(bd, until_s=None, stall_p=0.0, seed=1, stall_ms=(5, 15)):
+def run(bd, until_s=None, stall_p=0.0, seed=1, stall_ms=(5, 15), aio=None):
     random.seed(seed)
     GC.start()
     start = U.us
@@ -365,8 +452,21 @@ def run(bd, until_s=None, stall_p=0.0, seed=1, stall_ms=(5, 15)):
     keep = lambda: U.us - start < lim * 1e6
     out = io.StringIO()
     with redirect_stdout(out):
-        asyncio.run(F.pre_infusion_phased(bd, U, Asyncio(stall_p, stall_ms), Ratio(), keep))
+        asyncio.run(F.pre_infusion_phased(bd, U, aio or Asyncio(stall_p, stall_ms), Ratio(), keep))
     return out.getvalue()
+
+
+class HookAsyncio(Asyncio):
+    """Asyncio, joka kutsuu fn():aa kerran ensimmaisessa vuorossa virtuaaliajan at_s jalkeen (tapaus 23)."""
+    def __init__(self, at_s, fn, **kw):
+        Asyncio.__init__(self, **kw)
+        self.at, self.fn, self.t_fn = at_s * 1e6, fn, None
+
+    async def sleep_ms(self, ms):
+        if self.t_fn is None and U.us >= self.at:
+            self.t_fn = U.us
+            self.fn()
+        await Asyncio.sleep_ms(self, ms)
 
 
 class Stamp(io.StringIO):
@@ -1136,6 +1236,142 @@ def main():
     ages = [a for a in bd.heat_age if a is not None]
     check('22 ilman ytimen 1 lukua bim:1 toistaa vian (ikä > %d ms)' % relayguard.HEATER_TEMP_STALE_MS,
           ages and max(ages) > relayguard.HEATER_TEMP_STALE_MS, 'max %s ms' % (max(ages) if ages else None))
+
+    # 23 ytimen 1 jaksot (c1x:1, EXPRESSO-C1-JAKSOT vaihe 3, TILAUS-O): sama silmukka, mutta naytteet ytimen 1 renkaasta ja
+    # rele ytimen 1 jonosta (C1Exec virtuaaliajassa: ydin 1 jatkaa ytimen 0 keruun ja vuoron varauksen ajan). Vaatimukset
+    # (paketit/C1-JAKSOT.md, Testit): miss = 0, late = 0, nayte joka jaksossa, hold_sd <= vanha polku + siemenhajonta;
+    # nalka, vahti ja ytimen 1 kuolema kaantavat pumpun pois.
+    def c1x_bd(**kw):
+        b = BrewData(**kw)
+        b.temperature_sensor, b.eu_c1x = C1Exec(), 1
+        return b
+
+    def c1x_vals(txt):
+        ln = [l for l in txt.splitlines() if l.startswith('EU_C1X n=')]
+        return dict(kv.split('=') for kv in ln[0].split()[1:]) if ln else {}
+
+    bd = c1x_bd(phi_us=7300.0)
+    out = run(bd)
+    open('/tmp/esiuutto_smoke_23.log', 'w').write(out)
+    v = c1x_vals(out)
+    check('23 c1x: ajo loppuun ytimen 1 jaksoilla', field(out, 'EU_START', 'c1x') == '1' and
+          field(out, 'EU_END', 'reason') == 'done' and bool(v), '%s %s' % (field(out, 'EU_END', 'reason'), v))
+    pos = [out.find(k) for k in ('EU_START', 'EU_CUT', 'EU_COAST', 'EU_HOLD', 'EU_END')]
+    check('23 c1x: vaiheet järjestyksessä', all(0 <= a < b for a, b in zip(pos, pos[1:])), str(pos))
+    check('23 c1x: pumppu pois lopussa, CX_OK 0', bd.pump.v == 0 and bd.temperature_sensor.cx_ok[0] == 0)
+    check('23 c1x: yliampuma ≤ 0,2, pito 2,5 ± 0,05, hajonta < 0,1',
+          num(out, 'EU_END', 'over') <= 0.2 and abs(num(out, 'EU_END', 'hold_mean') - 2.5) <= 0.05 and
+          num(out, 'EU_END', 'hold_sd') < 0.1, ' '.join('%s=%s' % (k, field(out, 'EU_END', k)) for k in ('over', 'hold_mean', 'hold_sd')))
+    sk10, sk20 = int(num(out, 'EU_END', 'sk10')), int(num(out, 'EU_END', 'sk20'))
+    check('23 c1x: 10 ms taukoja ≥ 80 %', sk10 >= 0.8 * (sk10 + sk20), 'sk10=%d sk20=%d' % (sk10, sk20))
+    check('23 c1x: late = 0, miss = 0, nälkä 0, ylivuoto 0',
+          field(out, 'EU_END', 'late') == '0' and field(out, 'EU_END', 'miss') == '0' and v.get('starve') == '0'
+          and v.get('ovf') == '0' and v.get('late') == '0', str(v))
+    check('23 c1x: näytteitä joka jaksossa (cyc_min ≥ 10)', int(v.get('cyc_min', 0)) >= 10, v.get('cyc_min'))
+    fw = int(num(out, 'EU_END', 'strokes'))
+    check('23 c1x: laitteen iskut = mallin iskut (±2)', abs(bd.plant.strokes - fw) <= 2,
+          'laite %d, malli %d' % (fw, bd.plant.strokes))
+    offs = bd.plant.pause_offs[5:]
+    check('23 c1x: tauon alku passiivisen puolijakson keskellä (±2 ms)', offs and
+          abs(sum(offs) / len(offs) - HALF_US / 2) < 2000, 'keskim. %.0f us' % (sum(offs) / len(offs) if offs else -1))
+    check('23 c1x: kello seuraa verkkoa', abs(num(out, 'EU_END', 'hz') - F_MAINS) < 0.02, field(out, 'EU_END', 'hz'))
+
+    # Pysahdykset kuten tapaus 3 (vv=1) ja keruu + varaukset kuten tapaus 14/19: ydin 1 kaantaa ajallaan
+    bd = c1x_bd(phi_us=2100.0)
+    out = run(bd, stall_p=0.005, seed=3)
+    t_lock = next((int(l.split()[1]) * 1000 for l in out.splitlines() if l.startswith('EU ')
+                   and 2.5 * float(re.search(r'sd_us=(\S+)', l).group(1)) < F.EU_PHASE_OK_US), None)
+    offs10 = [o for o, t, n in zip(bd.plant.pause_offs, bd.plant.pause_t, bd.plant.pause_lens)
+              if n is not None and t_lock is not None and t >= t_lock]
+    check('23 c1x pysähdykset: loppuun, late = 0, jokainen 10 ms tauko passiivisella puolijaksolla',
+          field(out, 'EU_END', 'reason') == 'done' and field(out, 'EU_END', 'late') == '0' and offs10 and
+          not [o for o in offs10 if o >= HALF_US], 'reason=%s late=%s väärin %d/%d' % (
+              field(out, 'EU_END', 'reason'), field(out, 'EU_END', 'late'), len([o for o in offs10 if o >= HALF_US]), len(offs10)))
+    GC.enable()
+    IQ_CLOSE_US[0] = 10500          # kellon ikkunan sulku 10-11 ms kuten laitteella (tapaus 14)
+    try:
+        r23 = []
+        for seed in range(230, 234):
+            bd = c1x_bd(hold_s=4.0, phi_us=(3100.0 * seed) % 20000, cyc_sd=0.25)
+            out = run(bd, seed=seed, aio=Asyncio(stall_ms=(13, 28), stall_hz=5.0))
+            v = c1x_vals(out)
+            r23.append((field(out, 'EU_END', 'reason'), field(out, 'EU_END', 'late'), field(out, 'EU_END', 'miss'),
+                        v.get('starve'), v.get('late'), GC.auto))
+    finally:
+        GC.disable()
+        IQ_CLOSE_US[0] = 0
+    check('23 c1x keruu + varaukset 13-28 ms 5/s + ikkunan sulku 10,5 ms: loppuun, late = miss = nälkä = 0',
+          all(r[:5] == ('done', '0', '0', '0', '0') for r in r23), str(r23))
+
+    # Pidon hajonta: c1x enintaan vanha polku + yhden siemenen hajonta (K1: +1 jakso viivetta), sovitettu kohinainen malli
+    sd_old, sd_new = [], []
+    for seed in range(240, 248):
+        for path, xs in ((0, sd_old), (1, sd_new)):
+            kw = dict(hold_s=6.0, phi_us=(3100.0 * seed) % 20000, delta=0.12, tau=9.0, fill_us=1000000, noise=0.02, cyc_sd=0.25)
+            bd = c1x_bd(**kw) if path else BrewData(**kw)
+            out = run(bd, stall_p=0.008, seed=seed)
+            xs.append(num(out, 'EU_END', 'hold_sd'))
+    m_old, m_new = sum(sd_old) / len(sd_old), sum(sd_new) / len(sd_new)
+    s_old = math.sqrt(sum((a - m_old) ** 2 for a in sd_old) / (len(sd_old) - 1))
+    check('23 c1x: hold_sd ≤ vanha + siemenhajonta [N=%d]' % len(sd_old), m_new <= m_old + s_old,
+          'c1x %.3f, vanha %.3f ± %.3f' % (m_new, m_old, s_old))
+
+    # Nalka: ydin 0 seisoo 90 ms nousussa (pumppu paalla, jono <= 40 ms + CX_STARVE_US 25 ms) -> ydin 1 kaantaa pumpun itse
+    # pois viimeisen tapahtuman jalkeen, uutto paattyy virheeseen
+    bd = c1x_bd(phi_us=7300.0)
+    aio = HookAsyncio(0.1, lambda: setattr(U, 'us', U.us + 90000))
+    out = run(bd, aio=aio)
+    pl = bd.temperature_sensor.pin_log
+    off_t = next((t for t, s in pl if s == 0 and t >= aio.t_fn), None) if aio.t_fn else None
+    d_ms = None if off_t is None else (off_t - aio.t_fn) / 1000
+    check('23 c1x nälkä: reason=starve, EU_STARVE, pumppu pois ytimen 1 nälästä (25-70 ms pysähdyksestä)',
+          field(out, 'EU_END', 'reason') == 'starve' and 'EU_STARVE' in out and bd.pump.v == 0 and
+          d_ms is not None and 25 <= d_ms <= 70 and pl[-1][1] == 0 and bd.temperature_sensor.cx[CL.CX_STARVE] >= 1,
+          'reason=%s pois %s ms pysähdyksestä, viimeinen %s' % (field(out, 'EU_END', 'reason'), d_ms, pl[-1:]))
+
+    # Vahti (K4): (a) ajoraja: allow joka jaksossa, kielto nollaa CX_OK:n; (b) poll laukaisee kesken pidon, myos kun
+    # pinni on tauolla 0: CX_OK 0, eika ydin 1 kaanna enaa paalle
+    import relayguard
+    for case in ('runtime', 'poll'):
+        bd = c1x_bd(phi_us=7300.0)
+        bd.dev_safe = False
+        g = relayguard.RelayGuard(bd, U)
+        gr = relayguard.GuardedRelay(bd.pump, g, 'pump')
+        bd.get_relays = lambda bd=bd, gr=gr: (gr, bd.solenoid, bd.heater)
+        lim0 = relayguard.PUMP_RUN_MAX_MS
+        if case == 'runtime':
+            relayguard.PUMP_RUN_MAX_MS, aio = 2500, None
+        else:
+            aio = HookAsyncio(2.5, lambda bd=bd, g=g: (setattr(bd, 'dev_safe', True), g.poll()))
+        try:
+            out = run(bd, aio=aio)
+        finally:
+            relayguard.PUMP_RUN_MAX_MS = lim0
+        pl = bd.temperature_sensor.pin_log
+        tr = (g.trips[0][0] + 1) * 1000 if g.trips else None       # laukaisun ms (vahdin kirjaus), seuraavan ms:n alusta
+        late_on = [t for t, s in pl if s == 1 and tr is not None and t > tr]
+        check('23 c1x vahti %s: GUARD_TRIP, reason=guard, ei päällekytkentää laukaisun jälkeen, c1_ok irti' % case,
+              'GUARD_TRIP pump reason=%s' % ('runtime' if case == 'runtime' else 'devsafe') in out and
+              field(out, 'EU_END', 'reason') == 'guard' and not late_on and bd.pump.v == 0 and gr.c1_ok is None,
+              'reason=%s on laukaisun jälkeen %s' % (field(out, 'EU_END', 'reason'), late_on[:3]))
+
+    # Ydin 1 lakkaa (ei naytteita, pinni jaa paalle): ydin 0 lopettaa (c1dead) ja kaantaa pinnin pois
+    bd = c1x_bd(phi_us=7300.0)
+    bd.temperature_sensor.dead_at = 1.5e6
+    out = run(bd)
+    check('23 c1x ydin 1 lakkaa: reason=c1dead, pumppu pois', field(out, 'EU_END', 'reason') == 'c1dead' and bd.pump.v == 0,
+          field(out, 'EU_END', 'reason'))
+
+    # Vain esiuutto: bim:1 (brew=True) ajaa vanhan polun; ilman ytimen 1 toteuttajaa vanha polku
+    bd = brew_bd('25b', 230, False)
+    bd.eu_c1x = 1
+    txt, _ = run_brew(bd, 3.0, bim=1, seed=230)
+    check('23 c1x bim:1: EU_C1X off reason=brew, vanha polku', 'EU_C1X off reason=brew' in txt and 'c1x=0' in txt)
+    bd = BrewData(phi_us=7300.0)
+    bd.eu_c1x = 1
+    out = run(bd)
+    check('23 c1x ilman ydintä 1: EU_C1X fail, vanha polku loppuun', 'EU_C1X fail reason=noc1' in out and
+          field(out, 'EU_START', 'c1x') == '0' and field(out, 'EU_END', 'reason') == 'done')
 
     print('RESULT: %d failed' % len(failed))
     return 1 if failed else 0

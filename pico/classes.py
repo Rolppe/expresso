@@ -1550,6 +1550,10 @@ CX_SW, CX_SR, CX_EW, CX_ER, CX_N, CX_GMAX, CX_OVF, CX_NEV, CX_LMAX, CX_LATE, CX_
 # event's index and its write time minus its due time (us; > 0 = core 0 wrote it late), from cx_wt (0), TEMP (0)
 # 1 = the executor also reads the boiler temperature (c1_on(3)), TS/TC/TR (1) the longest part of bias on, conversion
 # start, and result and average (us, K3; rtd_part 0-6, _c1_put as part 7)
+# CX_OK (vaihe 3, K4) is its own one-word array (cx_ok) so that the relay guard clears it without the CX_* indices:
+# core 0 sets it to 1 when it arms the executor and the guard allows the pump; the guard (_trip) and core 0 set it to 0.
+# Core 1 reads it just before every switch-on and keeps the pin at 0 while it is 0. After a starvation (no event for
+# CX_STARVE_US while ARMED) core 1 turns the pin off and switches nothing on until core 0 starts it again.
 CX_LATE_US = 300              # = EU_LATE_MAX_US
 CX_STARVE_US = 25000          # a mains cycle and a margin without an event
 # Temperature between samples (vaihe 2): a MAX31865 step runs only when the next sample and the next relay event are
@@ -1638,6 +1642,7 @@ class TemperatureSensor:
         self.cx_wt = array('i', [0] * CX_NE)       # core 0's write time of each event slot
         self.cx_samp = array('i', [0] * (2 * CX_NS))
         self.cx_ev = array('i', [0] * (2 * CX_NE))
+        self.cx_ok = array('i', [0])  # CX_OK
         self.cx_pin = None            # the pump's raw Pin (not GuardedRelay); dry runs leave it alone
         try:
             import _thread
@@ -1759,6 +1764,8 @@ class TemperatureSensor:
             # An allocation (heap locked) or an SPI error: stop, and core 0 reads the sensor again. During a shot the
             # relay guard then blocks the heater after 10 s (tempstale), as before this reader.
             st[C1_ERR] = 1
+            if self.cx_pin is not None and not self.cx[CX_DRY]:
+                self.cx_pin.value(0)  # the executor may have left the pump on
         micropython.heap_unlock()
         st[C1_IDLE] = 1
         st[C1_RUN] = 0
@@ -1852,6 +1859,7 @@ class TemperatureSensor:
         sm = self.cx_samp
         ev = self.cx_ev
         wt = self.cx_wt
+        ok = self.cx_ok
         adc = self.c1_adc
         pin = None if x[CX_DRY] else self.cx_pin
         tt = x[CX_TEMP]
@@ -1876,6 +1884,8 @@ class TemperatureSensor:
                     d = utime.ticks_diff(now, ev[i])
                     if d >= 0:
                         on = ev[i + 1]
+                        if on and (ok[0] == 0 or x[CX_STARVE]):
+                            on = 0            # K4: CX_OK read just before the pin; starved stays off
                         if pin is not None:
                             pin.value(on)
                         x[CX_PIN] = on
@@ -1892,6 +1902,9 @@ class TemperatureSensor:
                         continue
                     room = -d
                 elif x[CX_ARMED] and utime.ticks_diff(now, x[CX_LAST]) > CX_STARVE_US:
+                    if pin is not None:
+                        pin.value(0)
+                    x[CX_PIN] = 0
                     x[CX_STARVE] += 1
                     x[CX_LAST] = now
                 if tt and room > CX_TROOM_US and utime.ticks_diff(now, tdue) >= 0 and \
@@ -1933,6 +1946,10 @@ class TemperatureSensor:
             if x[CX_N] and g > x[CX_GMAX]:
                 x[CX_GMAX] = g
             x[CX_N] += 1
+        # Pump off first: finishing a reading below takes up to ~85 ms
+        if pin is not None:
+            pin.value(0)
+        x[CX_PIN] = 0
         # A reading left half way: finish its parts (CS back up, the conversion ended) before core 0 or the reading
         # loop takes the chip (c1_off waits for IDLE, which core 1 sets only after this returns); the result is dropped
         while tt and 0 < tph < 7:
@@ -1944,9 +1961,6 @@ class TemperatureSensor:
             elif tph == 3:
                 tdue = utime.ticks_add(utime.ticks_us(), TEMP_C1_CONV_MS * 1000)
             tph = tph + 1 if tph < 6 else 0
-        if pin is not None:
-            pin.value(0)
-        x[CX_PIN] = 0
 
     def _c1_loop(self, st, ring, tab, drv, utime):
         while st[C1_WANT] >= 0:

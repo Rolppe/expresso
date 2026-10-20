@@ -103,6 +103,7 @@ async def ystall_run(brew_data, utime, asyncio, seconds, mode):
         for k in range(len(cx)):
             cx[k] = 0
         cx[CL.CX_DRY] = 1
+        tsens.cx_ok[0] = 1      # kuiva: PIN kirjaa tilan, jonka toteuttaja kaantaisi (CX_OK, C1-JAKSOT vaihe 3)
         ps = getattr(brew_data, 'pressure_sensor', None)
         tsens.c1_adc = getattr(ps, 'pressure_sensor', None)
         cx_ne, cx_ns = CL.CX_NE, CL.CX_NS

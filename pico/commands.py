@@ -381,6 +381,16 @@ def handle_command(brew_data, command):
         except Exception:
             pass
 
+    elif command.startswith('c1x:'):
+        # Ytimen 1 jaksot pim:1:n esiuutossa (EXPRESSO-C1-JAKSOT vaihe 3, TILAUS-O): 1 = ydin 1 nayttee ja kaantaa
+        # pumppureleen jonosta, 0 = vanha polku. Vain esiuutto (bim:1:n uutto ajaa vanhan, EU_C1X off reason=brew).
+        # RAM only, oletus 0: uudelleenkaynnistys ja flash palauttavat vanhan polun.
+        try:
+            brew_data.eu_c1x = 1 if int(_float_arg(command)) == 1 else 0
+            updated = True
+        except Exception:
+            pass
+
     elif command.startswith('pip:'):
         try:
             brew_data.set_pre_infusion_pressure(_float_arg(command))

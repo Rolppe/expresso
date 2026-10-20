@@ -207,6 +207,7 @@ class TsX:
         self.cx_wt = array('i', [0] * CL.CX_NE)
         self.cx_samp = array('i', [0] * (2 * CL.CX_NS))
         self.cx_ev = array('i', [0] * (2 * CL.CX_NE))
+        self.cx_ok = array('i', [0])
         self.cx_pin = types.SimpleNamespace(value=lambda v: (_ for _ in ()).throw(AssertionError('dry run set the pin')))
         self.c1_adc = None
         self.temperature_sensor = self.c1_ring = self.c1_tab = None      # TEMP 0: not used
@@ -297,6 +298,7 @@ def real_ts(ut_):
     t.cx_wt = array('i', [0] * CL.CX_NE)
     t.cx_samp = array('i', [0] * (2 * CL.CX_NS))
     t.cx_ev = array('i', [0] * (2 * CL.CX_NE))
+    t.cx_ok = array('i', [0])
     t.cx_pin = types.SimpleNamespace(value=lambda v: (_ for _ in ()).throw(AssertionError('dry run set the pin')))
     return t
 
@@ -398,6 +400,97 @@ check('rest: c1_take gives the chip to core 0 (WANT 0, average handed back)', tr
       and tr.c1[CL.C1_IDLE] == 1 and not tr.c1_active() and tr.temps == avg_after(tr.c1[CL.C1_SEQ])[1], tr.temps)
 tr.c1[CL.C1_WANT] = -1
 th7.join(1)
+
+# C1-JAKSOT vaihe 3 (K4): the real _c1_exec switching a pin. CX_OK read just before every switch-on; no event for
+# CX_STARVE_US while ARMED turns the pin off and keeps it off; the executor's end and a core 1 error leave the pin at 0
+class RecPin:
+    def __init__(self):
+        self.log = []
+
+    def value(self, v=None):
+        if v is None:
+            return self.log[-1][1] if self.log else 0
+        self.log.append((utw.ticks_us(), 1 if v else 0))
+
+
+def wait_until(cond, s=0.3):
+    t = time.perf_counter()
+    while not cond() and time.perf_counter() - t < s:
+        time.sleep(0.002)
+
+
+def put(tk, dt_ms, on):
+    w = tk.cx[CL.CX_EW]
+    i = (w % CL.CX_NE) * 2
+    tk.cx_ev[i] = utw.ticks_add(utw.ticks_us(), int(dt_ms * 1000))
+    tk.cx_ev[i + 1] = on
+    tk.cx_wt[w % CL.CX_NE] = utw.ticks_us()
+    tk.cx[CL.CX_EW] = w + 1
+
+
+tk = real_ts(utw)
+tk.cx_pin = pk = RecPin()
+tk.cx_ok[0] = 1
+thk = threading.Thread(target=lambda: CL.TemperatureSensor._c1_main(tk), daemon=True)
+thk.start()
+time.sleep(0.02)
+tk.c1[CL.C1_WANT] = 3
+time.sleep(0.02)
+for k in range(6):                      # ARMED 0: the host's sleeps between the steps are no starvation
+    put(tk, 5 + 10 * k, 1 - k % 2)
+wait_until(lambda: tk.cx[CL.CX_ER] == tk.cx[CL.CX_EW])
+check('K4: events switch the pin with CX_OK 1', [v for _, v in pk.log] == [1, 0, 1, 0, 1, 0] and tk.cx[CL.CX_STARVE] == 0,
+      (pk.log, tk.cx[CL.CX_STARVE]))
+n0 = len(pk.log)
+tk.cx_ok[0] = 0
+for k in range(3):
+    put(tk, 5 + 10 * k, 1)
+wait_until(lambda: tk.cx[CL.CX_ER] == tk.cx[CL.CX_EW])
+check('K4: CX_OK 0 keeps the pin at 0 for on-events', all(v == 0 for _, v in pk.log[n0:]) and len(pk.log) > n0,
+      pk.log[n0:])
+tk.cx_ok[0] = 1
+i0 = len(pk.log)
+put(tk, 2, 1)                           # queue first, then ARMED, as pre_infusion_phased arms
+tk.cx[CL.CX_ARMED] = 1
+wait_until(lambda: tk.cx[CL.CX_STARVE] >= 1)
+seg = pk.log[i0:]
+t_on = next((t for t, v in seg if v == 1), None)
+t_off = next((t for t, v in seg if v == 0 and t_on is not None and t > t_on), None)
+dst = utw.ticks_diff(t_off, t_on) if t_off is not None else -1
+# The host thread can stand 10-30 ms (GIL): the bound above is loose, the one below (no early starvation) is not
+check('starve: no event for CX_STARVE_US while ARMED turns the pin off (not before CX_STARVE_US)',
+      t_on is not None and tk.cx[CL.CX_STARVE] >= 1 and CL.CX_STARVE_US <= dst <= CL.CX_STARVE_US + 60000,
+      (seg[:3], dst, tk.cx[CL.CX_STARVE]))
+n1 = len(pk.log)
+put(tk, 2, 1)
+wait_until(lambda: tk.cx[CL.CX_ER] == tk.cx[CL.CX_EW])
+check('starve: latched, a later on-event leaves the pin at 0', all(v == 0 for _, v in pk.log[n1:]), pk.log[n1:])
+tk.cx[CL.CX_ARMED] = tk.cx[CL.CX_STARVE] = 0
+put(tk, 2, 1)
+wait_until(lambda: pk.value() == 1)
+tk.c1[CL.C1_WANT] = 0
+wait_until(lambda: tk.c1[CL.C1_IDLE] == 1)
+check('executor end: pin on before, 0 after WANT 0, thread idle', pk.log[-2][1] == 1 and pk.log[-1][1] == 0
+      and tk.c1[CL.C1_IDLE] == 1 and tk.c1[CL.C1_ERR] == 0, (pk.log[-3:], tk.c1[CL.C1_IDLE]))
+
+
+class BadAdc:
+    bad = False
+
+    def read_u16(self):
+        if self.bad:
+            raise OSError('adc')
+        return 0
+
+
+tk.c1_adc = ba = BadAdc()
+tk.c1[CL.C1_WANT] = 3
+put(tk, 1, 1)
+wait_until(lambda: pk.value() == 1)
+ba.bad = True
+thk.join(0.5)
+check('core 1 error with the pump on: ERR 1, thread ends, pin 0', not thk.is_alive() and tk.c1[CL.C1_ERR] == 1
+      and pk.log[-1][1] == 0 and pk.log[-2][1] == 1, (pk.log[-3:], tk.c1[CL.C1_ERR]))
 
 print('RESULT: %d failed' % len(FAILED))
 sys.exit(1 if FAILED else 0)
