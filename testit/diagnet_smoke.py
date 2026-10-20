@@ -234,7 +234,49 @@ SOCK.sent.clear()
 clk.ms += 5000
 d.step(bd)
 check('hb every 5 s in shot', b'DIAG_HB' in b''.join(p for p, a in SOCK.sent) and b'brew=1' in b''.join(p for p, a in SOCK.sent))
+hb = b''.join(p for p, a in SOCK.sent)
+check('shot hb skips heap walk (WIFI-AIKAIKKUNA)', b'free=-1 alloc=-1' in hb)
+check('no wifi link -> w fields -1', b'wtx=-1 wtxerr=-1 wsmax_us=-1' in hb)
+wl = types.SimpleNamespace(tx=42, txerr=1, send_max_us=777)
+SOCK.sent.clear()
+clk.ms += 5000
+d.step(types.SimpleNamespace(pending_brew_log=None, wifi_link=wl))
+hb = b''.join(p for p, a in SOCK.sent)
+check('hb carries wifi link counters and resets max', b'wtx=42 wtxerr=1 wsmax_us=777' in hb and wl.send_max_us == 0)
 d.shot_end('max', 0)
+SOCK.sent.clear()
+d.step(bd)
+check('full hb right after the shot', b'free=123456' in b''.join(p for p, a in SOCK.sent))
+
+
+class _Aio:
+    def __init__(self, dd, stop_after):
+        self.sleeps = []
+        self.dd = dd
+        self.stop_after = stop_after
+
+    async def sleep_ms(self, ms):
+        self.sleeps.append(ms)
+        if len(self.sleeps) == self.stop_after:
+            self.dd.brew = True
+        if len(self.sleeps) > self.stop_after:
+            raise StopIteration
+
+
+busy = []
+aio = _Aio(d, 1)
+try:
+    import asyncio as _real_asyncio
+    _real_asyncio.run(d.run(bd, aio, lambda name, t0: busy.append(name)))
+except (StopIteration, RuntimeError):
+    pass
+d.brew = False
+check('sender period 100 ms idle, 500 ms in shot', aio.sleeps[:2] == [D.SEND_PERIOD_MS, D.SEND_PERIOD_BREW_MS])
+check('sender reports task_busy diag', busy and set(busy) == {'diag'})
+d.quiet = True
+check('test shot (quiet, no log) counts as shot', d.in_shot() and not d.brew)
+d.quiet = False
+check('idle is not a shot', not d.in_shot())
 
 # ---- DIAG_MIN: relay guard window + diagnet line ---------------------------------------------------
 import relayguard as RG  # noqa: E402

@@ -889,6 +889,11 @@ async def run_shot(brew_data, utime, asyncio, pump_ratio_calculator, keep_runnin
     # 10 s:n jalkeen (GUARD_TRIP heater reason=tempstale, 28.9.2026). Palautus finallyssa, ennen paasilmukan lukua.
     tsens = brew_data.temperature_sensor
     tsens.c1_on()
+    # Wi-Fi hiljaiseksi koko pumppuajon ajaksi, myos testiuutossa (EXPRESSO-WIFI-AIKAIKKUNA 20.10.2026):
+    # diagnet ja wifilink harventavat lahetyksensa, kun diag.in_shot() on tosi
+    diag = getattr(brew_data, 'diag', None)
+    if diag is not None:
+        diag.quiet = True
     # Uuttoloki (EXPRESSO-UUTTOLOKI): vain kytkimen uutto (PB), ei testiuutto. Naytteet ottaa BLE-tehtava
     # (brew_logger.brew_log_service), joten uuttosilmukoiden ajoitus ei muutu.
     brew_log = getattr(brew_data, 'brew_logger', None) if label == 'PB' else None
@@ -1032,6 +1037,8 @@ async def run_shot(brew_data, utime, asyncio, pump_ratio_calculator, keep_runnin
         RELAY_HEATER.value(0)
         RELAY_SOLENOID.value(0)
         tsens.c1_off()
+        if diag is not None:
+            diag.quiet = False
         if brew_log is not None and brew_log.is_active():
             brew_log.end_session(utime.ticks_ms(), brew_data.get_weight(), 'error')
     return abort_reason
