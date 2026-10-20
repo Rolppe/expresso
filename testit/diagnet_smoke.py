@@ -84,7 +84,7 @@ class Sock:
     def sendto(self, data, addr):
         if self.fail:
             raise OSError(113)
-        self.sent.append((data, addr))
+        self.sent.append((bytes(data), addr))     # sendto copies: the sender reuses one packet buffer
 
 
 SOCK = Sock()
@@ -141,6 +141,57 @@ r.take(5)
 r.put(b'WXYZWXYZWXYZ')    # wraps around the end
 check('ring wrap', r.take(100) == b'234WXYZWXYZWXYZ')
 check('ring irq balanced', irq.depth == 0 and irq.max_depth == 1)
+
+# EXPRESSO-GC-UUTTO: take_into and put against a reference, and an IRQ put landing between the snapshot and
+# the IRQ-off section (the hook runs once, just before disable_irq: the guard's Timer print)
+class HookIrq(Irq):
+    def __init__(self):
+        Irq.__init__(self)
+        self.hook = None
+
+    def disable_irq(self):
+        h, self.hook = self.hook, None
+        if h is not None:
+            h()
+        return Irq.disable_irq(self)
+
+
+import random as _rnd  # noqa: E402
+_rnd.seed(7)
+hi = HookIrq()
+r = D.Ring(64, hi)
+ref = bytearray()
+pkt = bytearray(80)
+bad = 0
+for i in range(3000):
+    if _rnd.random() < 0.6:
+        data = bytes(_rnd.randrange(256) for _ in range(_rnd.randrange(1, 90)))
+        if _rnd.random() < 0.2:
+            extra = bytes(_rnd.randrange(256) for _ in range(_rnd.randrange(1, 70)))
+            hi.hook = lambda e=extra: (r.put(e), ref.extend(e))
+        r.put(data)
+        ref.extend(data)
+        del ref[:max(0, len(ref) - 64)]
+    else:
+        k = _rnd.randrange(1, 80)
+        off = _rnd.randrange(0, 4)
+        if _rnd.random() < 0.2:
+            extra = bytes(_rnd.randrange(256) for _ in range(_rnd.randrange(1, 70)))
+
+            def _h(e=extra):
+                r.put(e)
+                ref.extend(e)
+                del ref[:max(0, len(ref) - 64)]
+            hi.hook = _h
+        n = r.take_into(pkt, off, k)
+        hi.hook = None
+        want = bytes(ref[:n])
+        del ref[:n]
+        if bytes(pkt[off:off + n]) != want or len(want) != n:
+            bad += 1
+    if r.size != len(ref):
+        bad += 1
+check('ring take_into and put match reference, IRQ put in between', bad == 0 and hi.depth == 0)
 
 # ---- start, tee, boot line --------------------------------------------------------------------------
 clk = Clock()

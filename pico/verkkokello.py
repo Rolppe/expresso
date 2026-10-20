@@ -101,11 +101,21 @@ class Verkkokello:
                 self.d = 0.0
 
     def sd_us(self, t):
-        v = self._grow(self._m(t))[0][0]
+        # _grow(m)[0][0] ilman 3x3-listoja (EXPRESSO-GC-UUTTO 20.10.2026): kutsutaan jopa 50 kertaa sekunnissa
+        # uuton aikana, ja jokainen _grow varasi ~20 listaa. Sama laskujarjestys kuin _grow:ssa -> sama tulos.
+        m = self._m(t)
+        P = self.P
+        h = m * m / 2.0
+        a = abs(m)
+        v = (P[0][0] + m * P[1][0] + h * P[2][0]) \
+            + (P[0][1] + m * P[1][1] + h * P[2][1]) * m \
+            + (P[0][2] + m * P[1][2] + h * P[2][2]) * h \
+            + self.q * (a ** 5 / 20.0)
         return math.sqrt(v) if v > 0.0 else 0.0
 
-    def locked(self, t):
-        return 2.5 * self.sd_us(t) < LOCK_US
+    def locked(self, t, sd=None):
+        """sd: saman hetken sd_us(t), jos kutsuja laski sen jo."""
+        return 2.5 * (self.sd_us(t) if sd is None else sd) < LOCK_US
 
     def iq_start(self, t):
         self.iq_t0, self.iq_e, self.iq_T = t, self.edge(t), self.T

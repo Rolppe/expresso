@@ -150,6 +150,24 @@ def main():
     # 7. 1 kHz:n silmukka: iq_add ei laske trigonometriaa (brief Do 2).
     src = inspect.getsource(vk.Verkkokello.iq_add)
     check('iq_add ilman cos/sin-kutsua', 'cos(' not in src and 'sin(' not in src)
+
+    # 8. sd_us suljettuna kaavana (EXPRESSO-GC-UUTTO 20.10.2026): sama kuin _grow(m)[0][0], kellon tiloilla
+    # oppimisen aikana ja satunnaisilla m:n arvoilla (myos negatiivinen ja murto-osa). Laitteella bitilleen
+    # (MicroPythonin sum() summaa jarjestyksessa kuten kaava); CPython >= 3.12 sum() kompensoi, joten tassa 1e-12.
+    rnd = random.Random(11)
+    c = vk.Verkkokello(0)
+    t, worst, n = 0, 0, 0
+    for i in range(200):
+        t += 160000
+        c.update(t, rnd.gauss(0.0, 800.0))
+        for _ in range(5):
+            tq = t + rnd.randrange(-400000, 2000000)
+            v = c._grow(c._m(tq))[0][0]
+            ref = math.sqrt(v) if v > 0.0 else 0.0
+            n += 1
+            if abs(c.sd_us(tq) - ref) > 1e-12 * max(1.0, ref): worst += 1
+    check('sd_us = _grow[0][0]', worst == 0, '%d/%d eri' % (worst, n))
+    check('locked(t, sd) = locked(t)', c.locked(t) == c.locked(t, c.sd_us(t)))
     return finish()
 
 

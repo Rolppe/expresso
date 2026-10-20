@@ -19,6 +19,7 @@ FLOW_STALE_MS = 500
 
 
 class Scale:
+    _fc_last = _fc_span = _fc_v = None      # flow():n valimuisti; luokassa, koska testit luovat __new__:lla
 
     def __init__(self, dt_a=18, dt_b=20, sck=19, gain=128,
                  cal_file='scale_cal.json', window=8):
@@ -231,9 +232,20 @@ class Scale:
         if not h:
             return None
         span = self.flow_window_ms if span_ms is None else span_ms
-        t_last = h[-1][0]
+        last = h[-1]
+        t_last = last[0]
         if time.ticks_diff(time.ticks_ms(), t_last) > FLOW_STALE_MS:
             return None
+        # Sama naytejoukko ja ikkuna -> sama suora (EXPRESSO-GC-UUTTO 20.10.2026): main.py kutsuu tata 50 ms
+        # valein, naytteita tulee harvemmin, ja jokainen laskenta varasi ~10 floatia naytetta kohden.
+        # Uusi nayte on uusi tuple, joten identiteetti riittaa avaimeksi.
+        if last is self._fc_last and span == self._fc_span:
+            return self._fc_v
+        v = self._flow_fit(h, t_last, span)
+        self._fc_last, self._fc_span, self._fc_v = last, span, v
+        return v
+
+    def _flow_fit(self, h, t_last, span):
         n = 0
         sx = sy = sxx = sxy = 0.0
         for i in range(len(h) - 1, -1, -1):

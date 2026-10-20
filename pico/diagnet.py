@@ -34,14 +34,19 @@ def _f2(x):
 
 
 class Ring:
-    """Byte ring: put() never fails, take() returns up to n of the oldest bytes. Both run with IRQs
-    off, because the relay guard prints from a Timer callback that can land inside either."""
+    """Byte ring: put() never fails, take_into() copies up to k of the oldest bytes out. Both update the
+    ring with IRQs off, because the relay guard prints from a Timer callback that can land inside either.
+    EXPRESSO-GC-UUTTO (20.10.2026): nothing is allocated with IRQs off. A memoryview slice is a heap object,
+    and an automatic collection inside the IRQ-off section stretched it to 20-50 ms (HB tmax_us); a slice
+    as an assignment target is not (MicroPython >= 1.23 keeps it on the stack)."""
     def __init__(self, n, irq=None):
         self.buf = bytearray(n)
+        self.mv = memoryview(self.buf)
         self.n = n
         self.r = 0
         self.size = 0
         self.drop = 0
+        self.ov = 0         # puts that dropped old bytes: take_into's check (a full-ring put leaves r where it was)
         self.irq = irq      # machine module or None (host tests)
 
     def put(self, data):
@@ -49,44 +54,69 @@ class Ring:
         ln = len(mv)
         if not ln:
             return
-        st = self.irq.disable_irq() if self.irq else None
-        try:
-            n = self.n
-            if ln > n:
-                self.drop += ln - n
-                mv = mv[ln - n:]
-                ln = n
-            over = ln - (n - self.size)
-            if over > 0:
-                self.r = (self.r + over) % n
-                self.size -= over
-                self.drop += over
-            w = (self.r + self.size) % n
+        n = self.n
+        cut = 0
+        if ln > n:
+            cut = ln - n
+            mv = mv[cut:]
+            ln = n
+        while True:
+            # Split point and source slices from a snapshot, before IRQs go off; a put from an IRQ in
+            # between moves r/size, and the snapshot check sends us round again (rare: a guard print)
+            r0, s0 = self.r, self.size
+            over = ln - (n - s0)
+            if over < 0:
+                over = 0
+            w = (r0 + s0) % n       # dropping the oldest `over` bytes moves r and size, not the write end
             first = ln if ln <= n - w else n - w
-            self.buf[w:w + first] = mv[:first]
-            if ln > first:
-                self.buf[0:ln - first] = mv[first:]
-            self.size += ln
-        finally:
-            if self.irq:
-                self.irq.enable_irq(st)
+            a = mv if first == ln else mv[:first]
+            b = mv[first:] if ln > first else None
+            st = self.irq.disable_irq() if self.irq else None
+            try:
+                if self.r != r0 or self.size != s0:
+                    continue
+                if over:
+                    self.r = (r0 + over) % n
+                    self.size = s0 - over
+                    self.ov += 1
+                self.drop += cut + over
+                self.buf[w:w + first] = a
+                if b is not None:
+                    self.buf[0:ln - first] = b
+                self.size += ln
+                return
+            finally:
+                if self.irq:
+                    self.irq.enable_irq(st)
+
+    def take_into(self, out, off, k):
+        """Copy up to k of the oldest bytes into out[off:] and return the count. The copy runs with IRQs
+        on; the IRQ-off section only commits it. A put from an IRQ meanwhile writes past r + size, and it
+        overwrites the bytes being copied only by moving r, which sends us round again."""
+        n = self.n
+        while True:
+            r0, ov0 = self.r, self.ov
+            kk = k if k <= self.size else self.size
+            if r0 + kk <= n:
+                out[off:off + kk] = self.mv[r0:r0 + kk]
+            else:
+                m = n - r0
+                out[off:off + m] = self.mv[r0:n]
+                out[off + m:off + kk] = self.mv[0:kk - m]
+            st = self.irq.disable_irq() if self.irq else None
+            try:
+                if self.r != r0 or self.ov != ov0:
+                    continue
+                self.r = (r0 + kk) % n
+                self.size -= kk
+                return kk
+            finally:
+                if self.irq:
+                    self.irq.enable_irq(st)
 
     def take(self, k):
-        st = self.irq.disable_irq() if self.irq else None
-        try:
-            if k > self.size:
-                k = self.size
-            r = self.r
-            if r + k <= self.n:
-                out = bytes(self.buf[r:r + k])
-            else:
-                out = bytes(self.buf[r:]) + bytes(self.buf[:k - (self.n - r)])
-            self.r = (r + k) % self.n
-            self.size -= k
-            return out
-        finally:
-            if self.irq:
-                self.irq.enable_irq(st)
+        out = bytearray(k if k < self.size else self.size)
+        return bytes(out[:self.take_into(out, 0, len(out))])
 
 
 class _Tee(io.IOBase):
@@ -132,6 +162,8 @@ class DiagNet:
         # Uptime from the RTC seconds: ticks_ms wraps after 12.4 days, and long uptimes are the question
         self.t_boot_s = utime.time()
         self.sock = None
+        self._pkt = bytearray(PKT_BYTES)
+        self._pkt_mv = memoryview(self._pkt)
         self.seq = 0
         self.txp = 0
         self.txerr = 0
@@ -262,16 +294,20 @@ class DiagNet:
             s.setblocking(False)
             self.sock = s
         head = ('EXD1 %s %d %d %d\n' % (self.boot, self.seq, self.utime.ticks_ms(), self.ring.drop)).encode()
-        data = self.ring.take(PKT_BYTES - len(head))
+        # One preallocated packet (EXPRESSO-GC-UUTTO): no take() copy and no head + data concatenation
+        pkt = self._pkt
+        h = len(head)
+        pkt[0:h] = head
+        k = self.ring.take_into(pkt, h, PKT_BYTES - h)
         self.seq += 1
         t0 = self.utime.ticks_us()
         try:
-            self.sock.sendto(head + data, self.addr)
+            self.sock.sendto(self._pkt_mv[0:h + k], self.addr)
             self.txp += 1
         except OSError:
             # Not connected, no ARP entry yet, lwIP out of buffers: the data is gone, the loop goes on
             self.txerr += 1
-            self.ring.drop += len(data)
+            self.ring.drop += k
         dt = self.utime.ticks_diff(self.utime.ticks_us(), t0)
         if dt > self.send_max_us:
             self.send_max_us = dt
