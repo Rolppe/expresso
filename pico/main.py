@@ -92,6 +92,16 @@ brew_data.tbusy = ['-', 0]
 # task samples it at 10 Hz and sends the finished shot to the app as the August brew_log multipack
 brew_data.brew_logger = BrewSessionLogger(utime)
 brew_data.tray_scale = tray_scale
+# The app straight over Wi-Fi (wifilink.py, EXPRESSO-WIFI-APPI vaihe 1): needs DIAGNET's radio and boot id
+brew_data.wifi_link = None
+if diag is not None:
+    try:
+        import wifilink, hashlib, os as _os
+        import bluetooth_handler as _bh
+        brew_data.wifi_link = wifilink.WifiLink(brew_data, diag, socket, utime, hashlib, json, handle_command, _bh,
+                                                wifilink.load_key(_os))
+    except Exception as e:
+        print('WIFI_START_FAIL %r' % (e,))
 if tray_scale is not None:
     import scalecal
     brew_data.scale_cal = scalecal.ScaleCal(tray_scale, utime, lambda: brew_data.mode == 'IDLE')
@@ -482,6 +492,8 @@ async def async_main():
              serial_commands(brew_data), watchdog_feeder(), scale_reader(brew_data)]
     if diag is not None:
         tasks.append(diag.run(brew_data, asyncio))
+    if brew_data.wifi_link is not None:
+        tasks.append(brew_data.wifi_link.run(asyncio, task_busy))
     await asyncio.gather(*tasks)
 
 try:
