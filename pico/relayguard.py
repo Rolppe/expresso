@@ -96,6 +96,7 @@ class RelayGuard:
         self.acc_p_min = None
         self.acc_p_max = None
         self.timer = None
+        self.paused = False       # ystall bit 8 only (EXPRESSO-GC-UUTTO): poll returns at once, the timer keeps running
 
     # ----- limits -------------------------------------------------------------
 
@@ -169,6 +170,8 @@ class RelayGuard:
 
     def poll(self, *_):
         """Timer callback (and host tests). Forces a relay off while its limit is hit."""
+        if self.paused:
+            return
         try:
             now = self.utime.ticks_ms()
             if self.read_pressure is not None:

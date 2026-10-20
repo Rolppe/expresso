@@ -54,5 +54,49 @@ check('y50 counted', end and ' y50=0 ' not in end[0], end)
 check('gc every 300 ms', 2 <= GC_N[0] <= 4 and end and ('gc_n=%d ' % GC_N[0]) in end[0], (GC_N, end))
 check('quiet and legacy restored', bd.diag.quiet is False and diagnet.LEGACY_SEND is False)
 
+# bit 8: the guard's poll pauses for the run and resumes afterwards, also when the run raises; the timer stays
+class Guard:
+    def __init__(self):
+        self.paused = False
+        self.seen = []
+
+
+class SeeAio(SlowAio):
+    def __init__(self, g):
+        SlowAio.__init__(self); self.g = g
+
+    async def sleep_ms(self, ms):
+        self.g.seen.append(self.g.paused)
+        await SlowAio.sleep_ms(self, ms)
+
+
+g = Guard()
+bd = types.SimpleNamespace(diag=types.SimpleNamespace(quiet=False), tbusy=['-', 0], relay_guard=g)
+buf = io.StringIO()
+with contextlib.redirect_stdout(buf):
+    aio.run(ystall.ystall_run(bd, ut, SeeAio(g), 1, 10))
+check('bit 8: paused during the run, resumed after', g.seen and all(g.seen) and g.paused is False
+      and 'guard_off=1' in buf.getvalue())
+
+
+class Boom:
+    async def sleep_ms(self, ms):
+        raise RuntimeError('x')
+
+
+g2 = Guard()
+bd = types.SimpleNamespace(diag=types.SimpleNamespace(quiet=False), tbusy=['-', 0], relay_guard=g2)
+try:
+    with contextlib.redirect_stdout(io.StringIO()):
+        aio.run(ystall.ystall_run(bd, ut, Boom(), 1, 8))
+except RuntimeError:
+    pass
+check('bit 8: resumed after an exception', g2.paused is False)
+g3 = Guard()
+bd = types.SimpleNamespace(diag=None, tbusy=None, relay_guard=g3)
+with contextlib.redirect_stdout(io.StringIO()):
+    aio.run(ystall.ystall_run(bd, ut, SeeAio(g3), 1, 3))
+check('without bit 8 the guard is not paused', g3.seen and not any(g3.seen))
+
 print('RESULT: %d failed' % len(FAILED))
 sys.exit(1 if FAILED else 0)
