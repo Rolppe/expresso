@@ -1430,6 +1430,7 @@ BH_SETTLE_MAX_MS = 120000
 BH_SETTLE_DELTA_C = 0.05     # settled: two consecutive 10 s averages within this
 BH_SETTLE_BAND_C = 1.5       # below target - this and not rising: learn now and hand over (fast recovery, TILAUS-R)
 BH_NOLEARN_MAX_MS = 600000   # arm 2: losses only above the target, the PI gets the heater back at the target
+BH_HOLD_LEAD_S = 50          # arm 2: hold power back on when the fall reaches the target within this (fit: dead 25 s, lag 10 s)
 T10_SAMPLE_MS = 250          # one sample per core-1 reading
 
 
@@ -1533,11 +1534,13 @@ class Thermostat:
             self.bh_phase = 'settle'
             self.bh_t0 = self.bh_w0 = self.bh_wnext = now
             self.bh_wsum, self.bh_wn, self.bh_prev = 0.0, 0, None
+            self.bh_rise = self.bh_hold = False
         # settle: hold power only (the PI integral), so losses do not read as a brew deficit. Without learning (arm 2)
         # the heater stays off above the target and the PI takes over only there: a PI taking over at once wound its
-        # integral down in the overshoot and undershot -1.3 C (21.10.2026 09.56-09.59)
+        # integral down in the overshoot and undershot -1.3 C (21.10.2026 09.56-09.59). The heat reaches the sensor
+        # ~25 s late (dead time, 11.07 rinse fit), so the hold power restarts while still above the target (bh_hold)
         self.heat_on = self.utime.ticks_diff(now, self.bh_t0) % HEAT_PERIOD_IDLE_MS < self.pi_i * HEAT_PERIOD_IDLE_MS
-        if not self.bh_learn and t > target:
+        if not self.bh_learn and t > target and not self.bh_hold:
             self.heat_on = False
         if self.utime.ticks_diff(now, self.bh_wnext) >= 0:
             self.bh_wnext = self.utime.ticks_add(self.bh_wnext, T10_SAMPLE_MS)
@@ -1547,9 +1550,19 @@ class Thermostat:
             avg = self.bh_wsum / self.bh_wn
             el = self.utime.ticks_diff(now, self.bh_t0)
             if not self.bh_learn:
-                # the stored heat has arrived (no longer rising) and the losses have brought it to the target
-                if el >= BH_NOLEARN_MAX_MS or (self.bh_prev is not None and avg < self.bh_prev + BH_SETTLE_DELTA_C
-                                               and avg <= target + BH_SETTLE_DELTA_C):
+                prev = self.bh_prev
+                if prev is not None and avg > prev + BH_SETTLE_DELTA_C:
+                    self.bh_rise = True
+                # falling above the target: restart the hold power one lead time before the target is reached
+                if prev is not None and avg < prev and avg - target <= (prev - avg) * BH_HOLD_LEAD_S * 1000 / T10_MS:
+                    self.bh_hold = True
+                # the stored heat has arrived (risen, no longer rising) and the losses have brought it to the target,
+                # or the hold power has stopped the fall above it. Not in the dip before the paid heat arrives: the PI
+                # there stacks on the heat in transit (+4...+5 C in the fitted model)
+                if el >= BH_NOLEARN_MAX_MS or (prev is not None and avg < prev + BH_SETTLE_DELTA_C
+                                               and (self.bh_rise or el >= BH_SETTLE_MAX_MS)
+                                               and (avg <= target + BH_SETTLE_DELTA_C
+                                                    or (self.bh_hold and avg > prev - BH_SETTLE_DELTA_C))):
                     self._bh_end(avg, target, 'target' if el < BH_NOLEARN_MAX_MS else 'max')
                     return False
             elif el >= BH_SETTLE_MAX_MS:
