@@ -201,7 +201,7 @@ class BD2(BD):
         self.brew_heat_k, self.bh_credit_us, self.bh_sum_us, self.bh_arm = C.BH_K0_MS, 0.0, 0.0, 0
 
 
-def shots(k_true, rate=0.6, lag_s=20, n_shots=8, n_eff=250, shot_s=16, seed=2, arm=1, k0=None):
+def shots(k_true, rate=0.6, lag_s=20, n_shots=8, n_eff=250, shot_s=16, seed=2, arm=1, k0=None, dead_s=0):
     random.seed(seed)
     clock[0] = 0
     sensor = Sensor()
@@ -215,9 +215,13 @@ def shots(k_true, rate=0.6, lag_s=20, n_shots=8, n_eff=250, shot_s=16, seed=2, a
     k = 0.024 / 78.0
     per_c_ms = 1000.0 / rate               # heater ms per C in this plant
     res = []
+    dq = [0] * int(dead_s * 200)          # heater dead time (11.07 rinse fit: ~25 s)
 
     def step(heat):
         nonlocal T, q, raw
+        if dq:
+            dq.append(heat)
+            heat = dq.pop(0)
         if clock[0] % 250 == 0:
             raw = raw[1:] + [T + random.gauss(0, 0.03)]
             sensor.t = round(sum(raw) / 7, 2)
@@ -245,12 +249,14 @@ def shots(k_true, rate=0.6, lag_s=20, n_shots=8, n_eff=250, shot_s=16, seed=2, a
             tmin = sensor.t if tmin is None or sensor.t < tmin else tmin
             tmax = sensor.t if tmax is None or sensor.t > tmax else tmax
             if clock[0] - t_end > 400000: break
-        tpost = None
+        tpost = thand = tpmax = None
         for j in range(300 * 200):        # 5 min IDLE between shots
             th.run(); step(relay.v)
+            thand = sensor.t if thand is None or sensor.t < thand else thand
+            tpmax = sensor.t if tpmax is None or sensor.t > tpmax else tpmax
             if j >= 60 * 200:             # after the first minute: the PI's own swing
                 tpost = sensor.t if tpost is None or sensor.t < tpost else tpost
-        res.append((k_before, bd.brew_heat_k, tmin, tmax, th.bh_last_t, tpost, sensor.t))
+        res.append((k_before, bd.brew_heat_k, tmin, tmax, th.bh_last_t, tpost, sensor.t, thand, tpmax))
     return res
 
 
@@ -343,6 +349,18 @@ check('H5 arm 2 ylityksen jälkeen: ei alitusta (min T ≥ 97,7 minuutin jälkee
 r = shots(50.0, 0.6, n_shots=3, arm=2, k0=30.0)
 check('H6 arm 2 vaje (täytön katto): 5 min jälkeen 97,8–98,2 ja kerroin ei muutu',
       all(97.8 <= x[6] <= 98.2 and x[1] == 30.0 for x in r), ' '.join('%.2f' % x[6] for x in r))
+
+# 10. Huuhtelu kahva irti 21.10.2026 11.07 (testit/vapaa-20261021-b*): 3 s, 147 iskua, maksettu 10,3 s, arm 2. Malli
+# sovitettu laitteeseen kuolleella ajalla 25 s ja viiveellä 10 s (kuoppa −4,7 / laite −5,3, ohjaus PI:lle 137 / 138 s,
+# alitus −0,85 / −0,86). Ennen BH_HOLD_LEAD_S:ää lämmitin oli pois tavoitteen yllä, ja PI:n pito tuli 25 s myöhässä.
+for need_k, name in ((54.4, 'ylitys'), (47.6, 'iso ylitys')):
+    r = shots(need_k, 0.6, lag_s=10, n_shots=2, n_eff=147, shot_s=3, arm=2, k0=70.0, dead_s=25)
+    check('H9 arm 2 huuhtelu, kuollut aika 25 s (%s): luovutuksen jälkeen min T ≥ 97,7' % name,
+          min(x[7] for x in r) >= 97.7, 'min %s, max %s' % (' '.join('%.2f' % x[7] for x in r),
+                                                            ' '.join('%.2f' % x[3] for x in r)))
+r = shots(54.4, 0.6, lag_s=40, n_shots=1, n_eff=147, shot_s=3, arm=2, k0=70.0, dead_s=25)
+check('H10 arm 2 hidas kattila: ei luovutusta kuopassa (max T ≤ 99,5 myös luovutuksen jälkeen)',
+      max(r[0][3], r[0][8]) <= 99.5, 'max %.2f, min %.2f' % (max(r[0][3], r[0][8]), r[0][7]))
 
 print('RESULT: %d failed' % len(FAILED))
 sys.exit(1 if FAILED else 0)
