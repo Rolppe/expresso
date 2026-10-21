@@ -201,7 +201,7 @@ class BD2(BD):
         self.brew_heat_k, self.bh_credit_us, self.bh_sum_us, self.bh_arm = C.BH_K0_MS, 0.0, 0.0, 0
 
 
-def shots(k_true, rate=0.6, lag_s=20, n_shots=8, n_eff=250, shot_s=16, seed=2):
+def shots(k_true, rate=0.6, lag_s=20, n_shots=8, n_eff=250, shot_s=16, seed=2, arm=1, k0=None):
     random.seed(seed)
     clock[0] = 0
     sensor = Sensor()
@@ -209,6 +209,8 @@ def shots(k_true, rate=0.6, lag_s=20, n_shots=8, n_eff=250, shot_s=16, seed=2):
     relay = Relay()
     bd = BD2('IDLE', 98.0, sensor, calc)
     th = C.Thermostat(bd, {}, relay, sensor, U)
+    if k0 is not None:
+        bd.brew_heat_k = k0
     T, q, raw = 98.0, 0.0, [98.0] * 7
     k = 0.024 / 78.0
     per_c_ms = 1000.0 / rate               # heater ms per C in this plant
@@ -231,7 +233,7 @@ def shots(k_true, rate=0.6, lag_s=20, n_shots=8, n_eff=250, shot_s=16, seed=2):
         T -= need_ms / per_c_ms           # cold water in (instant, plant units)
         given = bd.brew_heat_k * n_eff * 1000.0
         on_us = min(given, shot_s * 1e6)
-        bd.bh_sum_us, bd.bh_credit_us, bd.bh_arm = given, given - on_us, 1
+        bd.bh_sum_us, bd.bh_credit_us, bd.bh_arm = given, given - on_us, arm
         for j in range(shot_s * 200):
             step(1 if j * 5000 < on_us else 0)
         bd.mode = 'IDLE'
@@ -243,9 +245,12 @@ def shots(k_true, rate=0.6, lag_s=20, n_shots=8, n_eff=250, shot_s=16, seed=2):
             tmin = sensor.t if tmin is None or sensor.t < tmin else tmin
             tmax = sensor.t if tmax is None or sensor.t > tmax else tmax
             if clock[0] - t_end > 400000: break
-        for _ in range(300 * 200):        # 5 min IDLE between shots
+        tpost = None
+        for j in range(300 * 200):        # 5 min IDLE between shots
             th.run(); step(relay.v)
-        res.append((k_before, bd.brew_heat_k, tmin, tmax, th.bh_last_t))
+            if j >= 60 * 200:             # after the first minute: the PI's own swing
+                tpost = sensor.t if tpost is None or sensor.t < tpost else tpost
+        res.append((k_before, bd.brew_heat_k, tmin, tmax, th.bh_last_t, tpost, sensor.t))
     return res
 
 
@@ -300,6 +305,16 @@ bd = ES.brew_bd('25b', 220, False)
 bd.bh_steam_t = ES.U.us // 1000
 ES.run_brew(bd, 16.0, bim=1, seed=220)
 check('H3 höyrystä alle 20 min: oppi pois (arm 2)', bd.bh_arm == 2, 'arm %d' % bd.bh_arm)
+
+# 9. Tasaantuminen myös ilman oppia (arm 2, 21.10.2026 09.56–09.59): PI otti ohjauksen heti maksun jälkeen, integraali
+# valui ylityksessä ja lämpötila alittui −1,3 C. Nyt maksun jälkeen aina pito pi_i:llä, oppi vain arm 1:llä.
+r = shots(50.0, 0.6, n_shots=3, arm=2, k0=75.0)
+check('H4 arm 2: kerroin ei muutu', all(x[1] == 75.0 for x in r), ' '.join('%.1f' % x[1] for x in r))
+check('H5 arm 2 ylityksen jälkeen: ei alitusta (min T ≥ 97,7 minuutin jälkeen)', min(x[5] for x in r) >= 97.7,
+      'min %s, max %s' % (' '.join('%.2f' % x[5] for x in r), ' '.join('%.2f' % x[3] for x in r)))
+r = shots(50.0, 0.6, n_shots=3, arm=2, k0=30.0)
+check('H6 arm 2 vaje (täytön katto): 5 min jälkeen 97,8–98,2 ja kerroin ei muutu',
+      all(97.8 <= x[6] <= 98.2 and x[1] == 30.0 for x in r), ' '.join('%.2f' % x[6] for x in r))
 
 print('RESULT: %d failed' % len(FAILED))
 sys.exit(1 if FAILED else 0)

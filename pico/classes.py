@@ -1429,6 +1429,7 @@ BH_SETTLE_MIN_MS = 30000
 BH_SETTLE_MAX_MS = 120000
 BH_SETTLE_DELTA_C = 0.05     # settled: two consecutive 10 s averages within this
 BH_SETTLE_BAND_C = 1.5       # below target - this and not rising: learn now and hand over (fast recovery, TILAUS-R)
+BH_NOLEARN_MAX_MS = 600000   # arm 2: losses only above the target, the PI gets the heater back at the target
 T10_SAMPLE_MS = 250          # one sample per core-1 reading
 
 
@@ -1509,6 +1510,13 @@ class Thermostat:
             self._bh_save()
         self.bh_phase = None
 
+    def _bh_end(self, t_s, target, why):
+        if self.bh_learn:
+            self._bh_learn(t_s, target, why)
+        else:
+            print('BH_SETTLED T=%.2f err=%.2f why=%s (no learning)' % (t_s, target - t_s, why))
+            self.bh_phase = None
+
     def _post_brew(self, now, t, target):
         """True while the post-shot phase owns the heater (heat_on set)."""
         bd = self.brew_data
@@ -1522,14 +1530,15 @@ class Thermostat:
                 self.heat_on = True
                 return True
             self.heat_on = False
-            if not self.bh_learn:
-                self.bh_phase = None
-                return False
             self.bh_phase = 'settle'
             self.bh_t0 = self.bh_w0 = self.bh_wnext = now
             self.bh_wsum, self.bh_wn, self.bh_prev = 0.0, 0, None
-        # settle: hold power only (the PI integral), so losses do not read as a brew deficit
+        # settle: hold power only (the PI integral), so losses do not read as a brew deficit. Without learning (arm 2)
+        # the heater stays off above the target and the PI takes over only there: a PI taking over at once wound its
+        # integral down in the overshoot and undershot -1.3 C (21.10.2026 09.56-09.59)
         self.heat_on = self.utime.ticks_diff(now, self.bh_t0) % HEAT_PERIOD_IDLE_MS < self.pi_i * HEAT_PERIOD_IDLE_MS
+        if not self.bh_learn and t > target:
+            self.heat_on = False
         if self.utime.ticks_diff(now, self.bh_wnext) >= 0:
             self.bh_wnext = self.utime.ticks_add(self.bh_wnext, T10_SAMPLE_MS)
             self.bh_wsum += t
@@ -1537,15 +1546,21 @@ class Thermostat:
         if self.utime.ticks_diff(now, self.bh_w0) >= T10_MS and self.bh_wn:
             avg = self.bh_wsum / self.bh_wn
             el = self.utime.ticks_diff(now, self.bh_t0)
-            if el >= BH_SETTLE_MAX_MS:
-                self._bh_learn(avg, target, 'max')
+            if not self.bh_learn:
+                # the stored heat has arrived (no longer rising) and the losses have brought it to the target
+                if el >= BH_NOLEARN_MAX_MS or (self.bh_prev is not None and avg < self.bh_prev + BH_SETTLE_DELTA_C
+                                               and avg <= target + BH_SETTLE_DELTA_C):
+                    self._bh_end(avg, target, 'target' if el < BH_NOLEARN_MAX_MS else 'max')
+                    return False
+            elif el >= BH_SETTLE_MAX_MS:
+                self._bh_end(avg, target, 'max')
                 return False
-            if self.bh_prev is not None and el >= BH_SETTLE_MIN_MS and abs(avg - self.bh_prev) < BH_SETTLE_DELTA_C:
-                self._bh_learn(avg, target, 'settled')
+            elif self.bh_prev is not None and el >= BH_SETTLE_MIN_MS and abs(avg - self.bh_prev) < BH_SETTLE_DELTA_C:
+                self._bh_end(avg, target, 'settled')
                 return False
             # Far below and no longer rising (the element's stored heat has arrived): learn now, recover fast
-            if self.bh_prev is not None and avg < target - BH_SETTLE_BAND_C and avg < self.bh_prev + BH_SETTLE_DELTA_C:
-                self._bh_learn(avg, target, 'low')
+            elif self.bh_prev is not None and avg < target - BH_SETTLE_BAND_C and avg < self.bh_prev + BH_SETTLE_DELTA_C:
+                self._bh_end(avg, target, 'low')
                 return False
             self.bh_prev = avg
             self.bh_w0 = now
