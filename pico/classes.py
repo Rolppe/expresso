@@ -1308,6 +1308,11 @@ class PressureSensor:
         while utime.ticks_diff(end, utime.ticks_us()) > 0:
             total += pressure_sensor.read_u16()
             cycle_counter += 1
+        # A gc pass or timer IRQ between ticks_us() and the loop test can use up the whole window;
+        # take one sample so the average never divides by zero (killed main 20.10. and 21.10.2026).
+        if cycle_counter == 0:
+            total = pressure_sensor.read_u16()
+            cycle_counter = 1
 
         # Calculate average for one cycle
         cycle_average = round(total / cycle_counter)
@@ -1352,6 +1357,10 @@ class PressureSensor:
                     
                     #increment cycle counter
                     cycle_counter += 1
+                # Same empty-window guard as get_pressure()
+                if cycle_counter == 0:
+                    pressure_measurements_values.append(pressure_sensor.read_u16())
+                    cycle_counter = 1
                 
                 # Calculate average for one cycle
                 cycle_average = round(sum(pressure_measurements_values) / cycle_counter)
