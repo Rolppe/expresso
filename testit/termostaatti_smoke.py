@@ -108,8 +108,11 @@ check('B1 STEAM: lyhin jakso >= 200 ms', inner and min(l for _, l in inner) >= 2
 check('B2 STEAM: päällekytkentöjä 20 s:ssa 9-10 (2 s jakso)', 9 <= switches <= 10, switches)
 
 # 3. at or above target: never on; far below: always on
-on, _, _, _ = runs('IDLE', 98.5)
-check('C1 tavoitteen yllä rele ei koskaan päällä', on == 0, on)
+# (inside the IDLE PI band +-2 C the PI may hold a small duty above the target; that is section 5)
+on, _, _, _ = runs('IDLE', 100.5)
+check('C1 IDLE: PI-kaistan yllä rele ei koskaan päällä', on == 0, on)
+on, _, _, _ = runs('STEAM', 98.5)
+check('C1b STEAM: tavoitteen yllä rele ei koskaan päällä', on == 0, on)
 on, _, _, _ = runs('IDLE', 85.0)
 check('C2 13 C alle tavoitteen rele aina päällä', on == 1, on)
 
@@ -130,6 +133,60 @@ check('D1 nopeus vakaa: ei nollia eikä piikkejä lämmitettäessä (0,2 C/s = 2
       min(late) > 1.5 and max(late) < 2.5, 'min %.2f max %.2f' % (min(late), max(late)))
 changes = sum(1 for a, b in zip(late, late[1:]) if a != b)
 check('D2 nopeus päivittyy enintään 2 s välein', changes <= len(late) * 5 / 2000 / 2 + 2, changes)
+
+# 5. TILAUS-P: IDLE PI on a plant model. Full power 0.6 C/s through a first-order lag, loss 0.024 C/s at
+# 98 C (DIAGNET 21.10.2026), sensor read every 250 ms as a 7-reading average of noisy 0.03 C readings.
+import random
+
+
+def plant(lag_s, rate=0.6, start=97.0, dur_s=1800, target=98.0, noise=0.03, seed=1, step_at=None):
+    random.seed(seed)
+    clock[0] = 0
+    sensor = Sensor()
+    calc = C.HeatingSpeedCalculator(U, None)
+    relay = Relay()
+    bd = BD('IDLE', target, sensor, calc)
+    th = C.Thermostat(bd, {}, relay, sensor, U)
+    T, q, raw = start, 0.0, [start] * 7
+    sensor.t = start
+    d10, on_runs, cur = [], [], 0
+    k = 0.024 / 78.0
+    while clock[0] < dur_s * 1000:
+        if step_at is not None and clock[0] == step_at * 1000:
+            bd.target = target - 8.0     # standby step 98 -> 90
+        if clock[0] % 250 == 0:
+            raw = raw[1:] + [T + random.gauss(0, noise)]
+            sensor.t = round(sum(raw) / 7, 2)
+        th.run()
+        if relay.v:
+            cur += 5
+        elif cur:
+            on_runs.append(cur)
+            cur = 0
+        q += (rate * relay.v - q) * 0.005 / lag_s
+        T += (q - k * (T - 20.0)) * 0.005
+        clock[0] += 5
+        if clock[0] % 60000 == 0:
+            n, mn, mx = th.take_t10()
+            d10.append((clock[0] // 1000, n, mn, mx))
+    return d10, on_runs, th
+
+
+for lag in (10, 20, 40):
+    for rate in (0.4, 0.6, 0.8):
+        d10, runs_, th = plant(lag, rate)
+        settled = [x for x in d10 if x[0] > 600 and x[1]]
+        worst = max(max(abs(x[2]), abs(x[3])) for x in settled)
+        check('E lag %2d s rate %.1f: 10 s keskiarvot +-0,05 C 10 min jälkeen' % (lag, rate), worst <= 0.05,
+              'max |d| %.3f, pi_i %.3f' % (worst, th.pi_i))
+d10, runs_, th = plant(20)
+check('E2 päällejaksot 50 ms:n monikertoja', all(r % 50 == 0 for r in runs_), sorted(set(runs_))[:6])
+check('E3 mittari: 6 kpl 10 s keskiarvoa minuutissa', all(x[1] in (5, 6) for x in d10 if x[0] > 60),
+      [x[1] for x in d10][:5])
+d10, runs_, th = plant(20, step_at=900, dur_s=2700, start=98.0)
+settled = [x for x in d10 if x[0] > 2100 and x[1]]
+worst = max(max(abs(x[2]), abs(x[3])) for x in settled)
+check('E4 valmiustilan askel 98 -> 90: +-0,05 C 20 min jälkeen', worst <= 0.05, 'max |d| %.3f' % worst)
 
 print('RESULT: %d failed' % len(FAILED))
 sys.exit(1 if FAILED else 0)

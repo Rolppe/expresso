@@ -31,6 +31,10 @@ SEND_PKTS_PER_STEP = 2
 LEGACY_SEND = False
 
 
+def _d3(x):
+    return '-' if x is None else '%.3f' % x
+
+
 def _f2(x):
     return '-' if x is None else '%.2f' % x
 
@@ -288,8 +292,14 @@ class DiagNet:
             target = bd.get_target_temperature()
         except Exception:
             target = None
-        self.line('DIAG_MIN win_ms=%d heat_ms=%d pump_ms=%d p_n=%d p_avg=%s p_min=%s p_max=%s T=%s target=%s' % (
-            win, heat, pump, n, _f2(avg), _f2(mn), _f2(mx), _f2(t), _f2(target)))
+        # TILAUS-P: 10 s average deviations from the target in IDLE (d10_*) and the PI integral
+        th = getattr(bd, 'thermostat', None)
+        n10, d10mn, d10mx = th.take_t10() if th is not None else (0, None, None)
+        pi_i = th.pi_i if th is not None else None
+        self.line('DIAG_MIN win_ms=%d heat_ms=%d pump_ms=%d p_n=%d p_avg=%s p_min=%s p_max=%s T=%s target=%s '
+                  'n10=%d d10_min=%s d10_max=%s pi_i=%s' % (
+            win, heat, pump, n, _f2(avg), _f2(mn), _f2(mx), _f2(t), _f2(target),
+            n10, _d3(d10mn), _d3(d10mx), _d3(pi_i)))
 
     # ---- sender -------------------------------------------------------------------------------------
     def _send_one(self):

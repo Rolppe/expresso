@@ -1392,8 +1392,20 @@ class PressureSensor:
 # 10-step cycle shrank to 50-300 ms and the relay chattered (kayttaja 21.10.2026: "levoton"). One step is
 # PERIOD / HEAT_STEPS and the relay state is held for the whole step (= minimum on/off time).
 HEAT_STEPS = 10
-HEAT_PERIOD_IDLE_MS = 5000   # IDLE: 5 s cycle, 500 ms steps (kayttaja 21.10.2026)
+HEAT_PERIOD_IDLE_MS = 5000   # IDLE: 5 s cycle (kayttaja 21.10.2026)
 HEAT_PERIOD_MS = 2000        # other modes (steam, hot water, backflush): 2 s cycle, 200 ms steps
+
+# IDLE hold, TILAUS-P (kayttaja 21.10.2026): 10 s averages within target +-0.05 C. PI inside the band, the
+# step cycler outside it. Plant from DIAGNET 21.10.2026: full power ~0.6 C/s, holding 98 C takes ~5 %
+# (3 s/min), so it is close to an integrator with a lag; SIMC with lag ~20 s gives Kp ~0.04 /C, Ti ~160 s.
+PI_BAND_C = 2.0              # |target - T| above this: cycler (warm-up, standby step), integral frozen
+PI_KP = 0.04                 # duty per C
+PI_TI_S = 160                # integral time
+PI_I_INIT = 0.05             # holding duty at 98 C
+PI_I_MAX = 0.30
+PI_QUANT_MS = 50             # on-time resolution; the remainder is carried to the next period
+T10_MS = 10000               # TILAUS-P meter: 10 s averages
+T10_SAMPLE_MS = 250          # one sample per core-1 reading
 
 
 class Thermostat:
@@ -1408,8 +1420,71 @@ class Thermostat:
         self.RELAY_HEATER = RELAY_HEATER
         self.state = 'NOT READY'
         self.temperature_sensor = temperature_sensor
+        # IDLE PI
+        self.pi_start = None         # start of the current 5 s period, None = PI not running
+        self.pi_on_ms = 0
+        self.pi_i = PI_I_INIT
+        self.pi_carry = 0.0
+        # TILAUS-P meter: deviation of 10 s averages from the target, IDLE only, per DIAG_MIN minute
+        self.t10_start = None
+        self.t10_next = 0
+        self.t10_sum = 0.0
+        self.t10_n = 0
+        self.t10_target = None
+        self.d10_min = None
+        self.d10_max = None
+        self.d10_n = 0
+        brew_data.thermostat = self
 
-        
+    def take_t10(self):
+        """For DIAG_MIN: (n, min, max) of the minute's 10 s deviations, then reset."""
+        r = (self.d10_n, self.d10_min, self.d10_max)
+        self.d10_n = 0
+        self.d10_min = None
+        self.d10_max = None
+        return r
+
+    def _t10(self, now, mode, t, target):
+        if mode != 'IDLE' or target != self.t10_target:
+            self.t10_start = None
+            self.t10_target = target
+            return
+        if self.t10_start is None:
+            self.t10_start = now
+            self.t10_next = now
+            self.t10_sum = 0.0
+            self.t10_n = 0
+        if self.utime.ticks_diff(now, self.t10_next) >= 0:
+            self.t10_next = self.utime.ticks_add(self.t10_next, T10_SAMPLE_MS)
+            self.t10_sum += t
+            self.t10_n += 1
+        if self.utime.ticks_diff(now, self.t10_start) >= T10_MS:
+            if self.t10_n:
+                d = self.t10_sum / self.t10_n - target
+                self.d10_min = d if self.d10_min is None or d < self.d10_min else self.d10_min
+                self.d10_max = d if self.d10_max is None or d > self.d10_max else self.d10_max
+                self.d10_n += 1
+            self.t10_start = None
+
+    def _pi_period(self, t, target):
+        """New 5 s period: PI duty -> on-time in PI_QUANT_MS steps, remainder carried."""
+        e = target - t
+        self.pi_i += PI_KP * e * (HEAT_PERIOD_IDLE_MS / 1000) / PI_TI_S
+        if self.pi_i < 0:
+            self.pi_i = 0.0
+        elif self.pi_i > PI_I_MAX:
+            self.pi_i = PI_I_MAX
+        u = PI_KP * e + self.pi_i
+        u = 0.0 if u < 0 else (1.0 if u > 1 else u)
+        self.pi_carry += u * HEAT_PERIOD_IDLE_MS
+        on = int(self.pi_carry // PI_QUANT_MS) * PI_QUANT_MS
+        if on > HEAT_PERIOD_IDLE_MS:
+            on = HEAT_PERIOD_IDLE_MS
+        self.pi_carry -= on
+        if self.pi_carry > PI_QUANT_MS:   # cannot be paid back while saturated
+            self.pi_carry = PI_QUANT_MS
+        self.pi_on_ms = on
+
     def run(self): # def run(self, brew_data, switch_steam, RELAY_HEATER):
         
         # Get brew mode
@@ -1423,14 +1498,25 @@ class Thermostat:
         if heating_speed < 0:
             heating_speed = 0
 
-        # Decide once per step and hold it; the relay is still written every pass so the guard sees it
         now = self.utime.ticks_ms()
-        step_ms = (HEAT_PERIOD_IDLE_MS if mode == 'IDLE' else HEAT_PERIOD_MS) // HEAT_STEPS
-        if self.step_start is None or self.utime.ticks_diff(now, self.step_start) >= step_ms:
-            self.step_start = now
-            # Heat only below target - heating speed; the cycler advances only then (as before)
-            self.heat_on = (boiler_temperature < (target_temperature - (heating_speed * 2))) and \
-                Thermostat.heat_cycler(self, boiler_temperature, target_temperature)
+        self._t10(now, mode, boiler_temperature, target_temperature)
+        if mode == 'IDLE' and abs(target_temperature - boiler_temperature) <= PI_BAND_C:
+            # PI: heater on for the first pi_on_ms of each 5 s period
+            if self.pi_start is None or self.utime.ticks_diff(now, self.pi_start) >= HEAT_PERIOD_IDLE_MS:
+                self.pi_start = now
+                self._pi_period(boiler_temperature, target_temperature)
+            self.heat_on = self.utime.ticks_diff(now, self.pi_start) < self.pi_on_ms
+            self.step_start = None
+        else:
+            # Step cycler: decide once per step and hold it
+            self.pi_start = None
+            step_ms = (HEAT_PERIOD_IDLE_MS if mode == 'IDLE' else HEAT_PERIOD_MS) // HEAT_STEPS
+            if self.step_start is None or self.utime.ticks_diff(now, self.step_start) >= step_ms:
+                self.step_start = now
+                # Heat only below target - heating speed; the cycler advances only then (as before)
+                self.heat_on = (boiler_temperature < (target_temperature - (heating_speed * 2))) and \
+                    Thermostat.heat_cycler(self, boiler_temperature, target_temperature)
+        # The relay is written every pass so the guard sees it
         self.RELAY_HEATER.value(1 if self.heat_on else 0)
     
   
