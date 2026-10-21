@@ -31,8 +31,8 @@
   },
   {
     "name": "/classes.py",
-    "sha256": "bcd43e9018b355bb4fe92e24cdcbafceb410facecf435cd50fad5d83a8b06937",
-    "size": 82962
+    "sha256": "5a9020cf7b40f733b175ddc13fa6926158cdbb7bf4a10c20b1a79835f0ab44ad",
+    "size": 84009
   },
   {
     "name": "/commands.py",
@@ -66,8 +66,8 @@
   },
   {
     "name": "/main.py",
-    "sha256": "b18a5904844d6859bfbda075889b759be39f38033e0f7e437e98ee9058a322bf",
-    "size": 23713
+    "sha256": "43c77361bfb06c6a16d02168d2a9abc45e38bce0bcaba7c57cb007d6a278047e",
+    "size": 23720
   },
   {
     "name": "/preset.py",

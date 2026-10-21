@@ -195,7 +195,7 @@ async def local_program(brew_data):
     load_settings(json, brew_data)
 
     # INITIALIZE THERMOSTAT
-    thermostat = Thermostat(brew_data, TARGET_TEMPERATURES, RELAY_HEATER, temperature_sensor)
+    thermostat = Thermostat(brew_data, TARGET_TEMPERATURES, RELAY_HEATER, temperature_sensor, utime)
 
     # INITIALIZE PUMP RATIO CALCULATOR
     pump_ratio_calculator = PumpRatioCalculator(utime, asyncio)
