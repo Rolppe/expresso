@@ -324,10 +324,25 @@ BH_PMAX = 15.0
 # varastolampo lammittaa sen veden: kertyma ilman kattoa ylitti +8 C. Katon ylitys estaa opin (bh_nolearn).
 BH_FILL_BAR = 1.0
 BH_FILL_MAX = 120
+# Vapaa virtaus (kahva irti, huuhtelu; kayttaja 21.10.2026): paine ei nouse BH_FILL_BAR:iin, joten koko ajo olisi
+# tayttoa ja katto maksaisi 15 s:n huuhtelusta 120 iskua 747:sta. Kaukalo erottaa: kun sen paino on noussut ajon
+# alusta BH_FREE_G, vesi kulkee kattilan lapi, ja katon ylittavat iskut lasketaan. Vanha tai puuttuva lukema = katto.
+BH_FREE_G = 10.0
 BH_STEAM_NOLEARN_MS = 1200000   # hoyrysta alle 20 min: ei oppia (kattila vajaa, runko kuuma)
 BH_START_US = 200000  # ensimmainen lampotilalukema valmis (ydin 1: 80 ms c1_on:sta); kertyma siirtyy
 BH_K0_MS = 70.0      # kun brew_dataa ei ole luotu classes.BrewDatana (testit); sama kuin classes.BH_K0_MS
 EB_RATIO_MS = 1000           # set_pump_ratio 1 s valein kuten vanhassa uuttosilmukassa
+
+
+def _bh_tray(brew_data, utime):
+    """Kaukalon paino g tai None, jos lukemaa ei ole tai se on vanha (TRAY_STALE_MS)."""
+    try:
+        w = brew_data.get_weight()
+        if w is None or utime.ticks_diff(utime.ticks_ms(), brew_data.get_weight_ms()) > TRAY_STALE_MS:
+            return None
+        return w
+    except Exception:
+        return None
 # Vuoronvaraus vaiheissa 3-4 (vv=1): 8 barin tarve 0,3-0,9 tekee tauoista yksittaisia 10 ms taukoja (rele palaa kesken jakson),
 # joten vaiheen 2 saanto (vuoro ja keruu vain, kun rele on pois eika seuraava jakso iske) ei paastaisi vuoroa koskaan: keko
 # tayttyisi (automaattinen keruu 15-28 ms releen ollessa paalla -> late) ja muut tehtavat (vaaka, BLE) nalkiintyisivat.
@@ -442,17 +457,22 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
     hk0 = getattr(brew_data, 'brew_heat_k', BH_K0_MS) * 1000.0   # lammitysaika us / isku nollapaineessa (classes.BrewData)
     hk1 = hk0 / BH_PMAX
     hc, hsum, hc_t = 0.0, 0.0, None           # kertyma us, kertyma yhteensa, edellinen jakso
-    bh_fill = [0, False]                      # tayton iskut, paine noussut
+    bh_w0 = _bh_tray(brew_data, utime)
+    bh_fill = [0, False, False]               # tayton iskut, paine noussut, vapaa virtaus (kaukalo nousee)
 
     def _bh_add(p):
-        # Iskun lammitystarve us (BH_*): taytossa enintaan BH_FILL_MAX iskua
+        # Iskun lammitystarve us (BH_*): taytossa enintaan BH_FILL_MAX iskua, ellei kaukalo nouse (BH_FREE_G)
         if not bh_fill[1]:
             if p >= BH_FILL_BAR:
                 bh_fill[1] = True
             else:
                 bh_fill[0] += 1
-                if bh_fill[0] > BH_FILL_MAX:
-                    return 0.0
+                if bh_fill[0] > BH_FILL_MAX and not bh_fill[2]:
+                    w = _bh_tray(brew_data, utime)
+                    if bh_w0 is None or w is None or w - bh_w0 < BH_FREE_G:
+                        return 0.0
+                    bh_fill[2] = True
+                    print('BH_FREE fill=%d tray_g=%.1f' % (bh_fill[0], w - bh_w0))
         return hk0 - hk1 * p if p < BH_PMAX else 0.0
     eb_coast = getattr(brew_data, 'eb_coast_s', EB_COAST_S0)
     eb_x = getattr(brew_data, 'eb_x', 0.0)
@@ -966,7 +986,7 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
         brew_data.bh_sum_us = getattr(brew_data, 'bh_sum_us', 0.0) + hsum
         brew_data.bh_fill_n = bh_fill[0]
         if bh_fill[0] > BH_FILL_MAX:
-            brew_data.bh_nolearn = 1
+            brew_data.bh_nolearn = 1      # myos vapaa virtaus: taytto ja lapivirtaus sekaisin, ei oppia
     if not stage_b:
         for line in out:
             print(line)
