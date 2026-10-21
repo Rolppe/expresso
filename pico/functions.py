@@ -319,6 +319,12 @@ EB_HEAT_OFF_MS, EB_HEAT_ON_MS = 100, 50   # lammittimen pulssitus kuten vanhassa
 # (EP5, ~0 BH_PMAX barissa). Lammitin on paalla, kun kertymaa on jaljella. Jaannos maksetaan uuton jalkeen ja kerroin
 # opitaan tasaantuneesta lampotilasta (classes.Thermostat, BH_*). Vanha uuttosilmukka (bim:0) pulssittaa yha EB_HEAT.
 BH_PMAX = 15.0
+# Taytto: ennen kuin paine nousee BH_FILL_BAR:iin, kertymaan lasketaan enintaan BH_FILL_MAX iskua. Hoyryn jalkeen
+# pumppu taydentaa ensin vajaata kattilaa (kayttaja 21.10.2026: s3 555 iskua, normaali 89-101), ja kuuman kattilan
+# varastolampo lammittaa sen veden: kertyma ilman kattoa ylitti +8 C. Katon ylitys estaa opin (bh_nolearn).
+BH_FILL_BAR = 1.0
+BH_FILL_MAX = 120
+BH_STEAM_NOLEARN_MS = 1200000   # hoyrysta alle 20 min: ei oppia (kattila vajaa, runko kuuma)
 BH_START_US = 200000  # ensimmainen lampotilalukema valmis (ydin 1: 80 ms c1_on:sta); kertyma siirtyy
 BH_K0_MS = 70.0      # kun brew_dataa ei ole luotu classes.BrewDatana (testit); sama kuin classes.BH_K0_MS
 EB_RATIO_MS = 1000           # set_pump_ratio 1 s valein kuten vanhassa uuttosilmukassa
@@ -436,6 +442,18 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
     hk0 = getattr(brew_data, 'brew_heat_k', BH_K0_MS) * 1000.0   # lammitysaika us / isku nollapaineessa (classes.BrewData)
     hk1 = hk0 / BH_PMAX
     hc, hsum, hc_t = 0.0, 0.0, None           # kertyma us, kertyma yhteensa, edellinen jakso
+    bh_fill = [0, False]                      # tayton iskut, paine noussut
+
+    def _bh_add(p):
+        # Iskun lammitystarve us (BH_*): taytossa enintaan BH_FILL_MAX iskua
+        if not bh_fill[1]:
+            if p >= BH_FILL_BAR:
+                bh_fill[1] = True
+            else:
+                bh_fill[0] += 1
+                if bh_fill[0] > BH_FILL_MAX:
+                    return 0.0
+        return hk0 - hk1 * p if p < BH_PMAX else 0.0
     eb_coast = getattr(brew_data, 'eb_coast_s', EB_COAST_S0)
     eb_x = getattr(brew_data, 'eb_x', 0.0)
     eb_g = getattr(brew_data, 'eb_g', 0.0)
@@ -754,7 +772,7 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                     # Sama kirjanpito kuin alla, mutta kohdan k tauon vaihe (ok) paatettiin jo kohdassa k-1
                     if cur:
                         strokes += 1
-                        if p < BH_PMAX: hc += hk0 - hk1 * p; hsum += hk0 - hk1 * p
+                        hx = _bh_add(p); hc += hx; hsum += hx
                     else:
                         removed += 1
                         if was_on:
@@ -789,11 +807,11 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                 else:
                     if cur:
                         strokes += 1
-                        if p < BH_PMAX: hc += hk0 - hk1 * p; hsum += hk0 - hk1 * p
+                        hx = _bh_add(p); hc += hx; hsum += hx
                     elif skip_late:
                         # Myohassa: tauko jai tekematta, isku meni lapi, velka siirtyy seuraaviin jaksoihin
                         late += 1; strokes += 1; acc -= 1.0
-                        if p < BH_PMAX: hc += hk0 - hk1 * p; hsum += hk0 - hk1 * p
+                        hx = _bh_add(p); hc += hx; hsum += hx
                     else:
                         ok = False
                         if was_on or pump_next:
@@ -946,6 +964,9 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
         # Jaannos ja summa uuton jalkeiselle maksulle ja opille (classes.Thermostat)
         brew_data.bh_credit_us = getattr(brew_data, 'bh_credit_us', 0.0) + (hc if hc > 0.0 else 0.0)
         brew_data.bh_sum_us = getattr(brew_data, 'bh_sum_us', 0.0) + hsum
+        brew_data.bh_fill_n = bh_fill[0]
+        if bh_fill[0] > BH_FILL_MAX:
+            brew_data.bh_nolearn = 1
     if not stage_b:
         for line in out:
             print(line)
@@ -1268,10 +1289,12 @@ async def run_shot(brew_data, utime, asyncio, pump_ratio_calculator, keep_runnin
         # (keskeytys tai vanha uuttosilmukka, jonka iskut eivat kerryta)
         if brew_data.bh_sum_us > 0.0:
             if not phased_brew or abort_reason: brew_data.bh_nolearn = 1
+            st = getattr(brew_data, 'bh_steam_t', None)
+            if st is not None and utime.ticks_diff(utime.ticks_ms(), st) < BH_STEAM_NOLEARN_MS: brew_data.bh_nolearn = 1
             brew_data.bh_arm = 2 if getattr(brew_data, 'bh_nolearn', 0) else 1
-            print('BH_END sum_ms=%d left_ms=%d k=%.1f arm=%d' % (
+            print('BH_END sum_ms=%d left_ms=%d k=%.1f arm=%d fill=%d' % (
                 brew_data.bh_sum_us // 1000, brew_data.bh_credit_us // 1000, getattr(brew_data, 'brew_heat_k', BH_K0_MS),
-                brew_data.bh_arm))
+                brew_data.bh_arm, getattr(brew_data, 'bh_fill_n', -1)))
 
         # ===== PRESSURE SOFT RELEASE ===== #
         RELAY_PUMP.value(0)

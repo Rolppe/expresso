@@ -280,5 +280,26 @@ bd.thermostat.bh_phase, bd.bh_arm = None, 0                                 # op
 ES.run_brew(bd, 3.0, bim=1, seed=222)
 check('G3 opin jälkeen uusi ajo alkaa nollasta', 0 < bd.bh_sum_us < s1, 'sum %d ms' % (bd.bh_sum_us // 1000))
 
+# 8. Täytön katto ja höyry (käyttäjä 21.10.2026: s3 höyryn jälkeen 555 täyttöiskua, ylitys +8 C)
+F = ES.F
+bd = ES.brew_bd('25b', 220, False)
+ES.run_brew(bd, 16.0, bim=1, seed=220)
+n_fill, s_norm = bd.bh_fill_n, bd.bh_sum_us
+check('H1 normaali täyttö katon alla, oppi päällä', 0 < n_fill <= F.BH_FILL_MAX and bd.bh_arm == 1,
+      'fill %d, arm %d' % (n_fill, bd.bh_arm))
+old = F.BH_FILL_MAX
+F.BH_FILL_MAX = max(1, n_fill // 3)
+try:
+    bd = ES.brew_bd('25b', 220, False)
+    ES.run_brew(bd, 16.0, bim=1, seed=220)
+finally:
+    F.BH_FILL_MAX = old
+check('H2 katon ylitys: kertymä pienenee ja oppi pois (arm 2)', bd.bh_sum_us < s_norm and bd.bh_arm == 2,
+      'sum %d -> %d ms, arm %d' % (s_norm // 1000, bd.bh_sum_us // 1000, bd.bh_arm))
+bd = ES.brew_bd('25b', 220, False)
+bd.bh_steam_t = ES.U.us // 1000
+ES.run_brew(bd, 16.0, bim=1, seed=220)
+check('H3 höyrystä alle 20 min: oppi pois (arm 2)', bd.bh_arm == 2, 'arm %d' % bd.bh_arm)
+
 print('RESULT: %d failed' % len(FAILED))
 sys.exit(1 if FAILED else 0)

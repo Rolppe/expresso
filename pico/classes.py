@@ -153,6 +153,8 @@ class BrewData:
         self.bh_sum_us          = 0.0
         self.bh_arm             = 0
         self.bh_nolearn         = 0
+        self.bh_steam_t         = None
+        self.bh_fill_n          = 0
         self.fast_heatup_mode   = False
         self.setting_changed    = True
         self.mode               = "IDLE"
@@ -1613,6 +1615,8 @@ class Thermostat:
             heating_speed = 0
 
         now = self.utime.ticks_ms()
+        if mode == 'STEAM':
+            self.brew_data.bh_steam_t = now      # functions BH_STEAM_NOLEARN_MS: no brew learning soon after steam
         self._t10(now, mode, boiler_temperature, target_temperature)
         # A new arm also restarts a pending pay or settle: run_shot kept the sums, so pay the rest and learn the total
         if mode == 'IDLE' and getattr(self.brew_data, 'bh_arm', 0):
