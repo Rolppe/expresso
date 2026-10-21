@@ -1416,8 +1416,12 @@ T10_MS = 10000               # TILAUS-P meter: 10 s averages
 BH_K0_MS = 70.0              # start: heater ms per pump stroke at 0 bar (20.10.2026 shot: ~96 needed, lag unknown)
 BH_K_MIN, BH_K_MAX = 20.0, 300.0
 BH_US_PER_C = 1667000        # heater us per boiler C (full power ~0.6 C/s, DIAGNET 21.10.2026)
-BH_LEARN_G = 0.5
-BH_PAY_OVER_C = 1.0          # stop paying above target + this (the overshoot is learned)
+# Overheating is slow to fix (losses only, ~1.4 C/min at 98 C), a deficit fast (kayttaja 21.10.2026): aim a little
+# low, learn an overshoot harder than a deficit, and stop paying as soon as the boiler is over the target.
+BH_AIM_C = -0.2              # settled aim relative to the target; the PI lifts the rest quickly
+BH_LEARN_G_LOW = 0.4         # deficit: raise k gently
+BH_LEARN_G_OVER = 0.8        # overshoot: cut k hard
+BH_PAY_OVER_C = 0.2          # stop paying above target + this
 BH_SETTLE_MIN_MS = 30000
 BH_SETTLE_MAX_MS = 120000
 BH_SETTLE_DELTA_C = 0.05     # settled: two consecutive 10 s averages within this
@@ -1492,7 +1496,9 @@ class Thermostat:
         self.bh_last_t = t_s
         k_old = bd.brew_heat_k
         if bd.bh_sum_us > 0.0:
-            k = k_old * (1.0 + BH_LEARN_G * (target - t_s) * BH_US_PER_C / bd.bh_sum_us)
+            err = target + BH_AIM_C - t_s
+            g = BH_LEARN_G_LOW if err > 0 else BH_LEARN_G_OVER
+            k = k_old * (1.0 + g * err * BH_US_PER_C / bd.bh_sum_us)
             bd.brew_heat_k = BH_K_MIN if k < BH_K_MIN else (BH_K_MAX if k > BH_K_MAX else k)
         print('BH_LEARN T=%.2f err=%.2f sum_ms=%d k=%.1f->%.1f why=%s' % (
             t_s, target - t_s, bd.bh_sum_us // 1000, k_old, bd.brew_heat_k, why))
