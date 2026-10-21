@@ -1388,8 +1388,19 @@ class PressureSensor:
 # THERMOSTAT
 # ============================================================================
 
+# The heater cycle is timed, not counted in loop passes: 4b0a529 cut a pass from ~150 ms to ~5 ms, so the
+# 10-step cycle shrank to 50-300 ms and the relay chattered (kayttaja 21.10.2026: "levoton"). One step is
+# PERIOD / HEAT_STEPS and the relay state is held for the whole step (= minimum on/off time).
+HEAT_STEPS = 10
+HEAT_PERIOD_IDLE_MS = 5000   # IDLE: 5 s cycle, 500 ms steps (kayttaja 21.10.2026)
+HEAT_PERIOD_MS = 2000        # other modes (steam, hot water, backflush): 2 s cycle, 200 ms steps
+
+
 class Thermostat:
-    def __init__(self, brew_data, TARGET_TEMPERATURES, RELAY_HEATER, temperature_sensor):
+    def __init__(self, brew_data, TARGET_TEMPERATURES, RELAY_HEATER, temperature_sensor, utime):
+        self.utime = utime
+        self.step_start = None
+        self.heat_on = False
         self.cycle_count = 0
         self.brew_data = brew_data
         self.brew_mode = ""
@@ -1411,20 +1422,16 @@ class Thermostat:
         # Nullify negative heating speed values
         if heating_speed < 0:
             heating_speed = 0
-            
-        # If boiler temperature is lower than target temperature - heating speed
-        if (boiler_temperature < (target_temperature - (heating_speed * 2))):
-            
-            # Start heating the boiler          
-            if (Thermostat.heat_cycler(self, boiler_temperature, target_temperature)):
-                #print("target_temperature" + str(target_temperature))
-                self.RELAY_HEATER.value(1)
-            else:
-                self.RELAY_HEATER.value(0)
-                
-        # Othervice, stop heating the boiler
-        else:
-            self.RELAY_HEATER.value(0)
+
+        # Decide once per step and hold it; the relay is still written every pass so the guard sees it
+        now = self.utime.ticks_ms()
+        step_ms = (HEAT_PERIOD_IDLE_MS if mode == 'IDLE' else HEAT_PERIOD_MS) // HEAT_STEPS
+        if self.step_start is None or self.utime.ticks_diff(now, self.step_start) >= step_ms:
+            self.step_start = now
+            # Heat only below target - heating speed; the cycler advances only then (as before)
+            self.heat_on = (boiler_temperature < (target_temperature - (heating_speed * 2))) and \
+                Thermostat.heat_cycler(self, boiler_temperature, target_temperature)
+        self.RELAY_HEATER.value(1 if self.heat_on else 0)
     
   
         if abs(target_temperature - boiler_temperature) <= 1:
@@ -1470,6 +1477,9 @@ class Thermostat:
 # HEATING SPEED CALCULATOR
 # ============================================================================
 
+HEATING_SPEED_WINDOW_MS = 2000
+
+
 class HeatingSpeedCalculator:
     def __init__(self, utime_module, asyncio_module):
         self.temperature_begin = 20.0
@@ -1477,6 +1487,7 @@ class HeatingSpeedCalculator:
         self.utime = utime_module
         self.time_start = 0
         self.first_measure_flag = True
+        self.last_speed = 0
    
    
     # Function to calculate heating speed
@@ -1488,8 +1499,10 @@ class HeatingSpeedCalculator:
         # Calculate time between now and starting point
         time_between = self.utime.ticks_diff(time_now, self.time_start)
         
-        if time_between == 0:
-            return self.heating_speed
+        # Fixed window: main.py and the thermostat both call this every ~5 ms pass, and the reading
+        # changes only every 250 ms, so a per-call baseline gave 0 or a spike (21.10.2026)
+        if time_between <= 0 or (not self.first_measure_flag and time_between < HEATING_SPEED_WINDOW_MS):
+            return self.last_speed
         
         # Set time now as start time
         self.time_start = time_now
@@ -1514,7 +1527,8 @@ class HeatingSpeedCalculator:
         # If value is unacceptale, place error
         if heating_speed > 100 or heating_speed < -100:
             heating_speed = 0
-            
+        
+        self.last_speed = heating_speed
         return heating_speed
   
 
