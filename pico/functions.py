@@ -944,8 +944,8 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
         RELAY_PUMP.value(0)
         RELAY_HEATER.value(0)
         # Jaannos ja summa uuton jalkeiselle maksulle ja opille (classes.Thermostat)
-        brew_data.bh_credit_us = hc if hc > 0.0 else 0.0
-        brew_data.bh_sum_us = hsum
+        brew_data.bh_credit_us = getattr(brew_data, 'bh_credit_us', 0.0) + (hc if hc > 0.0 else 0.0)
+        brew_data.bh_sum_us = getattr(brew_data, 'bh_sum_us', 0.0) + hsum
     if not stage_b:
         for line in out:
             print(line)
@@ -1157,7 +1157,12 @@ async def run_shot(brew_data, utime, asyncio, pump_ratio_calculator, keep_runnin
         # esiuuton ja painetilan (virtaustila pois) kanssa. Muuten vanha uuttosilmukka tavulleen ennallaan (bim:0 +
         # pim:1 = hyvaksytty esiuutto ja vanha uutto, A/B-vertailu).
         phased_brew = False
-        brew_data.bh_credit_us = brew_data.bh_sum_us = 0.0
+        # Edellisen uuton maksu tai oppi kesken (esim. kytkimen napautus heti uuton jalkeen, kahvi 21.10.2026 09.12):
+        # summat jatkuvat, muuten oppi laskisi virheen vain uusimman ajon summasta (k 67,2 -> 70,5)
+        th = getattr(brew_data, 'thermostat', None)
+        if not (getattr(brew_data, 'bh_arm', 0) or (th is not None and th.bh_phase is not None)):
+            brew_data.bh_credit_us = brew_data.bh_sum_us = 0.0
+            brew_data.bh_nolearn = 0
         brew_data.bh_arm = 0
         if brew_data.get_pre_infusion_mode():
             # pim:1 = vaiheseurattu esiuutto (TILAUS-K 1-2); oletus 1 (EXPRESSO-TEMPSTALE-JA-OLETUS)
@@ -1262,7 +1267,8 @@ async def run_shot(brew_data, utime, asyncio, pump_ratio_calculator, keep_runnin
         # Uuton jalkeinen lammitys (classes.Thermostat BH_*): 1 = jaannoksen maksu ja oppi, 2 = vain maksu
         # (keskeytys tai vanha uuttosilmukka, jonka iskut eivat kerryta)
         if brew_data.bh_sum_us > 0.0:
-            brew_data.bh_arm = 1 if phased_brew and not abort_reason else 2
+            if not phased_brew or abort_reason: brew_data.bh_nolearn = 1
+            brew_data.bh_arm = 2 if getattr(brew_data, 'bh_nolearn', 0) else 1
             print('BH_END sum_ms=%d left_ms=%d k=%.1f arm=%d' % (
                 brew_data.bh_sum_us // 1000, brew_data.bh_credit_us // 1000, getattr(brew_data, 'brew_heat_k', BH_K0_MS),
                 brew_data.bh_arm))

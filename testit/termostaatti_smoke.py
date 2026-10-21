@@ -263,5 +263,22 @@ for k_true, rate in ((100.0, 0.6), (100.0, 0.45), (50.0, 0.6)):
           max(x[3] for x in r[-3:]) <= 98.3, ' '.join('%.2f' % x[3] for x in r))
 check('F2 kerroin tallennettu', os.path.exists(C.Thermostat.BH_FILE))
 
+# 7. Peräkkäiset ajot ennen oppia summautuvat (kahvi 21.10.2026 09.11 + kytkimen napautus 09.12: oppi laski
+# virheen vain napautuksen 2,3 s:n summasta, k 67,2 -> 70,5). run_shot esiuutto_smoken virtuaalikellolla.
+import types
+sys.path.insert(0, HERE)
+import esiuutto_smoke as ES
+bd = ES.brew_bd('25b', 220, False)
+ES.run_brew(bd, 16.0, bim=1, seed=220)
+s1, a1 = bd.bh_sum_us, bd.bh_arm
+check('G1 uutto: summa > 0 ja oppi viritetty (arm 1)', s1 > 0 and a1 == 1, 'sum %d ms arm %d' % (s1 // 1000, a1))
+bd.thermostat, bd.bh_arm = types.SimpleNamespace(bh_phase='settle'), 0     # oppi kesken
+ES.run_brew(bd, 3.0, bim=1, seed=221)
+check('G2 kesken jääneen opin aikana uusi ajo summautuu', bd.bh_sum_us > s1 and bd.bh_arm == 1,
+      'sum %d -> %d ms' % (s1 // 1000, bd.bh_sum_us // 1000))
+bd.thermostat.bh_phase, bd.bh_arm = None, 0                                 # oppi valmis
+ES.run_brew(bd, 3.0, bim=1, seed=222)
+check('G3 opin jälkeen uusi ajo alkaa nollasta', 0 < bd.bh_sum_us < s1, 'sum %d ms' % (bd.bh_sum_us // 1000))
+
 print('RESULT: %d failed' % len(FAILED))
 sys.exit(1 if FAILED else 0)
