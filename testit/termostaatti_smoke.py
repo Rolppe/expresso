@@ -188,5 +188,77 @@ settled = [x for x in d10 if x[0] > 2100 and x[1]]
 worst = max(max(abs(x[2]), abs(x[3])) for x in settled)
 check('E4 valmiustilan askel 98 -> 90: +-0,05 C 20 min jälkeen', worst <= 0.05, 'max |d| %.3f' % worst)
 
+# 6. TILAUS-R uutto: lämmitys iskuista, jäännös maksetaan uuton jälkeen ja kerroin opitaan tasaantuneesta lämpötilasta.
+# Uutto mallissa: N iskua (paine-painotettuna) tuo kylmää vettä, joka vie E_true = k_true * N ms lämmitystä; uuton
+# aikana lämmitin maksaa kertymää enintään uuton keston verran, loput jäävät bh_credit_us:ksi (kuten functions BH_*).
+import tempfile
+C.Thermostat.BH_FILE = os.path.join(tempfile.mkdtemp(), 'brew_heat.json')
+
+
+class BD2(BD):
+    def __init__(self, *a):
+        BD.__init__(self, *a)
+        self.brew_heat_k, self.bh_credit_us, self.bh_sum_us, self.bh_arm = C.BH_K0_MS, 0.0, 0.0, 0
+
+
+def shots(k_true, rate=0.6, lag_s=20, n_shots=8, n_eff=250, shot_s=16, seed=2):
+    random.seed(seed)
+    clock[0] = 0
+    sensor = Sensor()
+    calc = C.HeatingSpeedCalculator(U, None)
+    relay = Relay()
+    bd = BD2('IDLE', 98.0, sensor, calc)
+    th = C.Thermostat(bd, {}, relay, sensor, U)
+    T, q, raw = 98.0, 0.0, [98.0] * 7
+    k = 0.024 / 78.0
+    per_c_ms = 1000.0 / rate               # heater ms per C in this plant
+    res = []
+
+    def step(heat):
+        nonlocal T, q, raw
+        if clock[0] % 250 == 0:
+            raw = raw[1:] + [T + random.gauss(0, 0.03)]
+            sensor.t = round(sum(raw) / 7, 2)
+        q += (rate * heat - q) * 0.005 / lag_s
+        T += (q - k * (T - 20.0)) * 0.005
+        clock[0] += 5
+
+    for _ in range(600 * 200):            # settle in IDLE first (10 min)
+        th.run(); step(relay.v)
+    for i in range(n_shots):
+        bd.mode = 'BREW'
+        need_ms = k_true * n_eff
+        T -= need_ms / per_c_ms           # cold water in (instant, plant units)
+        given = bd.brew_heat_k * n_eff * 1000.0
+        on_us = min(given, shot_s * 1e6)
+        bd.bh_sum_us, bd.bh_credit_us, bd.bh_arm = given, given - on_us, 1
+        for j in range(shot_s * 200):
+            step(1 if j * 5000 < on_us else 0)
+        bd.mode = 'IDLE'
+        k_before = bd.brew_heat_k
+        tmin = tmax = None
+        t_end = clock[0]
+        while th.bh_phase is not None or bd.bh_arm:
+            th.run(); step(relay.v)
+            tmin = sensor.t if tmin is None or sensor.t < tmin else tmin
+            tmax = sensor.t if tmax is None or sensor.t > tmax else tmax
+            if clock[0] - t_end > 400000: break
+        for _ in range(300 * 200):        # 5 min IDLE between shots
+            th.run(); step(relay.v)
+        res.append((k_before, bd.brew_heat_k, tmin, tmax, th.bh_last_t))
+    return res
+
+
+for k_true, rate in ((100.0, 0.6), (100.0, 0.45), (50.0, 0.6)):
+    r = shots(k_true, rate)
+    k_last = r[-1][1]
+    check('F k_true %.0f rate %.2f: kerroin oppii (±15 %%) %d uutossa' % (k_true, rate, len(r)),
+          abs(k_last - k_true) <= 0.15 * k_true, ' '.join('%.0f' % x[1] for x in r))
+    ts = r[-1][4]
+    check('F k_true %.0f rate %.2f: viimeisen uuton jälkeen tasaantunut T 98 ±0,3 ilman lisälämmitystä' % (k_true, rate),
+          ts is not None and abs(ts - 98.0) <= 0.3, 'tasaantunut %s, kuoppa min %.2f (uuton aikainen, tieto)' % (
+              '%.2f' % ts if ts is not None else None, r[-1][2]))
+check('F2 kerroin tallennettu', os.path.exists(C.Thermostat.BH_FILE))
+
 print('RESULT: %d failed' % len(FAILED))
 sys.exit(1 if FAILED else 0)
