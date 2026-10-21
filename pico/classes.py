@@ -147,6 +147,11 @@ class BrewData:
         self.target_temperature = 0
         self.pump_ratio         = 0
         self.heating_speed      = 0
+        # Uuton lammitys virtauksesta (functions BH_*, Thermostat BH_*): kerroin ms / isku, tila uuton jalkeen
+        self.brew_heat_k        = BH_K0_MS
+        self.bh_credit_us       = 0.0
+        self.bh_sum_us          = 0.0
+        self.bh_arm             = 0
         self.fast_heatup_mode   = False
         self.setting_changed    = True
         self.mode               = "IDLE"
@@ -1405,6 +1410,18 @@ PI_I_INIT = 0.05             # holding duty at 98 C
 PI_I_MAX = 0.30
 PI_QUANT_MS = 50             # on-time resolution; the remainder is carried to the next period
 T10_MS = 10000               # TILAUS-P meter: 10 s averages
+# After a shot (TILAUS-R, kayttaja 21.10.2026): the shot heated from pump strokes (functions BH_*); the unpaid
+# remainder is paid first, then the heater only holds (pi_i) until the boiler settles, and the settled error
+# corrects brew_heat_k so that the next shot ends at the target without extra heating.
+BH_K0_MS = 70.0              # start: heater ms per pump stroke at 0 bar (20.10.2026 shot: ~96 needed, lag unknown)
+BH_K_MIN, BH_K_MAX = 20.0, 300.0
+BH_US_PER_C = 1667000        # heater us per boiler C (full power ~0.6 C/s, DIAGNET 21.10.2026)
+BH_LEARN_G = 0.5
+BH_PAY_OVER_C = 1.0          # stop paying above target + this (the overshoot is learned)
+BH_SETTLE_MIN_MS = 30000
+BH_SETTLE_MAX_MS = 120000
+BH_SETTLE_DELTA_C = 0.05     # settled: two consecutive 10 s averages within this
+BH_SETTLE_BAND_C = 1.5       # below target - this and not rising: learn now and hand over (fast recovery, TILAUS-R)
 T10_SAMPLE_MS = 250          # one sample per core-1 reading
 
 
@@ -1434,7 +1451,97 @@ class Thermostat:
         self.d10_min = None
         self.d10_max = None
         self.d10_n = 0
+        # After a shot
+        self.bh_phase = None         # None, 'pay', 'settle'
+        self.bh_learn = False
+        self.bh_t = 0
+        self.bh_t0 = 0
+        self.bh_w0 = 0
+        self.bh_wnext = 0
+        self.bh_wsum = 0.0
+        self.bh_wn = 0
+        self.bh_prev = None
+        self.bh_last_t = None         # settled temperature of the last learned shot
         brew_data.thermostat = self
+        self._bh_load()
+
+    BH_FILE = 'brew_heat.json'
+
+    def _bh_load(self):
+        try:
+            import json
+            with open(self.BH_FILE) as f:
+                k = float(json.load(f)['k'])
+            if BH_K_MIN <= k <= BH_K_MAX:
+                self.brew_data.brew_heat_k = k
+        except Exception:
+            pass
+
+    def _bh_save(self):
+        # tmp + rename: a reset mid-write must not lose the learned value (vrt. wmax-pysyvyys)
+        try:
+            import json, os
+            with open(self.BH_FILE + '.tmp', 'w') as f:
+                json.dump({'k': self.brew_data.brew_heat_k}, f)
+            os.rename(self.BH_FILE + '.tmp', self.BH_FILE)
+        except Exception as e:
+            print('BH_SAVE_FAIL %r' % e)
+
+    def _bh_learn(self, t_s, target, why):
+        bd = self.brew_data
+        self.bh_last_t = t_s
+        k_old = bd.brew_heat_k
+        if bd.bh_sum_us > 0.0:
+            k = k_old * (1.0 + BH_LEARN_G * (target - t_s) * BH_US_PER_C / bd.bh_sum_us)
+            bd.brew_heat_k = BH_K_MIN if k < BH_K_MIN else (BH_K_MAX if k > BH_K_MAX else k)
+        print('BH_LEARN T=%.2f err=%.2f sum_ms=%d k=%.1f->%.1f why=%s' % (
+            t_s, target - t_s, bd.bh_sum_us // 1000, k_old, bd.brew_heat_k, why))
+        if bd.brew_heat_k != k_old:
+            self._bh_save()
+        self.bh_phase = None
+
+    def _post_brew(self, now, t, target):
+        """True while the post-shot phase owns the heater (heat_on set)."""
+        bd = self.brew_data
+        if self.bh_phase == 'pay':
+            if self.heat_on:
+                bd.bh_credit_us -= self.utime.ticks_diff(now, self.bh_t) * 1000
+            self.bh_t = now
+            if t > target + BH_PAY_OVER_C:
+                bd.bh_credit_us = 0.0
+            if bd.bh_credit_us > 0.0:
+                self.heat_on = True
+                return True
+            self.heat_on = False
+            if not self.bh_learn:
+                self.bh_phase = None
+                return False
+            self.bh_phase = 'settle'
+            self.bh_t0 = self.bh_w0 = self.bh_wnext = now
+            self.bh_wsum, self.bh_wn, self.bh_prev = 0.0, 0, None
+        # settle: hold power only (the PI integral), so losses do not read as a brew deficit
+        self.heat_on = self.utime.ticks_diff(now, self.bh_t0) % HEAT_PERIOD_IDLE_MS < self.pi_i * HEAT_PERIOD_IDLE_MS
+        if self.utime.ticks_diff(now, self.bh_wnext) >= 0:
+            self.bh_wnext = self.utime.ticks_add(self.bh_wnext, T10_SAMPLE_MS)
+            self.bh_wsum += t
+            self.bh_wn += 1
+        if self.utime.ticks_diff(now, self.bh_w0) >= T10_MS and self.bh_wn:
+            avg = self.bh_wsum / self.bh_wn
+            el = self.utime.ticks_diff(now, self.bh_t0)
+            if el >= BH_SETTLE_MAX_MS:
+                self._bh_learn(avg, target, 'max')
+                return False
+            if self.bh_prev is not None and el >= BH_SETTLE_MIN_MS and abs(avg - self.bh_prev) < BH_SETTLE_DELTA_C:
+                self._bh_learn(avg, target, 'settled')
+                return False
+            # Far below and no longer rising (the element's stored heat has arrived): learn now, recover fast
+            if self.bh_prev is not None and avg < target - BH_SETTLE_BAND_C and avg < self.bh_prev + BH_SETTLE_DELTA_C:
+                self._bh_learn(avg, target, 'low')
+                return False
+            self.bh_prev = avg
+            self.bh_w0 = now
+            self.bh_wsum, self.bh_wn = 0.0, 0
+        return True
 
     def take_t10(self):
         """For DIAG_MIN: (n, min, max) of the minute's 10 s deviations, then reset."""
@@ -1500,7 +1607,17 @@ class Thermostat:
 
         now = self.utime.ticks_ms()
         self._t10(now, mode, boiler_temperature, target_temperature)
-        if mode == 'IDLE' and abs(target_temperature - boiler_temperature) <= PI_BAND_C:
+        if mode == 'IDLE' and self.bh_phase is None and getattr(self.brew_data, 'bh_arm', 0):
+            self.bh_phase = 'pay'
+            self.bh_learn = self.brew_data.bh_arm == 1
+            self.bh_t = now
+            self.brew_data.bh_arm = 0
+        if self.bh_phase is not None and mode != 'IDLE':
+            self.bh_phase = None          # a new shot or steam: no learning from this one
+        if self.bh_phase is not None and self._post_brew(now, boiler_temperature, target_temperature):
+            self.pi_start = None
+            self.step_start = None
+        elif mode == 'IDLE' and abs(target_temperature - boiler_temperature) <= PI_BAND_C:
             # PI: heater on for the first pi_on_ms of each 5 s period
             if self.pi_start is None or self.utime.ticks_diff(now, self.pi_start) >= HEAT_PERIOD_IDLE_MS:
                 self.pi_start = now
