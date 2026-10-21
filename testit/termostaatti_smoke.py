@@ -306,6 +306,34 @@ bd.bh_steam_t = ES.U.us // 1000
 ES.run_brew(bd, 16.0, bim=1, seed=220)
 check('H3 höyrystä alle 20 min: oppi pois (arm 2)', bd.bh_arm == 2, 'arm %d' % bd.bh_arm)
 
+# Vapaa virtaus (kahva irti, huuhtelu 21.10.2026): paine ~0, koko ajo täyttöä. Kaukalon nousu erottaa läpivirtauksen
+# kattilan täytöstä: nousu (0,2 g/isku 60 iskun jälkeen) → katon yli iskut lasketaan; ei nousua tai ei vaakaa → katto.
+class FreeBD(ES.BrewData):
+    def __init__(self, g_per_stroke, scale=True):
+        ES.BrewData.__init__(self, hold_s=6.0, phi_us=3100.0, delta=0.2, tau=0.01, noise=0.02, **ES.M8)
+        self.learned_ff_pre, self.eu_g_pre, self.eu_coast_s, self.eu_tau_pre = 0.3, 9.0, 0.1, 1.5
+        self.g, self.scale = g_per_stroke, scale
+
+    def get_weight(self):
+        return 300.0 + self.g * max(0, self.plant.strokes - 60) if self.scale else None
+
+    def get_weight_ms(self):
+        return ES.U.us // 1000
+
+
+free = {}
+for name, g, sc in (('virtaus', 0.2, True), ('täyttö', 0.0, True), ('ei vaakaa', 0.2, False)):
+    bd = FreeBD(g, sc)
+    txt, _ = ES.run_brew(bd, 15.0, bim=1, seed=5)
+    free[name] = (bd.bh_sum_us, bd.bh_arm, bd.bh_fill_n, 'BH_FREE' in txt)
+cap = F.BH_FILL_MAX * F.BH_K0_MS * 1000.0
+check('H7 vapaa virtaus kaukalon noustessa: katon yli iskut lasketaan (BH_FREE), ei oppia (arm 2)',
+      free['virtaus'][3] and free['virtaus'][0] > 4 * cap and free['virtaus'][1] == 2,
+      'sum %d ms (katto %d), fill %d' % (free['virtaus'][0] // 1000, cap // 1000, free['virtaus'][2]))
+check('H8 ei kaukalon nousua tai ei vaakaa: katto ennallaan',
+      all(not free[k][3] and free[k][0] <= cap * 1.01 for k in ('täyttö', 'ei vaakaa')),
+      ' '.join('%s %d ms' % (k, free[k][0] // 1000) for k in ('täyttö', 'ei vaakaa')))
+
 # 9. Tasaantuminen myös ilman oppia (arm 2, 21.10.2026 09.56–09.59): PI otti ohjauksen heti maksun jälkeen, integraali
 # valui ylityksessä ja lämpötila alittui −1,3 C. Nyt maksun jälkeen aina pito pi_i:llä, oppi vain arm 1:llä.
 r = shots(50.0, 0.6, n_shots=3, arm=2, k0=75.0)
