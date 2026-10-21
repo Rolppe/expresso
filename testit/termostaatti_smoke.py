@@ -255,9 +255,12 @@ for k_true, rate in ((100.0, 0.6), (100.0, 0.45), (50.0, 0.6)):
     check('F k_true %.0f rate %.2f: kerroin oppii (±15 %%) %d uutossa' % (k_true, rate, len(r)),
           abs(k_last - k_true) <= 0.15 * k_true, ' '.join('%.0f' % x[1] for x in r))
     ts = r[-1][4]
-    check('F k_true %.0f rate %.2f: viimeisen uuton jälkeen tasaantunut T 98 ±0,3 ilman lisälämmitystä' % (k_true, rate),
-          ts is not None and abs(ts - 98.0) <= 0.3, 'tasaantunut %s, kuoppa min %.2f (uuton aikainen, tieto)' % (
+    check('F k_true %.0f rate %.2f: viimeisen uuton jälkeen tasaantunut T 97,5–98,1 (tavoite −0,2) ilman lisälämmitystä'
+          % (k_true, rate), ts is not None and 97.5 <= ts <= 98.1, 'tasaantunut %s, kuoppa min %.2f (uuton aikainen, tieto)' % (
               '%.2f' % ts if ts is not None else None, r[-1][2]))
+    # Ylitys korjaantuu hitaasti (käyttäjä 21.10.2026): kolmen viimeisen uuton jälkeen ei yli 98,3
+    check('F k_true %.0f rate %.2f: kolmen viimeisen uuton jälkeen max T ≤ 98,3' % (k_true, rate),
+          max(x[3] for x in r[-3:]) <= 98.3, ' '.join('%.2f' % x[3] for x in r))
 check('F2 kerroin tallennettu', os.path.exists(C.Thermostat.BH_FILE))
 
 print('RESULT: %d failed' % len(FAILED))
