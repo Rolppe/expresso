@@ -458,6 +458,41 @@ def handle_command(brew_data, command):
         except Exception:
             pass
 
+    elif command.startswith('steam:'):
+        try:
+            brew_data.set_steam_temperature(_float_arg(command))
+            updated = True
+        except Exception:
+            pass
+
+    elif command.startswith('stmax:') or command.startswith('stm:'):
+        try:
+            brew_data.set_steam_temperature_max(_float_arg(command))
+            updated = True
+        except Exception:
+            pass
+
+    elif command.startswith('svt:') or command.startswith('spl:') or command.startswith('spmin:'):
+        try:
+            brew_data.set_steam_valve_trigger(_float_arg(command))
+            updated = True
+        except Exception:
+            pass
+
+    elif command.startswith('svr:') or command.startswith('svrel:'):
+        try:
+            brew_data.set_steam_valve_release(_float_arg(command))
+            updated = True
+        except Exception:
+            pass
+
+    elif command.startswith('sph:') or command.startswith('spmax:'):
+        try:
+            brew_data.set_steam_pressure_high(_float_arg(command))
+            updated = True
+        except Exception:
+            pass
+
     elif command.startswith('stby:'):
         # Standby (VALMIUSTILA, 5.10.2026): stby:<min 0-240> = idle minutes before the IDLE target drops to
         # min(brew, standby_temperature), 0 = standby off; stby:on = enter standby now (device test). RAM only
@@ -494,6 +529,17 @@ def handle_command(brew_data, command):
         # Read-only, so not activity: the stby report's temp= was the target and misled the 6.10. check.
         guard = brew_data.relay_guard
         print(guard.heat_status(guard.utime.ticks_ms()))
+
+    elif command == 'peq?':
+        p = getattr(brew_data, 'pressure', None)
+        last = getattr(brew_data, 'last_pressure_equalize_ms', None)
+        last_s = 'never' if last is None else ('%d' % (brew_data.utime.ticks_diff(brew_data.utime.ticks_ms(), last) // 1000))
+        print('PEQ enabled=%d p=%s th=%.1f int_s=%d last_s=%s' % (
+            1 if getattr(brew_data, 'idle_pressure_equalize_flag', True) else 0,
+            p,
+            getattr(brew_data, 'idle_pressure_equalize_threshold', 0.5),
+            getattr(brew_data, 'idle_pressure_equalize_interval_ms', 30000) // 1000,
+            last_s))
 
     # App protocol of the August firmware (EXPRESSO-UUTTOLOKI, 5.10.2026). The app sends these on every connect;
     # none sets updated, so none counts as activity or leaves standby. bluetooth_handler acts on the flags.

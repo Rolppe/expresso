@@ -26,7 +26,17 @@ FEATURES = {
     'pre_infusion_time'                          : 5,
     'pressure_soft_release_time'                 : 4,
     'brew_pressure_bar'                          : 9,
-    'soft_pressure_release_arming_pressure'      : 3
+    'soft_pressure_release_arming_pressure'      : 3,
+    'steam_pressure_low_bar'                     : 1.8,
+    'steam_valve_trigger_bar'                    : 1.8,
+    'steam_valve_release_bar'                    : 2.1,
+    'steam_pressure_high_bar'                    : 2.5,
+    'steam_temperature_max_c'                    : 140.0,
+    'idle_pressure_equalize_flag'                : True,
+    'idle_pressure_equalize_threshold_bar'       : 0.5,
+    'idle_pressure_equalize_interval_s'          : 30,
+    'idle_pressure_equalize_pulse_ms'            : 100,
+    'idle_pressure_equalize_max_over_temp_c'     : 0.1
     }
 
 # ============================================================================
@@ -76,7 +86,7 @@ MAX31865_CONFIG = {
 TARGET_TEMPERATURES = {
     'IDLE'    : 98,
     'BREW'    : 98, 
-    'STEAM'   : 137,
+    'STEAM'   : 135,
     'PID_CAL' : 100,
     
     # Backflush program temperatures

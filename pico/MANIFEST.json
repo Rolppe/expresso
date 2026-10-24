@@ -11,8 +11,8 @@
   },
   {
     "name": "/bluetooth_handler.py",
-    "sha256": "bc2ac44ca1a72f8e093ceb68b1d4fbdc9d611d479f5e5cf10933916fdae6d631",
-    "size": 17640
+    "sha256": "67ec864a397b5f694f156e1e6bbd5c6dbaa294cab94409c174c6f4cc54bed785",
+    "size": 18878
   },
   {
     "name": "/boot.py",
@@ -31,13 +31,13 @@
   },
   {
     "name": "/classes.py",
-    "sha256": "402e46f663a893a337a5c0d2d65b531a664eb3c07c8c353fbf678746c9e163a0",
-    "size": 96590
+    "sha256": "c2ccb9ca81e6e0f8141864b7e66950377dd40bb667a3e8f0dd9fbcece0c22eb0",
+    "size": 107533
   },
   {
     "name": "/commands.py",
-    "sha256": "0290f99535ff380f89d32e5161e283bd2e515db6d6c36180d1097233f9e60341",
-    "size": 24049
+    "sha256": "1ec2b54deb71751aa4e352a6c44b74978be7dbc74845053a83c7f81e82791129",
+    "size": 25764
   },
   {
     "name": "/devsafe.py",
@@ -51,8 +51,8 @@
   },
   {
     "name": "/functions.py",
-    "sha256": "a963e0ad71956bdb2250dbe6cb5eaeffffab147261929628e63187dd37952c5e",
-    "size": 208517
+    "sha256": "525c624835b00067d6b5d6eb4880e64663c4c07a5a8342fbf999cbc8aca2c355",
+    "size": 210106
   },
   {
     "name": "/lib/adafruit_max31865.py",
@@ -66,13 +66,13 @@
   },
   {
     "name": "/main.py",
-    "sha256": "43c77361bfb06c6a16d02168d2a9abc45e38bce0bcaba7c57cb007d6a278047e",
-    "size": 23720
+    "sha256": "b9ae3050c64b1393197f45bca7b467314a2f535bd41570bf8e4ea58c809dc31e",
+    "size": 24156
   },
   {
     "name": "/preset.py",
-    "sha256": "0a46a0323c3ebfa5c0fdf2d55b0363e55d4ce1544a116005d5589998d69d3b68",
-    "size": 2924
+    "sha256": "2ae8bb7efb64d4754a4df490f60a165b390e33598da7cb59917ec63b9c25fa84",
+    "size": 3486
   },
   {
     "name": "/relayguard.py",
@@ -111,8 +111,8 @@
   },
   {
     "name": "/wifilink.py",
-    "sha256": "dfa086463486e249fdfa7c65be4c410cc1f0c132be173204210b3cf06121ecdb",
-    "size": 13172
+    "sha256": "58f1ab7b4ebd4e28f1586cf6fc8655777f0748d96c26c61915be001c8805cb66",
+    "size": 13252
   },
   {
     "name": "/ystall.py",

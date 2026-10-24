@@ -3417,6 +3417,11 @@ def save_settings(brew_data, json_module):
         'fast_heatup_mode'          : fast_heatup_mode,
         'brew_pressure'             : brew_pressure,
         'pre_infusion_pressure'     : pre_infusion_pressure,
+        'steam_pressure_low'        : getattr(brew_data, 'get_steam_valve_trigger', lambda: getattr(brew_data, 'steam_pressure_low', 1.8))(),
+        'steam_valve_trigger'       : getattr(brew_data, 'get_steam_valve_trigger', lambda: getattr(brew_data, 'steam_valve_trigger', 1.8))(),
+        'steam_valve_release'       : getattr(brew_data, 'get_steam_valve_release', lambda: getattr(brew_data, 'steam_valve_release', 2.1))(),
+        'steam_pressure_high'       : getattr(brew_data, 'get_steam_pressure_high', lambda: getattr(brew_data, 'steam_pressure_high', 2.5))(),
+        'steam_temperature_max'     : getattr(brew_data, 'get_steam_temperature_max', lambda: 140.0)(),
         # Test-shot weight limits (18.9.2026). Persisted after all: they are read only when
         # run_shot gets limit_weight=True, which happens for tshot and never for the brew switch,
         # so a stored limit cannot affect a real shot. Not persisting them meant the protection was
@@ -3483,6 +3488,17 @@ def load_settings(json_module, brew_data):
             brew_data.set_brew_pressure(data.get('brew_pressure'))
         if data.get('pre_infusion_pressure') is not None:
             brew_data.set_pre_infusion_pressure(data.get('pre_infusion_pressure'))
+        p_trig = data.get('steam_valve_trigger', data.get('steam_pressure_low'))
+        if p_trig is not None and hasattr(brew_data, 'set_steam_valve_trigger'):
+            brew_data.set_steam_valve_trigger(p_trig)
+        elif p_trig is not None and hasattr(brew_data, 'set_steam_pressure_low'):
+            brew_data.set_steam_pressure_low(p_trig)
+        if data.get('steam_valve_release') is not None and hasattr(brew_data, 'set_steam_valve_release'):
+            brew_data.set_steam_valve_release(data.get('steam_valve_release'))
+        if data.get('steam_pressure_high') is not None and hasattr(brew_data, 'set_steam_pressure_high'):
+            brew_data.set_steam_pressure_high(data.get('steam_pressure_high'))
+        if data.get('steam_temperature_max') is not None and hasattr(brew_data, 'set_steam_temperature_max'):
+            brew_data.set_steam_temperature_max(data.get('steam_temperature_max'))
         # Weight limits added 18.9.2026: same rule, a file without the keys keeps the defaults (off)
         if data.get('weight_limit') is not None:
             brew_data.set_weight_limit(data.get('weight_limit'))

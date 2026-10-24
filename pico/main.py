@@ -526,6 +526,20 @@ async def watchdog_feeder():
         await asyncio.sleep_ms(1000)
 
 
+async def pressure_equalizer(brew_data):
+    while True:
+        t0 = utime.ticks_us()
+        try:
+            await brew_data.check_pressure_equalization(utime.ticks_ms(), asyncio)
+        except Exception as e:
+            try:
+                print('PEQ_ERR %r' % (e,))
+            except Exception:
+                pass
+        task_busy('peq', t0)
+        await asyncio.sleep_ms(500)
+
+
 # ============================================================================
 # ASYNC HANDLING
 # ============================================================================
@@ -533,7 +547,8 @@ async def watchdog_feeder():
 async def async_main():
     print('BLE %s' % ('on' if BLE.get('enabled') else 'off'))
     tasks = [ble_communication(brew_data) if BLE.get('enabled') else brew_log_only(brew_data), local_program(brew_data),
-             serial_commands(brew_data), watchdog_feeder(), scale_reader(brew_data)]
+             serial_commands(brew_data), watchdog_feeder(), scale_reader(brew_data),
+             pressure_equalizer(brew_data)]
     if diag is not None:
         tasks.append(diag.run(brew_data, asyncio, task_busy))
     if brew_data.wifi_link is not None:
