@@ -116,6 +116,7 @@ class BrewData:
         _clock_given = utime is not None
         if utime is None:
             import utime
+        self.utime = utime
         self.relay_guard      = RelayGuard(self, utime, self._guard_pressure)
         self.RELAY_PUMP       = GuardedRelay(Pin(PINS['RELAY_PUMP'], Pin.OUT, value=0), self.relay_guard, 'pump')
         self.RELAY_SOLENOID   = Pin(PINS['RELAY_SOLENOID'], Pin.OUT, value=0)
@@ -131,7 +132,18 @@ class BrewData:
         self.soft_pressure_release_arming_pressure = FEATURES['soft_pressure_release_arming_pressure']
         self.pre_infusion_time  = 0
         self.brew_temperature   = 97
-        self.steam_temperature  = 125
+        self.steam_temperature  = 135
+        self.steam_temperature_max = FEATURES.get('steam_temperature_max_c', 140.0)
+        self.steam_valve_trigger   = FEATURES.get('steam_valve_trigger_bar', FEATURES.get('steam_pressure_low_bar', 1.8))
+        self.steam_valve_release   = FEATURES.get('steam_valve_release_bar', 2.1)
+        self.steam_pressure_high   = FEATURES.get('steam_pressure_high_bar', 2.5)
+        # Paineen tasaus lepotilassa ja alkulämmityksessä (PEQ: +-0.5 bar, 30s välein, 100ms pulssi)
+        self.idle_pressure_equalize_flag = FEATURES.get('idle_pressure_equalize_flag', True)
+        self.idle_pressure_equalize_threshold = FEATURES.get('idle_pressure_equalize_threshold_bar', 0.5)
+        self.idle_pressure_equalize_interval_ms = int(FEATURES.get('idle_pressure_equalize_interval_s', 30) * 1000)
+        self.idle_pressure_equalize_pulse_ms = int(FEATURES.get('idle_pressure_equalize_pulse_ms', 100))
+        self.idle_pressure_equalize_max_over_temp = FEATURES.get('idle_pressure_equalize_max_over_temp_c', 0.1)
+        self.last_pressure_equalize_ms = None
         # Standby (VALMIUSTILA, 5.10.2026): after standby_timeout_ms without any switch or app change the
         # IDLE target drops to min(brew, standby_temperature) so the boiler pressure at rest is lower.
         # RAM only (stby:<min>); the latch is cleared by note_activity() only, never by clock wrap.
@@ -333,7 +345,23 @@ class BrewData:
     def set_steam_temperature(self, steam_temperature):
         _check_setpoint(steam_temperature)
         self.steam_temperature = steam_temperature
+        stm = getattr(self, 'steam_temperature_max', None)
+        if stm is not None and stm < self.steam_temperature:
+            self.steam_temperature_max = self.steam_temperature
         self.setting_changed = True
+
+
+    def set_steam_temperature_max(self, t):
+        # App slider range 125-145 C, clamped >= steam_temperature
+        self.steam_temperature_max = min(145.0, max(120.0, round(float(t), 1)))
+        st = getattr(self, 'steam_temperature', 135.0)
+        if self.steam_temperature_max < st:
+            self.steam_temperature_max = st
+        self.setting_changed = True
+
+
+    def get_steam_temperature_max(self):
+        return getattr(self, 'steam_temperature_max', 140.0)
 
 
     def set_brew_pressure(self, brew_pressure):
@@ -346,6 +374,63 @@ class BrewData:
         # App slider range 1-4 bar
         self.pre_infusion_pressure = min(4.0, max(1.0, float(pre_infusion_pressure)))
         self.setting_changed = True
+
+
+    @property
+    def steam_pressure_low(self):
+        return getattr(self, 'steam_valve_trigger', 1.8)
+
+    @steam_pressure_low.setter
+    def steam_pressure_low(self, p):
+        self.set_steam_valve_trigger(p)
+
+    def set_steam_valve_trigger(self, p):
+        # App slider range 0.5-3.0 bar
+        self.steam_valve_trigger = min(3.0, max(0.5, round(float(p), 1)))
+        svr = getattr(self, 'steam_valve_release', 2.1)
+        if self.steam_valve_trigger > svr:
+            self.steam_valve_release = self.steam_valve_trigger
+        sph = getattr(self, 'steam_pressure_high', 2.5)
+        if self.steam_valve_trigger > sph:
+            self.steam_pressure_high = self.steam_valve_trigger
+        self.setting_changed = True
+
+    def get_steam_valve_trigger(self):
+        return getattr(self, 'steam_valve_trigger', 1.8)
+
+    def set_steam_pressure_low(self, p):
+        self.set_steam_valve_trigger(p)
+
+    def get_steam_pressure_low(self):
+        return self.get_steam_valve_trigger()
+
+    def set_steam_valve_release(self, p):
+        # App slider range 0.6-3.2 bar
+        self.steam_valve_release = min(3.2, max(0.6, round(float(p), 1)))
+        svt = getattr(self, 'steam_valve_trigger', 1.8)
+        if self.steam_valve_release < svt:
+            self.steam_valve_trigger = self.steam_valve_release
+        sph = getattr(self, 'steam_pressure_high', 2.5)
+        if self.steam_valve_release > sph:
+            self.steam_pressure_high = self.steam_valve_release
+        self.setting_changed = True
+
+    def get_steam_valve_release(self):
+        return getattr(self, 'steam_valve_release', 2.1)
+
+    def set_steam_pressure_high(self, p):
+        # App slider range 1.0-3.5 bar
+        self.steam_pressure_high = min(3.5, max(1.0, round(float(p), 1)))
+        svr = getattr(self, 'steam_valve_release', 2.1)
+        if self.steam_pressure_high < svr:
+            self.steam_valve_release = self.steam_pressure_high
+        svt = getattr(self, 'steam_valve_trigger', 1.8)
+        if self.steam_pressure_high < svt:
+            self.steam_valve_trigger = self.steam_pressure_high
+        self.setting_changed = True
+
+    def get_steam_pressure_high(self):
+        return getattr(self, 'steam_pressure_high', 2.5)
 
 
     # ===== SETTERS - REALTIME DATA ====== #
@@ -461,6 +546,78 @@ class BrewData:
             if idle_ms >= self.standby_timeout_ms:
                 self.standby = True
                 print('STBY_ON idle_s=%d target=%s' % (idle_ms // 1000, min(self.brew_temperature, self.standby_temperature)))
+
+    async def check_pressure_equalization(self, now_ms=None, asyncio=None):
+        if not getattr(self, 'idle_pressure_equalize_flag', True):
+            return False
+
+        # Sallittu vain alku lämmitysvaiheessa tai IDLE-tilassa
+        mode = getattr(self, 'mode', 'IDLE')
+        if mode not in ('IDLE', 'idle', 'fast_heatup'):
+            return False
+
+        # Ei kytkintoimintoja (uutto, kuumavesi, höyrytys)
+        sw_brew, sw_water, sw_steam = self.get_switches()
+        if sw_brew.value() or sw_water.value() or sw_steam.value():
+            return False
+
+        pump, solenoid, heater = self.get_relays()
+        if pump.value():
+            return False
+
+        if getattr(self, 'dev_safe', False):
+            return False
+
+        p = getattr(self, 'pressure', None)
+        if p is None:
+            try:
+                p = self.get_pressure()
+            except Exception:
+                return False
+
+        # Paineen erotessa 0 bar tilasta +- 0.5 bar
+        threshold = getattr(self, 'idle_pressure_equalize_threshold', 0.5)
+        if abs(p) < threshold:
+            return False
+
+        # Ei tasata painetta, jos lämpötila on 0.1 °C tai enemmän YLI tavoitelämpötilan
+        try:
+            t = getattr(self, 'boiler_temperature', None)
+            target = self.get_target_temperature()
+            max_over = getattr(self, 'idle_pressure_equalize_max_over_temp', 0.1)
+            if t is not None and target is not None:
+                if round(t - target, 2) >= max_over:
+                    return False
+        except Exception:
+            pass
+
+        if now_ms is None:
+            now_ms = self.utime.ticks_ms()
+
+        # 30 s välein
+        interval_ms = getattr(self, 'idle_pressure_equalize_interval_ms', 30000)
+        last = getattr(self, 'last_pressure_equalize_ms', None)
+        if last is not None and self.utime.ticks_diff(now_ms, last) < interval_ms:
+            return False
+
+        # Paineen tasaus: avataan solenoidi -> odotetaan 100ms -> suljetaan solenoidi
+        pulse_ms = getattr(self, 'idle_pressure_equalize_pulse_ms', 100)
+        self.last_pressure_equalize_ms = now_ms
+        try:
+            solenoid.value(1)
+            if asyncio is not None:
+                await asyncio.sleep_ms(pulse_ms)
+            else:
+                self.utime.sleep_ms(pulse_ms)
+        finally:
+            sw_b, sw_w, sw_s = self.get_switches()
+            if not (sw_b.value() or sw_w.value() or sw_s.value() or pump.value() or getattr(self, 'mode', 'IDLE') not in ('IDLE', 'idle', 'fast_heatup')):
+                solenoid.value(0)
+        try:
+            print('PEQ bar=%.2f' % p)
+        except Exception:
+            pass
+        return True
 
     def get_target_temperature(self):
         if self.mode == "BREW":
@@ -819,8 +976,9 @@ class BrewData:
     # shot, its latest reading, so the relay guard sees it fresh without the shot loop reading anything
     @property
     def boiler_temperature(self):
-        t = self.temperature_sensor.c1_temperature()
-        return self._boiler_temperature if t is None else t
+        ts = getattr(self, 'temperature_sensor', None)
+        t = ts.c1_temperature() if ts is not None else None
+        return getattr(self, '_boiler_temperature', 0.0) if t is None else t
 
     @boiler_temperature.setter
     def boiler_temperature(self, t):
@@ -828,8 +986,9 @@ class BrewData:
 
     @property
     def boiler_temperature_ms(self):
-        ms = self.temperature_sensor.c1_ms()
-        return self._boiler_temperature_ms if ms is None else ms
+        ts = getattr(self, 'temperature_sensor', None)
+        ms = ts.c1_ms() if ts is not None else None
+        return getattr(self, '_boiler_temperature_ms', None) if ms is None else ms
 
     @boiler_temperature_ms.setter
     def boiler_temperature_ms(self, ms):
@@ -1471,6 +1630,12 @@ class Thermostat:
         self.bh_wn = 0
         self.bh_prev = None
         self.bh_last_t = None         # settled temperature of the last learned shot
+        # Steam mode pressure control
+        self.steam_boost = False
+        self.steam_p_peak = None
+        self.steam_p_min = None
+        self.steam_drop_count = 0
+        self.steam_rise_count = 0
         brew_data.thermostat = self
         self._bh_load()
 
@@ -1645,6 +1810,12 @@ class Thermostat:
         now = self.utime.ticks_ms()
         if mode == 'STEAM':
             self.brew_data.bh_steam_t = now      # functions BH_STEAM_NOLEARN_MS: no brew learning soon after steam
+        else:
+            self.steam_boost = False
+            self.steam_p_peak = None
+            self.steam_p_min = None
+            self.steam_drop_count = 0
+            self.steam_rise_count = 0
         self._t10(now, mode, boiler_temperature, target_temperature)
         # A new arm also restarts a pending pay or settle: run_shot kept the sums, so pay the rest and learn the total
         if mode == 'IDLE' and getattr(self.brew_data, 'bh_arm', 0):
@@ -1664,6 +1835,8 @@ class Thermostat:
                 self._pi_period(boiler_temperature, target_temperature)
             self.heat_on = self.utime.ticks_diff(now, self.pi_start) < self.pi_on_ms
             self.step_start = None
+        elif mode == 'STEAM':
+            self._steam_heat(now, boiler_temperature, target_temperature, heating_speed)
         else:
             # Step cycler: decide once per step and hold it
             self.pi_start = None
@@ -1688,6 +1861,78 @@ class Thermostat:
     def get_state(self):
         state = self.state
         return state
+
+
+    def _steam_heat(self, now, boiler_temperature, target_temperature, heating_speed):
+        self.pi_start = None
+        t_max = getattr(self.brew_data, 'get_steam_temperature_max', lambda: 140.0)()
+        p_trig = getattr(self.brew_data, 'get_steam_valve_trigger', lambda: getattr(self.brew_data, 'steam_valve_trigger', 1.8))()
+        p_rel = getattr(self.brew_data, 'get_steam_valve_release', lambda: getattr(self.brew_data, 'steam_valve_release', 2.1))()
+        p_high = getattr(self.brew_data, 'get_steam_pressure_high', lambda: getattr(self.brew_data, 'steam_pressure_high', 2.5))()
+        pressure = getattr(self.brew_data, 'pressure', None)
+
+        # YLEISET TURVAEHDOT (korkein prioriteetti): Maksimilämpötila ja maksimipaine
+        # 1. Jos maksimilämpötila ylittyy, lämmitin on ehdottomasti POIS
+        if boiler_temperature >= t_max:
+            self.steam_boost = False
+            self.heat_on = False
+            return
+
+        # 2. Jos paine saavuttaa ylärajan, lämmitin on ehdottomasti POIS
+        if pressure is not None and pressure >= p_high:
+            self.steam_boost = False
+            self.heat_on = False
+            self.steam_p_min = None
+            return
+
+        if pressure is None:
+            # Fallback for simple unit test mocks without pressure sensor: standard cycler below target
+            if boiler_temperature >= target_temperature:
+                self.heat_on = False
+                return
+            step_ms = HEAT_PERIOD_MS // HEAT_STEPS
+            if self.step_start is None or self.utime.ticks_diff(now, self.step_start) >= step_ms:
+                self.step_start = now
+                self.heat_on = (boiler_temperature < (target_temperature - (heating_speed * 2))) and \
+                    Thermostat.heat_cycler(self, boiler_temperature, target_temperature)
+            return
+
+        # PAINE-OHJATTU LÄMMITYS (Höyryventtiili)
+        # Kun paine tippuu alle steam_valve_trigger -rajan (venttiili avattu):
+        # Lämmitin kytketään TÄYDELLE TEHOLLE.
+        if pressure <= p_trig:
+            self.steam_boost = True
+            if self.steam_p_min is None or pressure < self.steam_p_min:
+                self.steam_p_min = pressure
+            self.steam_rise_count = 0
+        elif self.steam_boost:
+            # Kun venttiili suljetaan ja paine palautuu steam_valve_release -pisteeseen asti:
+            # Pysäytetään paineohjattu lämmitys (steam_boost = False).
+            if pressure >= p_rel:
+                self.steam_rise_count += 1
+                if self.steam_rise_count >= 2:
+                    self.steam_boost = False
+                    self.steam_p_min = None
+                    self.steam_rise_count = 0
+            else:
+                self.steam_rise_count = 0
+
+        # Jos paineohjattu lämmitys on aktiivinen: täysi teho
+        if self.steam_boost:
+            self.heat_on = True
+            return
+
+        # TERMOSTAATTIOHJAUS
+        # Kun paineohjattu lämmitys ei ole aktiivinen:
+        # Lämpötilaa ohjataan normaalisti termostaatilla suhteessa tavoitelämpötilaan.
+        if boiler_temperature >= target_temperature:
+            self.heat_on = False
+        else:
+            step_ms = HEAT_PERIOD_MS // HEAT_STEPS
+            if self.step_start is None or self.utime.ticks_diff(now, self.step_start) >= step_ms:
+                self.step_start = now
+                self.heat_on = (boiler_temperature < (target_temperature - (heating_speed * 2))) and \
+                    Thermostat.heat_cycler(self, boiler_temperature, target_temperature)
     
 
     def heat_cycler(self, temperature, target_temperature):

@@ -30,7 +30,7 @@ KEY_FILE = 'link_key.txt'
 DENY_LOG_MS = 10000
 
 ALLOWED_EXACT = ('sync', 'get:settings', 'settings?', 'brew_log?', 'brew_log:get', 'tare', 'sub')
-ALLOWED_PREFIX = ('brew_log:ack', 'stby:', 'stbt:', 'pit:', 'srt:', 'bt:', 'pip:', 'bp:', 'fhu:', 'pcal:', 'cal:')
+ALLOWED_PREFIX = ('brew_log:ack', 'stby:', 'stbt:', 'pit:', 'srt:', 'bt:', 'steam:', 'pip:', 'bp:', 'spl:', 'sph:', 'spmin:', 'spmax:', 'stmax:', 'stm:', 'svt:', 'svr:', 'fhu:', 'pcal:', 'cal:')
 _SYNC = ('sync', 'get:settings', 'settings?')
 
 

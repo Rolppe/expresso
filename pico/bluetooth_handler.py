@@ -104,13 +104,29 @@ def scale_payload(brew_data):
 def settings_payloads(brew_data):
     """The two settings packets (BLE and the Wi-Fi link send the same ones)."""
     brew_temperature = brew_data.get_brew_temperature()
+    get_steam = getattr(brew_data, 'get_steam_temperature', None)
+    steam_temperature = get_steam() if callable(get_steam) else getattr(brew_data, 'steam_temperature', 135.0)
+    get_stm = getattr(brew_data, 'get_steam_temperature_max', None)
+    steam_temperature_max = get_stm() if callable(get_stm) else getattr(brew_data, 'steam_temperature_max', 140.0)
+    get_svt = getattr(brew_data, 'get_steam_valve_trigger', None)
+    steam_valve_trigger = get_svt() if callable(get_svt) else getattr(brew_data, 'steam_valve_trigger', getattr(brew_data, 'steam_pressure_low', 1.8))
+    get_svr = getattr(brew_data, 'get_steam_valve_release', None)
+    steam_valve_release = get_svr() if callable(get_svr) else getattr(brew_data, 'steam_valve_release', 2.1)
+    get_sph = getattr(brew_data, 'get_steam_pressure_high', None)
+    steam_pressure_high = get_sph() if callable(get_sph) else getattr(brew_data, 'steam_pressure_high', 2.5)
     return ({
         'brew_temperature': brew_temperature,
+        'steam_temperature': steam_temperature,
+        'steam_temperature_max': steam_temperature_max,
+        'steam_valve_trigger': steam_valve_trigger,
+        'steam_pressure_low': steam_valve_trigger,
         'pre_infusion_mode': brew_data.get_pre_infusion_mode(),
         'pressure_soft_release_mode': brew_data.get_pressure_soft_release_mode(),
         'fast_heatup_mode': brew_data.get_fast_heatup_mode()
     }, {
         'brew_temperature': brew_temperature,
+        'steam_valve_release': steam_valve_release,
+        'steam_pressure_high': steam_pressure_high,
         'brew_pressure': brew_data.get_brew_pressure(),
         'pre_infusion_pressure': brew_data.get_pre_infusion_pressure(),
         'pre_infusion_time': brew_data.get_pre_infusion_time(),
