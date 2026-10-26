@@ -368,6 +368,8 @@ async def local_program(brew_data):
             else:
                 await run_shot(brew_data, utime, asyncio, pump_ratio_calculator, SWITCH_BREW.value, 'PB')
             brew_data.note_activity(utime.ticks_ms(), 'switch')
+            while SWITCH_BREW.value():
+                await asyncio.sleep_ms(50)
         
         
         # ============================================================================
@@ -424,10 +426,13 @@ async def local_program(brew_data):
         # STEAM MODE - LOCAL PROGRAM
         # ============================================================================
     
+        prev_mode = getattr(brew_data, 'mode', 'IDLE')
         if SWITCH_STEAM.value():
             brew_data.set_mode('STEAM')
             
         else:
+            if prev_mode == 'STEAM':
+                brew_data.record_steam_completed(utime.ticks_ms())
             brew_data.set_mode('IDLE')
 
 
@@ -485,7 +490,9 @@ async def scale_reader(brew_data):
 
 def scale_poll_once():
     try:
-        grams = tray_scale.update()
+        pump_on = bool(brew_data.get_relays()[0].value()) if brew_data is not None else False
+        p_cur = getattr(brew_data, 'pressure', 0.0) if brew_data is not None else 0.0
+        grams = tray_scale.update(pump_on=pump_on, pressure=p_cur)
         if grams is not None:
             brew_data.weight = grams
             brew_data.weight_ms = utime.ticks_ms()
@@ -494,7 +501,7 @@ def scale_poll_once():
             if brew_data.scale_cal is not None:
                 brew_data.scale_cal.on_sample(tray_scale.raw_a, tray_scale.raw_b)
         if brew_data.scale_cal is not None:
-            brew_data.scale_cal.tick()
+            brew_data.scale_cal.tick(brew_data)
         # Every iteration, not only when a new sample arrived: flow() reads no sensor, and it is
         # the call that turns a frozen reading into None once the samples go stale.
         brew_data.flow = tray_scale.flow(brew_data.flow_window_ms)

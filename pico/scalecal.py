@@ -47,6 +47,17 @@ def weight_g(brew_data):
     return w - (getattr(brew_data, 'tare_abs_g', None) or 0.0)
 
 
+def zero_track(brew_data, alpha=0.05, deadband=0.25):
+    """Zero tracking in IDLE mode: slowly creeps tare_abs_g when close to zero to cancel thermal drift."""
+    tare = getattr(brew_data, 'tare_abs_g', None)
+    w = getattr(brew_data, 'weight', None)
+    if tare is None or w is None:
+        return
+    net = w - tare
+    if abs(net) <= deadband:
+        brew_data.tare_abs_g = (1.0 - alpha) * tare + alpha * w
+
+
 def _mean_sd(v):
     n = len(v)
     m = sum(v) / n
@@ -239,9 +250,11 @@ class ScaleCal:
         self._go(phase, 'saved: %.2f counts/g (was %.2f)' % (new, old))
 
     # ---- time -------------------------------------------------------------------------------------
-    def tick(self):
+    def tick(self, brew_data=None):
         """Timeouts and the shot interlock; call every pass of a task. Never raises."""
         try:
+            if brew_data is not None and self.is_idle():
+                zero_track(brew_data)
             ph = self.phase
             if ph == 'idle':
                 return

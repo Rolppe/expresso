@@ -32,11 +32,15 @@ FEATURES = {
     'steam_valve_release_bar'                    : 2.1,
     'steam_pressure_high_bar'                    : 2.5,
     'steam_temperature_max_c'                    : 140.0,
-    'idle_pressure_equalize_flag'                : True,
+    'idle_pressure_equalize_flag'                : False,
     'idle_pressure_equalize_threshold_bar'       : 0.5,
     'idle_pressure_equalize_interval_s'          : 30,
     'idle_pressure_equalize_pulse_ms'            : 100,
-    'idle_pressure_equalize_max_over_temp_c'     : 0.1
+    'idle_pressure_equalize_max_over_temp_c'     : 0.1,
+    'standby_startup_timeout_min'                : 120,
+    'standby_brew_timeout_min'                   : 30,
+    'pre_infusion_trigger_flag'                  : False,
+    'pre_infusion_trigger_threshold_g'           : 0.25
     }
 
 # ============================================================================

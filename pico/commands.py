@@ -33,6 +33,7 @@ def handle_command(brew_data, command):
     """Apply a command. Returns True when a persisted setting changed (caller resends settings)."""
     updated = False
     stby_report = False
+    stby_startup_report = False
     wake = True     # stby:on sets the standby latch itself, so it must not count as activity
 
     # App tare and scale calibration (scalecal.py, EXPRESSO-WIFI-APPI vaihe 0): the app sent these all along
@@ -73,6 +74,22 @@ def handle_command(brew_data, command):
         elif command == 'fhu:off':
             brew_data.set_fast_heatup_mode(False)
             updated = True
+
+    elif command.startswith('ptrig:') or command.startswith('pitrig:'):
+        # Preinfusion trigger: toggle on/off or set threshold grams (0.05 - 0.50 g)
+        arg = command.split(':', 1)[1]
+        if arg == 'on':
+            brew_data.set_pre_infusion_trigger_mode(True)
+            updated = True
+        elif arg == 'off':
+            brew_data.set_pre_infusion_trigger_mode(False)
+            updated = True
+        else:
+            try:
+                brew_data.set_pre_infusion_trigger_threshold(_float_arg(command))
+                updated = True
+            except Exception:
+                pass
 
     elif command.startswith('pcal:'):
         # Pressure calibration wizard: pcal:run:<pre|brew>, pcal:m:<pre|brew>:<bar>, pcal:save, pcal:end
@@ -494,22 +511,54 @@ def handle_command(brew_data, command):
             pass
 
     elif command.startswith('stby:'):
-        # Standby (VALMIUSTILA, 5.10.2026): stby:<min 0-240> = idle minutes before the IDLE target drops to
-        # min(brew, standby_temperature), 0 = standby off; stby:on = enter standby now (device test). RAM only
-        # like pim: every restart and flash returns to 30 min. Any switch or app change leaves standby.
+        # Standby (VALMIUSTILA):
+        # stby:on = siirry valmiustilaan heti
+        # stby:wake / stby:off = herää valmiustilasta heti (äpin herätysnappi)
+        # stby:start:<min> / stby:boot:<min> = valmiustila-aika käynnistyksen jälkeen (1h - 4h, wake=False)
+        # stby:brew:<min> = valmiustila-aika uuton / höyrytyksen jälkeen (15min - 2h, wake=False)
+        # stby:<min> = yleinen / uuttoajan asetus (yhteensopivuus, wake=False)
         arg = command[len('stby:'):]
         try:
             if arg == 'on':
                 brew_data.standby = True
                 wake = False
                 print('STBY_ON idle_s=0 target=%s' % min(brew_data.brew_temperature, brew_data.standby_temperature))
+                stby_report = True
+            elif arg in ('off', 'wake'):
+                wake = True
+                updated = True
+                stby_report = True
+            elif arg.startswith('start:') or arg.startswith('boot:'):
+                sub = arg.split(':', 1)[1]
+                minutes = min(240.0, max(0.0, float(sub)))
+                brew_data.standby_startup_timeout_ms = int(minutes * 60000)
+                wake = False
+                stby_startup_report = True
+            elif arg.startswith('brew:'):
+                sub = arg.split(':', 1)[1]
+                minutes = min(240.0, max(0.0, float(sub)))
+                brew_data.standby_brew_timeout_ms = int(minutes * 60000)
+                brew_data.standby_timeout_ms = brew_data.standby_brew_timeout_ms
+                wake = False
+                stby_report = True
             else:
                 minutes = min(240.0, max(0.0, float(arg)))
-                brew_data.standby_timeout_ms = int(minutes * 60000)
+                brew_data.standby_brew_timeout_ms = int(minutes * 60000)
+                brew_data.standby_timeout_ms = brew_data.standby_brew_timeout_ms
+                wake = False
+                stby_report = True
             updated = True
         except Exception:
-            pass
-        stby_report = True
+            stby_report = True
+
+    elif command == 'stby?':
+        stby_startup_min = getattr(brew_data, 'standby_startup_timeout_ms', 120 * 60000) // 60000
+        stby_brew_min = getattr(brew_data, 'standby_brew_timeout_ms', getattr(brew_data, 'standby_timeout_ms', 30 * 60000)) // 60000
+        print('STBY startup_min=%d brew_min=%d has_brewed=%d standby=%d target=%s' % (
+            stby_startup_min, stby_brew_min,
+            1 if getattr(brew_data, 'has_brewed', False) else 0,
+            1 if brew_data.standby else 0,
+            brew_data.get_target_temperature()))
 
     elif command.startswith('stbt:'):
         # Standby temperature (EXPRESSO-IOS valmiustila, 6.10.2026): stbt:<C 60-95> replaces the fixed 90 C;
@@ -530,12 +579,31 @@ def handle_command(brew_data, command):
         guard = brew_data.relay_guard
         print(guard.heat_status(guard.utime.ticks_ms()))
 
+    elif command.startswith('peq:'):
+        arg = command[len('peq:'):].strip().lower()
+        if arg in ('0', 'off', 'false'):
+            if hasattr(brew_data, 'set_idle_pressure_equalize_mode'):
+                brew_data.set_idle_pressure_equalize_mode(False)
+            else:
+                brew_data.idle_pressure_equalize_flag = False
+            updated = True
+            print('PEQ disabled')
+        elif arg in ('1', 'on', 'true'):
+            if hasattr(brew_data, 'set_idle_pressure_equalize_mode'):
+                brew_data.set_idle_pressure_equalize_mode(True)
+            else:
+                brew_data.idle_pressure_equalize_flag = True
+            updated = True
+            print('PEQ enabled')
+        else:
+            print('PEQ unknown %s' % arg)
+
     elif command == 'peq?':
         p = getattr(brew_data, 'pressure', None)
         last = getattr(brew_data, 'last_pressure_equalize_ms', None)
         last_s = 'never' if last is None else ('%d' % (brew_data.utime.ticks_diff(brew_data.utime.ticks_ms(), last) // 1000))
         print('PEQ enabled=%d p=%s th=%.1f int_s=%d last_s=%s' % (
-            1 if getattr(brew_data, 'idle_pressure_equalize_flag', True) else 0,
+            1 if getattr(brew_data, 'idle_pressure_equalize_flag', False) else 0,
             p,
             getattr(brew_data, 'idle_pressure_equalize_threshold', 0.5),
             getattr(brew_data, 'idle_pressure_equalize_interval_ms', 30000) // 1000,
@@ -572,7 +640,10 @@ def handle_command(brew_data, command):
     if updated and wake:
         import utime    # lazy: smokes import this module without a fake clock
         brew_data.note_activity(utime.ticks_ms(), 'app')
-    if stby_report:
+    if stby_startup_report:
+        print('STBY startup_min=%d standby=%d target=%s' % (
+            brew_data.standby_startup_timeout_ms // 60000, 1 if brew_data.standby else 0, brew_data.get_target_temperature()))
+    elif stby_report:
         print('STBY timeout_min=%d standby=%d target=%s' % (
             brew_data.standby_timeout_ms // 60000, 1 if brew_data.standby else 0, brew_data.get_target_temperature()))
     return updated

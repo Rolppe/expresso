@@ -90,15 +90,18 @@ def scale_payload(brew_data):
     packet, ~70 B: it never fit in the live one with the longest mode string. weight_abs_g is the calibrated
     absolute mass (tray check: |abs| < 200 g = no tray), weight_g the same minus the app's tare. A stale flow
     is 0.0, not null: the app keeps its last value on null. None without a scale or a reading."""
-    if getattr(brew_data, 'tray_scale', None) is None:
+    scale = getattr(brew_data, 'tray_scale', None)
+    if scale is None:
         return None
     weight = brew_data.get_weight()
     if weight is None:
         return None
     flow = brew_data.get_flow()
+    drop = getattr(scale, 'drop_detected', lambda: False)()
     return {'weight_g': round(weight - (getattr(brew_data, 'tare_abs_g', None) or 0.0), 1),   # 0.1 g is below the noise
             'weight_abs_g': round(weight, 1),
-            'flow_g_s': 0.0 if flow is None else round(flow, 2)}   # the fit's own noise is 0.2 g/s
+            'flow_g_s': 0.0 if flow is None else round(flow, 2),   # the fit's own noise is 0.2 g/s
+            'first_drop': bool(drop)}
 
 
 def settings_payloads(brew_data):
@@ -119,18 +122,19 @@ def settings_payloads(brew_data):
         'steam_temperature': steam_temperature,
         'steam_temperature_max': steam_temperature_max,
         'steam_valve_trigger': steam_valve_trigger,
-        'steam_pressure_low': steam_valve_trigger,
         'pre_infusion_mode': brew_data.get_pre_infusion_mode(),
+        'pre_infusion_trigger_mode': getattr(brew_data, 'get_pre_infusion_trigger_mode', lambda: False)(),
         'pressure_soft_release_mode': brew_data.get_pressure_soft_release_mode(),
         'fast_heatup_mode': brew_data.get_fast_heatup_mode()
     }, {
-        'brew_temperature': brew_temperature,
         'steam_valve_release': steam_valve_release,
         'steam_pressure_high': steam_pressure_high,
         'brew_pressure': brew_data.get_brew_pressure(),
         'pre_infusion_pressure': brew_data.get_pre_infusion_pressure(),
         'pre_infusion_time': brew_data.get_pre_infusion_time(),
-        'pressure_soft_release_time': brew_data.get_pressure_soft_release_time()
+        'pressure_soft_release_time': brew_data.get_pressure_soft_release_time(),
+        'pre_infusion_trigger_threshold': getattr(brew_data, 'get_pre_infusion_trigger_threshold', lambda: 0.25)(),
+        'peq_mode': getattr(brew_data, 'get_idle_pressure_equalize_mode', lambda: False)()
     })
 
 

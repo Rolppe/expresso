@@ -22,7 +22,7 @@ class Scale:
     _fc_last = _fc_span = _fc_v = None      # flow():n valimuisti; luokassa, koska testit luovat __new__:lla
 
     def __init__(self, dt_a=18, dt_b=20, sck=19, gain=128,
-                 cal_file='scale_cal.json', window=8):
+                 cal_file='scale_cal.json', window=12):
         self.pin_a = dt_a
         self.pin_b = dt_b
         self.pin_sck = sck
@@ -43,6 +43,8 @@ class Scale:
         self.raw_b = 0
         self._buf = []
         self._hist = []
+        self.drop_detector = FirstDropDetector()
+        self._pump_on = False
         # Raw (unfiltered) samples for the flow fit, and the same series cleaned with a median of
         # three. Measured 18.9.2026: one sample every 86 ms (11.6 Hz), single-sample sd 0.25 g, and
         # the difference of consecutive samples has sd = sd*sqrt(2) -> the noise is white, so a
@@ -76,6 +78,8 @@ class Scale:
         self._hist = []
         self._raw = []
         self._flow_raw = []
+        if getattr(self, 'drop_detector', None) is not None:
+            self.drop_detector.reset()
 
     def ready(self):
         return not (self.a.value() or self.b.value())
@@ -162,7 +166,7 @@ class Scale:
         return sa / self.scale, (self.trim_b * sb) / self.scale
 
     # ------------------------------------------- ei-blokkaava paivitys ----
-    def update(self):
+    def update(self, pump_on=None, pressure=None):
         """Kutsu paaluupissa. Palauttaa grammat kun uusi nayte on
         valmiina, muuten None. Ei odota koskaan."""
         if not self.ready():
@@ -181,29 +185,74 @@ class Scale:
         self.last_b = (self.trim_b * (b - self.off_b)) / self.scale
         now = time.ticks_ms()
         g_raw = c / self.scale
+
+        # Pumpputilan siirtymä: nopea siemenys poistaa suodattimen keinotekoisen 1 s liukuman
+        if pump_on is not None:
+            if not self._pump_on and pump_on:
+                self._buf = [c] * self.window
+                self._raw = [(now, g_raw)]
+                self._flow_raw = [(now, g_raw)]
+                if getattr(self, 'drop_detector', None) is not None:
+                    self.drop_detector.on_pump_start(g_raw)
+            elif self._pump_on and not pump_on:
+                self._buf = [c] * self.window
+                self._raw = [(now, g_raw)]
+                self._flow_raw = [(now, g_raw)]
+                if getattr(self, 'drop_detector', None) is not None:
+                    self.drop_detector.on_pump_stop()
+            self._pump_on = pump_on
+
         self._raw.append((now, g_raw))
         if len(self._raw) > self._flow_n:
             self._raw.pop(0)
         if len(self._raw) >= 3:
-            w = self._raw[-3:]
-            v = sorted((w[0][1], w[1][1], w[2][1]))
+            w0, w1, w2 = self._raw[-3][1], self._raw[-2][1], self._raw[-1][1]
+            if w0 <= w1 <= w2 or w2 <= w1 <= w0:
+                med = w1
+            elif w1 <= w0 <= w2 or w2 <= w0 <= w1:
+                med = w0
+            else:
+                med = w2
             # Median of three costs one sample (86 ms) of delay and pays for it: the single-sample
             # -16 g glitches (0.19 % of samples) move a 1 s flow fit by 8 g/s without it and by
             # 0.4 g/s with it (measured on the synthetic shot, 18.9.2026).
-            self._flow_raw.append((w[1][0], v[1]))
+            self._flow_raw.append((self._raw[-2][0], med))
             if len(self._flow_raw) > self._flow_n:
                 self._flow_raw.pop(0)
         self._buf.append(c)
         if len(self._buf) > self.window:
             self._buf.pop(0)
-        v = sorted(self._buf)
-        if len(v) >= 5:
-            v = v[1:-1]
-        g = (sum(v) / len(v)) / self.scale
+        g = self._trimmed_mean(self._buf) / self.scale
         self._hist.append((now, g))
         if len(self._hist) > 16:
             self._hist.pop(0)
+        if getattr(self, 'drop_detector', None) is not None:
+            self.drop_detector.feed(g, now, pressure=pressure)
         return g
+
+    @staticmethod
+    def _trimmed_mean(buf):
+        n = len(buf)
+        if n < 5:
+            return sum(buf) / n
+        total = sum(buf)
+        if n >= 8:
+            min1 = min2 = float('inf')
+            max1 = max2 = float('-inf')
+            for x in buf:
+                if x < min1:
+                    min2 = min1
+                    min1 = x
+                elif x < min2:
+                    min2 = x
+                if x > max1:
+                    max2 = max1
+                    max1 = x
+                elif x > max2:
+                    max2 = x
+            return (total - min1 - min2 - max1 - max2) / (n - 4)
+        else:
+            return (total - min(buf) - max(buf)) / (n - 2)
 
     def value(self):
         """Viimeisin suodatettu lukema ilman uutta mittausta."""
@@ -278,7 +327,23 @@ class Scale:
         self.off_b = sb / n
         self._buf = []
         self._hist = []
+        if getattr(self, 'drop_detector', None) is not None:
+            self.drop_detector.reset()
         return self.off_a, self.off_b
+
+    def drop_detected(self):
+        return self.drop_detector.triggered if getattr(self, 'drop_detector', None) else False
+
+    def reset_drop_detector(self):
+        if getattr(self, 'drop_detector', None) is not None:
+            self.drop_detector.reset()
+
+    def arm_drop_detector(self, w=None, threshold=None, blanking_ms=None):
+        if getattr(self, 'drop_detector', None) is not None:
+            if threshold is not None:
+                self.drop_detector.set_threshold(threshold)
+            now = getattr(time, 'ticks_ms', lambda: 0)()
+            self.drop_detector.arm(w if w is not None else self.value(), now_ms=now, blanking_ms=blanking_ms)
 
     def scale_meta(self):
         """Calibration for the brew log (UUTTOLOKI): the app rebuilds grams from the raw rows as
@@ -311,3 +376,112 @@ class Scale:
         return ('scale=%.2f counts/g trim_b=%.4f off=%.0f/%.0f cal=%s'
                 % (self.scale, self.trim_b, self.off_a, self.off_b,
                    self.calibrated))
+
+
+class FirstDropDetector:
+    """CUSUM- ja kynnyspohjainen ensimmaisen pisaran tunnistin (TILAUS-E).
+    Seuraa suodatettua painoa ja tunnistaa kahvipisaroiden putoamisen
+    erottaen sen pumpun tarinasta ja paineennoususta."""
+
+    def __init__(self, threshold=0.25, k=0.04, alpha_drift=0.02, blanking_ms=1800):
+        self.threshold = threshold
+        self.k = k
+        self.alpha_drift = alpha_drift
+        self.blanking_ms = blanking_ms
+        self.baseline = None
+        self.s = 0.0
+        self.armed_baseline = None
+        self.arm_time = None
+        self.streak = 0
+        self.triggered = False
+        self.trigger_time = None
+        self.trigger_weight = None
+
+    def set_threshold(self, th):
+        self.threshold = float(th)
+        self.k = min(0.04, self.threshold * 0.4)
+
+    def reset(self):
+        self.baseline = None
+        self.s = 0.0
+        self.armed_baseline = None
+        self.arm_time = None
+        self.streak = 0
+        self.triggered = False
+        self.trigger_time = None
+        self.trigger_weight = None
+
+    def arm(self, current_weight=None, now_ms=None, blanking_ms=None):
+        """Lukitsee perustason esiuuton alkaessa."""
+        self.armed_baseline = current_weight if current_weight is not None else self.baseline
+        self.arm_time = now_ms
+        if blanking_ms is not None:
+            self.blanking_ms = blanking_ms
+        elif now_ms is None:
+            self.blanking_ms = 0
+        self.s = 0.0
+        self.streak = 0
+        self.triggered = False
+
+    def on_pump_start(self, current_weight):
+        """Re-ankkuroi perustason suoraan pumpun kayntitasolle."""
+        self.armed_baseline = current_weight
+        self.s = 0.0
+        self.streak = 0
+
+    def on_pump_stop(self):
+        pass
+
+    def disarm(self):
+        self.armed_baseline = None
+        self.arm_time = None
+        self.triggered = False
+
+    def feed(self, g, now_ms=None, pressure=None):
+        if g is None:
+            return False
+        if self.baseline is None:
+            self.baseline = g
+            return False
+        # Baseline seuraa lepotilan hidasta lampodriftia
+        self.baseline = (1.0 - self.alpha_drift) * self.baseline + self.alpha_drift * g
+
+        # Tunnistus aktiivinen vain kun viritetty uuton ajaksi
+        if self.armed_baseline is None or self.triggered:
+            return False
+
+        # Blanking / alkutasaus pumpun kaynnistyessa (EU_START):
+        # Pumpun kaynnistys, hydraulinen paineistus ja mekaaninen taipuma
+        # nostavat vaakaa ensimmaisten ~1.8 s aikana. Ennen asettumisaikaa
+        # seurataan perustasoa eika laukaista ennenaikaisesti.
+        if self.arm_time is not None and now_ms is not None and self.blanking_ms > 0:
+            diff_ms = getattr(time, 'ticks_diff', lambda a, b: a - b)(now_ms, self.arm_time)
+            if diff_ms < self.blanking_ms:
+                self.armed_baseline = g
+                self.s = 0.0
+                self.streak = 0
+                return False
+
+        # Mukautetaan perustasoa hitaasti tyhjan kammion tayttymisen aikana (p < 0.20 bar),
+        # jotta mekaaninen alkuliukuma ei aiheuta vaaria havaintoja
+        if pressure is not None and pressure < 0.20:
+            diff = g - self.armed_baseline
+            if abs(diff) < 0.20:
+                self.armed_baseline = 0.90 * self.armed_baseline + 0.10 * g
+
+        # Vahvistettu kynnys: suodatettu painon nousu yli kynnyksen.
+        # Vaatii 2 (tai 3 jos < 0.15g) perakkaista naytetta, jotta yksittainen
+        # kohinapiikki ei laukaise ennenaikaisesti.
+        rise = g - self.armed_baseline
+        req_streak = 3 if self.threshold < 0.15 else 2
+        if rise >= self.threshold:
+            self.streak += 1
+            if not self.triggered and self.streak >= req_streak:
+                self.triggered = True
+                self.trigger_time = now_ms
+                self.trigger_weight = g
+                return True
+        else:
+            self.streak = 0
+
+        return False
