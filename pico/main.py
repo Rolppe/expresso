@@ -106,6 +106,11 @@ if diag is not None:
 if tray_scale is not None:
     import scalecal
     brew_data.scale_cal = scalecal.ScaleCal(tray_scale, utime, lambda: brew_data.is_idle())
+    try:
+        import smart_tray
+        brew_data.smart_tray = smart_tray.SmartTrayTracker(tray_scale, utime)
+    except Exception as e:
+        print('SMART_TRAY init fail: %r' % (e,))
 
 
 # 30 ms task lateness since the last DIAG_HB: max us and count over 100 ms (EXPRESSO-GC-UUTTO 20.10.2026: the user saw
@@ -501,6 +506,9 @@ def scale_poll_once():
             brew_data.weight_b = tray_scale.last_b
             if brew_data.scale_cal is not None:
                 brew_data.scale_cal.on_sample(tray_scale.raw_a, tray_scale.raw_b)
+            st = getattr(brew_data, 'smart_tray', None)
+            if st is not None:
+                st.update(grams, utime.ticks_ms(), is_idle=brew_data.is_idle(), pump_on=pump_on)
         if brew_data.scale_cal is not None:
             brew_data.scale_cal.tick(brew_data)
         # Every iteration, not only when a new sample arrived: flow() reads no sensor, and it is

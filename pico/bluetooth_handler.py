@@ -98,10 +98,19 @@ def scale_payload(brew_data):
         return None
     flow = brew_data.get_flow()
     drop = getattr(scale, 'drop_detected', lambda: False)()
-    return {'weight_g': round(weight - (getattr(brew_data, 'tare_abs_g', None) or 0.0), 1),   # 0.1 g is below the noise
+    data = {'weight_g': round(weight - (getattr(brew_data, 'tare_abs_g', None) or 0.0), 1),   # 0.1 g is below the noise
             'weight_abs_g': round(weight, 1),
             'flow_g_s': 0.0 if flow is None else round(flow, 2),   # the fit's own noise is 0.2 g/s
             'first_drop': bool(drop)}
+    st = getattr(brew_data, 'smart_tray', None)
+    if st is not None:
+        data['tray_water_g'] = round(st.water_g, 1)
+        data['tray_pct'] = round(st.water_pct, 1)
+        data['tray_status'] = st.status
+        data['detected_object'] = st.detected_object
+        if getattr(st, 'object_present', False):
+            data['object_weight_g'] = round(st.object_weight, 1)
+    return data
 
 
 def settings_payloads(brew_data):
