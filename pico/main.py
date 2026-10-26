@@ -105,7 +105,7 @@ if diag is not None:
         print('WIFI_START_FAIL %r' % (e,))
 if tray_scale is not None:
     import scalecal
-    brew_data.scale_cal = scalecal.ScaleCal(tray_scale, utime, lambda: brew_data.mode == 'IDLE')
+    brew_data.scale_cal = scalecal.ScaleCal(tray_scale, utime, lambda: brew_data.is_idle())
 
 
 # 30 ms task lateness since the last DIAG_HB: max us and count over 100 ms (EXPRESSO-GC-UUTTO 20.10.2026: the user saw
@@ -264,6 +264,7 @@ async def local_program(brew_data):
         if SWITCH_BREW.value() or SWITCH_WATER.value() or SWITCH_STEAM.value():
             brew_data.note_activity(_now, 'switch')
         brew_data.update_standby(_now)
+        brew_data.update_temperature_mode(_now)
 
         # RUN THERMOSTAT
         thermostat.run()
@@ -433,7 +434,7 @@ async def local_program(brew_data):
         else:
             if prev_mode == 'STEAM':
                 brew_data.record_steam_completed(utime.ticks_ms())
-            brew_data.set_mode('IDLE')
+            brew_data.update_temperature_mode(utime.ticks_ms())
 
 
 # ============================================================================
