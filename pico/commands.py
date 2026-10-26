@@ -49,6 +49,57 @@ def handle_command(brew_data, command):
             print('SCALE_CAL unknown %s' % command)
         return False
 
+    if command == 'tray?':
+        st = getattr(brew_data, 'smart_tray', None)
+        if st is not None:
+            print(st.info())
+        else:
+            print('TRAY no_smart_tray')
+        return False
+
+    if command.startswith('tray:'):
+        sub = command[5:]
+        st = getattr(brew_data, 'smart_tray', None)
+        if st is None:
+            print('TRAY no_smart_tray')
+            return False
+        if sub == 'empty':
+            st.reset_water()
+            print('TRAY_EMPTY ok')
+        elif sub == 'cal_empty':
+            ok = st.calibrate_empty()
+            print('TRAY_CAL_EMPTY %s base=%.1f' % ('ok' if ok else 'fail', st.tray_base_g))
+        elif sub.startswith('wmax:'):
+            ok = st.set_max_water(sub[5:])
+            print('TRAY_WMAX %s max=%.1f' % ('ok' if ok else 'fail', st.max_water_g))
+        else:
+            print('TRAY unknown %s' % sub)
+        return False
+
+    if command == 'obj?':
+        st = getattr(brew_data, 'smart_tray', None)
+        if st is not None:
+            print('OBJ detected=%s weight=%.1fg cup=%.1fg scale=%.1fg vessel=%.1fg'
+                  % (st.detected_object, st.object_weight if getattr(st, 'object_present', False) else 0.0,
+                     st.cup_g, st.scale_g, st.vessel_g))
+        else:
+            print('OBJ no_smart_tray')
+        return False
+
+    if command.startswith('obj:'):
+        sub = command[4:]
+        st = getattr(brew_data, 'smart_tray', None)
+        if st is None:
+            print('OBJ no_smart_tray')
+            return False
+        parts = sub.split(':', 1)
+        if len(parts) == 2 and parts[0] in ('cup', 'scale', 'vessel'):
+            ok = st.set_object_weight(parts[0], parts[1])
+            print('OBJ_SET %s %s=%s' % ('ok' if ok else 'fail', parts[0], parts[1]))
+        else:
+            print('OBJ unknown %s' % sub)
+        return False
+
     if command.startswith('pre:'):
         if command == 'pre:on':
             brew_data.set_pre_infusion_mode(True)

@@ -283,6 +283,7 @@ class BrewData:
         # App tare and scale calibration (scalecal.py, EXPRESSO-WIFI-APPI vaihe 0): weight_g = weight - tare_abs_g
         self.tare_abs_g              = None
         self.scale_cal               = None
+        self.smart_tray              = None
         self.pending_brew_log        = None
         self.brew_log_send_requested = False
         self.brew_log_tx_reset       = False
@@ -1238,6 +1239,30 @@ class BrewData:
         self.weight_limit = grams
         self.setting_changed = True
         return self.weight_limit
+
+    def get_tray_water_g(self):
+        st = getattr(self, 'smart_tray', None)
+        return st.water_g if st is not None else 0.0
+
+    def get_tray_water_pct(self):
+        st = getattr(self, 'smart_tray', None)
+        return st.water_pct if st is not None else 0.0
+
+    def get_tray_status(self):
+        st = getattr(self, 'smart_tray', None)
+        return st.status if st is not None else 'no_tray'
+
+    def get_detected_object(self):
+        st = getattr(self, 'smart_tray', None)
+        return st.detected_object if st is not None else 'none'
+
+    def get_detected_object_weight(self):
+        st = getattr(self, 'smart_tray', None)
+        return st.object_weight if (st is not None and getattr(st, 'object_present', False)) else 0.0
+
+    def is_tray_emptied_offline(self):
+        st = getattr(self, 'smart_tray', None)
+        return st.emptied_offline if st is not None else False
 
     def get_pump_ratio(self):
         pump_ratio = self.pump_ratio

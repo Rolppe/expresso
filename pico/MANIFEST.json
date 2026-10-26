@@ -11,8 +11,8 @@
   },
   {
     "name": "/bluetooth_handler.py",
-    "sha256": "d1e3c9212dd2c0958f8237f94c3c05d20173376b0e9d75da67b2ed6dc05d25fd",
-    "size": 19212
+    "sha256": "7aaf365f9160870870f8e70db282aaffa8d23f4af45a2abd6a5b72a4f3c59edb",
+    "size": 19608
   },
   {
     "name": "/boot.py",
@@ -31,13 +31,13 @@
   },
   {
     "name": "/classes.py",
-    "sha256": "04e5fb5dac14ded82e3d883addde7fb9c749d634d9d828aa5813d002e33ef9a5",
-    "size": 114595
+    "sha256": "b6cde6c12e7e4c82edc5c00be4a1144171bd015a9459e242e3dc74cf3e5bd41c",
+    "size": 115535
   },
   {
     "name": "/commands.py",
-    "sha256": "6d3e7e2b4f74d5535a6bd48816885a44e32b1de8e9e88e8c322a9584ef40a718",
-    "size": 29072
+    "sha256": "633f588318a3d8d5972d03cb70034add37b9e3c019cc423629ef61767d88136b",
+    "size": 30940
   },
   {
     "name": "/devsafe.py",
@@ -66,8 +66,8 @@
   },
   {
     "name": "/main.py",
-    "sha256": "246dd7b89bb564c3cabdf7f2aec3d5b79fcd34155ce0eb5c3f7bc35b15c5939f",
-    "size": 24685
+    "sha256": "65215c01432861c8e7fc7794918ac4ee7a8d68d3fc878334623fb8721fc71a6b",
+    "size": 25058
   },
   {
     "name": "/preset.py",
@@ -98,6 +98,11 @@
     "name": "/secrets.py",
     "sha256": "582a28c95ba3de1efaa9fb36dc07c52ed6771f00be3be0f30ac4bb75c5da10ba",
     "size": 430
+  },
+  {
+    "name": "/smart_tray.py",
+    "sha256": "beec81a438240ca38673fe4d3c511101590b1abaad49914d94e465f06505339d",
+    "size": 17063
   },
   {
     "name": "/ugit.py",
