@@ -11,8 +11,8 @@
   },
   {
     "name": "/bluetooth_handler.py",
-    "sha256": "67ec864a397b5f694f156e1e6bbd5c6dbaa294cab94409c174c6f4cc54bed785",
-    "size": 18878
+    "sha256": "d1e3c9212dd2c0958f8237f94c3c05d20173376b0e9d75da67b2ed6dc05d25fd",
+    "size": 19212
   },
   {
     "name": "/boot.py",
@@ -31,13 +31,13 @@
   },
   {
     "name": "/classes.py",
-    "sha256": "c2ccb9ca81e6e0f8141864b7e66950377dd40bb667a3e8f0dd9fbcece0c22eb0",
-    "size": 107533
+    "sha256": "6bbdcb1174faff624994f857be088daddf4331fb442218efd4b41e8224e77a6e",
+    "size": 110931
   },
   {
     "name": "/commands.py",
-    "sha256": "1ec2b54deb71751aa4e352a6c44b74978be7dbc74845053a83c7f81e82791129",
-    "size": 25764
+    "sha256": "6d3e7e2b4f74d5535a6bd48816885a44e32b1de8e9e88e8c322a9584ef40a718",
+    "size": 29072
   },
   {
     "name": "/devsafe.py",
@@ -51,8 +51,8 @@
   },
   {
     "name": "/functions.py",
-    "sha256": "525c624835b00067d6b5d6eb4880e64663c4c07a5a8342fbf999cbc8aca2c355",
-    "size": 210106
+    "sha256": "7688d14bce9a3ecd38105291eff47f1bf66bdd788d106f75897d55c442bdc605",
+    "size": 213921
   },
   {
     "name": "/lib/adafruit_max31865.py",
@@ -66,13 +66,13 @@
   },
   {
     "name": "/main.py",
-    "sha256": "b9ae3050c64b1393197f45bca7b467314a2f535bd41570bf8e4ea58c809dc31e",
-    "size": 24156
+    "sha256": "17fd4662857bb40c5614bd943ec300a4de4ad59598b98b2adc337b724ef0bc28",
+    "size": 24617
   },
   {
     "name": "/preset.py",
-    "sha256": "2ae8bb7efb64d4754a4df490f60a165b390e33598da7cb59917ec63b9c25fa84",
-    "size": 3486
+    "sha256": "89235b175b5aff48037e92700c0b94479706b0f80ba2644538b63f30f86f3f03",
+    "size": 3713
   },
   {
     "name": "/relayguard.py",
@@ -81,8 +81,8 @@
   },
   {
     "name": "/scale.py",
-    "sha256": "074a2ffe89aa0a34c0e0b3671b96651247c9161d35f314ed659c2aae57a13444",
-    "size": 11118
+    "sha256": "7e7e8f393cd66d590223cbc2bb48d4d5b75d0b505c8635c36e471a2d3f885167",
+    "size": 17838
   },
   {
     "name": "/scale_cal.json",
@@ -91,8 +91,8 @@
   },
   {
     "name": "/scalecal.py",
-    "sha256": "73335d67290ad4ad5ee23ec51380ba98d7e8f839ffbe234b8cb428796bebeb81",
-    "size": 10476
+    "sha256": "7c058f8a6bbf7003fb7b0bfcfb06e3933a31385dcfbac72d351b5f2db901e517",
+    "size": 11004
   },
   {
     "name": "/secrets.py",
@@ -111,8 +111,8 @@
   },
   {
     "name": "/wifilink.py",
-    "sha256": "58f1ab7b4ebd4e28f1586cf6fc8655777f0748d96c26c61915be001c8805cb66",
-    "size": 13252
+    "sha256": "ddce14597dd00ff564bb171c6578ad8403e6473b84b7bf1c222a0a002e570ebf",
+    "size": 13298
   },
   {
     "name": "/ystall.py",

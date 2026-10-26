@@ -128,9 +128,11 @@ class BrewData:
         self.pressure_soft_release_mode = FEATURES['soft_pressure_release_flag']
         self.fast_heatup_mode           = FEATURES['fast_heatup_mode_flag']
         self.pre_infusion_mode          = FEATURES['pre_infusion_mode_flag']
+        self.pre_infusion_trigger_mode  = FEATURES.get('pre_infusion_trigger_flag', False)
+        self.pre_infusion_trigger_threshold = FEATURES.get('pre_infusion_trigger_threshold_g', 0.25)
         self.pressure_soft_release_time = FEATURES['pressure_soft_release_time']
         self.soft_pressure_release_arming_pressure = FEATURES['soft_pressure_release_arming_pressure']
-        self.pre_infusion_time  = 0
+        self.pre_infusion_time  = FEATURES.get('pre_infusion_time', 5.0)
         self.brew_temperature   = 97
         self.steam_temperature  = 135
         self.steam_temperature_max = FEATURES.get('steam_temperature_max_c', 140.0)
@@ -144,13 +146,20 @@ class BrewData:
         self.idle_pressure_equalize_pulse_ms = int(FEATURES.get('idle_pressure_equalize_pulse_ms', 100))
         self.idle_pressure_equalize_max_over_temp = FEATURES.get('idle_pressure_equalize_max_over_temp_c', 0.1)
         self.last_pressure_equalize_ms = None
-        # Standby (VALMIUSTILA, 5.10.2026): after standby_timeout_ms without any switch or app change the
-        # IDLE target drops to min(brew, standby_temperature) so the boiler pressure at rest is lower.
-        # RAM only (stby:<min>); the latch is cleared by note_activity() only, never by clock wrap.
-        self.standby_timeout_ms   = 30 * 60000
-        self.standby_temperature  = 90
-        self.standby              = False
-        self.last_activity_ms     = utime.ticks_ms() if _clock_given else 0
+        # Standby (VALMIUSTILA):
+        # 1. Käynnistämisen jälkeen lepotilaan meno (1 h - 4 h, oletus 120 min).
+        #    Tämä ei triggeröidy veden laskemisesta keittimen läpi, vaan vaatii oikean uuton tai höyrytyksen.
+        # 2. Uuton / höyrytyksen jälkeinen lepotila (15 min - 2 h, oletus 30 min).
+        self.standby_startup_timeout_ms = int(FEATURES.get('standby_startup_timeout_min', 120) * 60000)
+        self.standby_brew_timeout_ms    = int(FEATURES.get('standby_brew_timeout_min', 30) * 60000)
+        self.standby_timeout_ms         = self.standby_brew_timeout_ms
+        self.standby_temperature        = 90
+        self.standby                    = False
+        self.has_brewed                 = False
+        self.startup_ms                 = utime.ticks_ms() if _clock_given else 0
+        self.last_brew_ms               = self.startup_ms
+        self.last_activity_ms           = utime.ticks_ms() if _clock_given else 0
+        self.shot_peak_pressure         = 0.0
         self.pre_heat_time      = 0
         self.boiler_temperature = 0
         self.brew_pressure      = 8
@@ -319,9 +328,26 @@ class BrewData:
     def set_pre_infusion_mode(self, enabled):
         self.pre_infusion_mode = enabled
         self.setting_changed = True
+
+    def set_pre_infusion_trigger_mode(self, enabled):
+        self.pre_infusion_trigger_mode = bool(enabled)
+        self.setting_changed = True
+
+    def set_pre_infusion_trigger_threshold(self, threshold):
+        th = min(0.50, max(0.05, round(float(threshold) * 20.0) / 20.0))
+        self.pre_infusion_trigger_threshold = th
+        self.setting_changed = True
+        scale = getattr(self, 'tray_scale', None)
+        if scale is not None and getattr(scale, 'drop_detector', None) is not None:
+            scale.drop_detector.threshold = th
+            scale.drop_detector.k = min(0.04, th * 0.4)
         
     def set_pressure_soft_release_mode(self, enabled):
         self.pressure_soft_release_mode = enabled    
+        self.setting_changed = True
+
+    def set_idle_pressure_equalize_mode(self, enabled):
+        self.idle_pressure_equalize_flag = bool(enabled)
         self.setting_changed = True
         
     def set_pressure_soft_release_time(self, seconds):
@@ -496,12 +522,21 @@ class BrewData:
         pre_infusion_mode = self.pre_infusion_mode
         
         return pre_infusion_mode
+
+    def get_pre_infusion_trigger_mode(self):
+        return getattr(self, 'pre_infusion_trigger_mode', False)
+
+    def get_pre_infusion_trigger_threshold(self):
+        return getattr(self, 'pre_infusion_trigger_threshold', 0.25)
     
 
     def get_pressure_soft_release_mode(self):
         pressure_soft_release = self.pressure_soft_release_mode
     
         return pressure_soft_release
+
+    def get_idle_pressure_equalize_mode(self):
+        return getattr(self, 'idle_pressure_equalize_flag', False)
     
     
     # ===== GETTERS - TARGETS ====== #
@@ -535,17 +570,50 @@ class BrewData:
         self.relay_guard.user_retry(now_ms, reason)   # a person is here: retry a no-rise latch (V-154-SYY)
         if self.standby:
             self.standby = False
+            self.has_brewed = False
+            self.startup_ms = now_ms
+            self.last_brew_ms = now_ms
             print('STBY_OFF reason=%s' % reason)
+
+    def record_brew_completed(self, now_ms, peak_pressure, duration_ms):
+        # Oikea uutto vaatii vastusta (kahvipakka): huippupaine >= 2.5 bar ja kesto >= 5000 ms.
+        # Pelkkä veden lasku / huuhtelu (paine < 2.5 bar) ei ole oikea uutto eikä laukaise uuton jälkeistä tilaa.
+        if peak_pressure >= 2.5 and duration_ms >= 5000:
+            self.has_brewed = True
+            self.last_brew_ms = now_ms
+            self.last_activity_ms = now_ms
+            print('BREW_COMPLETE peak_p=%.2f dur_s=%.1f' % (peak_pressure, duration_ms / 1000.0))
+            return True
+        else:
+            print('FLUSH_DETECTED peak_p=%.2f dur_s=%.1f' % (peak_pressure, duration_ms / 1000.0))
+            return False
+
+    def record_steam_completed(self, now_ms):
+        self.has_brewed = True
+        self.last_brew_ms = now_ms
+        self.last_activity_ms = now_ms
+        print('STEAM_COMPLETE')
 
     def update_standby(self, now_ms):
         # Latch: once on it stays on until note_activity(); a negative ticks_diff (ticks_ms wrap,
         # valid only ~6 days) therefore cannot release it.
-        if self.standby_timeout_ms > 0 and not self.standby and self.mode == 'IDLE':
+        if not self.standby and self.mode == 'IDLE':
             import utime
-            idle_ms = utime.ticks_diff(now_ms, self.last_activity_ms)
-            if idle_ms >= self.standby_timeout_ms:
-                self.standby = True
-                print('STBY_ON idle_s=%d target=%s' % (idle_ms // 1000, min(self.brew_temperature, self.standby_temperature)))
+            if getattr(self, 'has_brewed', False):
+                timeout_ms = getattr(self, 'standby_brew_timeout_ms', self.standby_timeout_ms)
+                ref_ms = getattr(self, 'last_brew_ms', self.last_activity_ms)
+                act_ms = getattr(self, 'last_activity_ms', ref_ms)
+                if utime.ticks_diff(act_ms, ref_ms) > 0:
+                    ref_ms = act_ms
+            else:
+                timeout_ms = getattr(self, 'standby_startup_timeout_ms', self.standby_timeout_ms)
+                ref_ms = getattr(self, 'startup_ms', self.last_activity_ms)
+
+            if timeout_ms > 0:
+                idle_ms = utime.ticks_diff(now_ms, ref_ms)
+                if idle_ms >= timeout_ms:
+                    self.standby = True
+                    print('STBY_ON idle_s=%d target=%s' % (idle_ms // 1000, min(self.brew_temperature, self.standby_temperature)))
 
     async def check_pressure_equalization(self, now_ms=None, asyncio=None):
         if not getattr(self, 'idle_pressure_equalize_flag', True):
@@ -2069,7 +2137,7 @@ CX_SW, CX_SR, CX_EW, CX_ER, CX_N, CX_GMAX, CX_OVF, CX_NEV, CX_LMAX, CX_LATE, CX_
 # Core 1 reads it just before every switch-on and keeps the pin at 0 while it is 0. After a starvation (no event for
 # CX_STARVE_US while ARMED) core 1 turns the pin off and switches nothing on until core 0 starts it again.
 CX_LATE_US = 300              # = EU_LATE_MAX_US
-CX_STARVE_US = 25000          # a mains cycle and a margin without an event
+CX_STARVE_US = 35000          # a mains cycle and a margin without an event
 # Temperature between samples (vaihe 2): a MAX31865 step runs only when the next sample and the next relay event are
 # both further than this, so it delays neither (K3: each step must take < 0.5 ms; one byte at 50 kHz, ~0.2 ms)
 CX_TROOM_US = 700

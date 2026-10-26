@@ -83,12 +83,22 @@ async def pre_infusion(brew_data, utime, asyncio, pump_ratio_calculator, keep_ru
                     hold_start = now
                     brew_data.set_mode('pre-infusion main')
                     # Duration from app slider (pit:), was a fixed 5 s
-                    end = utime.ticks_add(now, int(float(brew_data.get_pre_infusion_time() or 0) * 1000))
+                    end = utime.ticks_add(now, int(float(brew_data.get_pre_infusion_time() or 3.0) * 1000))
+                    scale_obj = getattr(brew_data, 'tray_scale', None)
+                    if scale_obj is not None:
+                        th = getattr(brew_data, 'get_pre_infusion_trigger_threshold', lambda: None)()
+                        scale_obj.arm_drop_detector(w=brew_data.get_weight(), threshold=th, blanking_ms=0)
                 target = ramped
         else:
             target = pre_infusion_pressure
         controller.update(pressure, target)
         brew_data.pressure_filtered = controller.filtered
+
+        drop_allowed = not build_up or utime.ticks_diff(now, ramp_start) >= 3000
+        if drop_allowed and getattr(brew_data, 'get_pre_infusion_trigger_mode', lambda: False)() and \
+                getattr(getattr(brew_data, 'tray_scale', None), 'drop_detected', lambda: False)():
+            print('PI_TRIGGER reason=first_drop')
+            break
 
         if end is not None and utime.ticks_diff(end, now) <= 0:
             break
@@ -213,7 +223,7 @@ EU_PRINT_GAP_MS = 20         # loppurivien vali: USB-CDC:n lahetysjono on 256 ta
 # Etumatka = seuraavan kirjoittamattoman tapahtuman aikaisin hetki (kohdan k+2 tauon paluu) - nyt.
 # Esiuutto (vaihe 3) ja uutto bim:1 (vaihe 4, siirtyma ei koske jonoon); oletus 1 (BrewData.eu_c1x), c1x:0 = vanha polku.
 EU_C1X_START_MS = 150        # ydin 1 nayttaa ensimmaisen naytteen (CX_N > 0) tassa ajassa, muuten EU_C1X fail ja vanha polku
-EU_C1X_GC_LEAD_US = 35000    # hallittu keruu (~21 ms) vain, kun etumatka on vahintaan tama
+EU_C1X_GC_LEAD_US = 42000    # hallittu keruu (Pico 2 W:lla ~36-39 ms) vain, kun etumatka on vahintaan tama
 EU_C1X_YIELD_LEAD_US = 30000 # asyncio-vuoro vain, kun rengas on luettu ja etumatka vahintaan tama (pisin varaus 28 ms, laite an)
 EU_C1X_FILL_US = 22000       # tapahtumien vali enintaan tama: kellon korjaus voi venyttaa kohtien valin ~35 ms:iin
                              # (EU_MIN_SLOT_US + T), joten valiin tayte samalla tilalla ennen ytimen 1 nalkaa (25 ms).
@@ -363,6 +373,8 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
     gain, offset = brew_data.pressure_sensor.gain, brew_data.pressure_sensor.offset
     target = brew_data.get_pre_infusion_pressure()
     hold_us = int(float(brew_data.get_pre_infusion_time() or 0) * 1000000)
+    if hold_us == 0 and brew_data.get_pre_infusion_mode():
+        hold_us = 3000000
     coast_s = getattr(brew_data, 'eu_coast_s', EU_COAST_S0)
     coast_f = getattr(brew_data, 'eu_coast_fast_s', EU_COAST_FAST_S0)
     ff = brew_data.learned_ff_pre
@@ -568,8 +580,13 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                 if p > p_max: p_max = p
                 if (hold_t is None or utime.ticks_diff(t, hold_t) < EU_OVER_MS * 1000) and p5 > rise_max:
                     rise_max = p5
-                if end_t is not None and utime.ticks_diff(t, end_t) >= 0:
-                    reason = 'done'
+                scale_obj = getattr(brew_data, 'tray_scale', None)
+                drop_allowed = hold_t is not None or utime.ticks_diff(t, t0) >= 3000000
+                drop_trig = (not stage_b and drop_allowed and
+                             getattr(brew_data, 'get_pre_infusion_trigger_mode', lambda: False)() and
+                             getattr(scale_obj, 'drop_detected', lambda: False)())
+                if (end_t is not None and utime.ticks_diff(t, end_t) >= 0) or drop_trig:
+                    reason = 'drop' if drop_trig else 'done'
                     if not brew: break
                     # Siirtyma vaiheeseen 3 (EXPRESSO-UUTTO-8BAR): silmukka jatkuu. Esiuuton loppurivit ja oppi kuten
                     # ajon lopussa (samat luvut: tama jakso ei viela ole laskuissa), rivit jonoon ja tulostus enintaan
@@ -581,6 +598,10 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                     q = [l1, l2, 'EU_VV vv=%d stall=%d gc_n=%d gc_max_us=%d fr0=%d fr_end=-1 k_max_us=%d s_max_us=%d '
                          'y_max_us=%d late_max_us=%d' % (vv, stall_n, gc_n, gc_max, free0 // 1024, k_max, s_max, y_max,
                                                           late_max)]
+                    if drop_trig:
+                        q.append('EU_TRIGGER t_ms=%d w=%s' % (
+                            utime.ticks_diff(t, t0) // 1000,
+                            '%.2f' % brew_data.get_weight() if brew_data.get_weight() is not None else '-'))
                     stage_b, phase, tag, ramp_r, reason = True, 3, 'EB', EB_RAMP_BAR_PER_S, 'stop'
                     kp_n, ki_n, kp_t, ki_t = EB_KP, EB_KI_X, max(EB_KP, EU_KP_TAIL), max(EB_KI_X, EU_KI_TAIL_X)
                     if c1x: kp_t = EB_C1X_KP_TAIL
@@ -700,6 +721,9 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                                 else:
                                     end_t = utime.ticks_add(t, hold_us)
                                     brew_data.set_mode('pre-infusion main')
+                                    if scale_obj is not None:
+                                        th = getattr(brew_data, 'get_pre_infusion_trigger_threshold', lambda: None)()
+                                        scale_obj.arm_drop_detector(w=brew_data.get_weight(), threshold=th, blanking_ms=0)
                                 out.append('%s_HOLD t_ms=%d p=%.2f wait_ms=%d' % (
                                     tag, utime.ticks_diff(t, t0) // 1000, p5, utime.ticks_diff(t, sp_t) // 1000))
                     else:
@@ -888,6 +912,7 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                 # Vaiheissa 3-4 myos, kun rele on paalla ja seuraava jakso iskee (on_run, ks. vuoronvaraus EB_RATIO_MS:n alla)
                 on_run = stage_b and relay[0] and pump_next and pend_on is None
                 # c1x: releen tilaehdot pois, keruu aina riittavalla etumatkalla (ydin 1 kaantaa jonosta keruun ajan)
+                c1 = 0
                 if vv and utime.ticks_diff(t, gc_t) >= EU_GC_MS * 1000 and \
                         ((c1x and utime.ticks_diff(q_dl, utime.ticks_us()) >= EU_C1X_GC_LEAD_US) or
                          (not c1x and phase == 1 and p5 < target * EU_GC_RISE_FRAC) or
@@ -917,8 +942,10 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                 bar = gain * (raw * PCAP_RAW_A + PCAP_RAW_B) + offset
                 cyc_s += bar; cyc_n += 1
                 clock.iq_add(tq, bar)
-                if clock.iq_ready(tq) and not (not c1x and vv and ds and (relay[0] or pump_next or pend_on is not None) and
-                                               utime.ticks_diff(slot, now) < EU_IQ_CLOSE_US):
+                iq_lead_ok = (utime.ticks_diff(q_dl, utime.ticks_us()) >= 25000) if c1x else (
+                    not (vv and ds and (relay[0] or pump_next or pend_on is not None) and
+                         utime.ticks_diff(slot, now) < EU_IQ_CLOSE_US))
+                if clock.iq_ready(tq) and c1 == 0 and iq_lead_ok:
                     lrn = phase == 2
                     if stage_b:
                         # Vaiheet 3-4: ikkuna opettaa vain, kun sen keskipaine nousi edellisesta alle EB_CLK_RATE bar/s
@@ -1130,6 +1157,7 @@ async def run_shot(brew_data, utime, asyncio, pump_ratio_calculator, keep_runnin
     await asyncio.sleep_ms(50)
     RELAY_HEATER.value(0)
     start_time = utime.ticks_ms()
+    brew_data.shot_peak_pressure = 0.0
     abort_reason = ''
     over = [0, 0]          # [consecutive samples over the limit, last sample timestamp]
     weight_start = brew_data.get_weight() if limit_weight else None
@@ -1138,6 +1166,9 @@ async def run_shot(brew_data, utime, asyncio, pump_ratio_calculator, keep_runnin
         nonlocal abort_reason
         if abort_reason:
             return False
+        p_cur = max(getattr(brew_data, 'pressure_filtered', 0.0), getattr(brew_data, 'pressure', 0.0))
+        if p_cur > getattr(brew_data, 'shot_peak_pressure', 0.0):
+            brew_data.shot_peak_pressure = p_cur
         # Only while the pump is adding pressure: with the solenoid closed the boiler's own thermal
         # expansion reaches ~14 bar at idle (17.9.2026), and a shot must be allowed to open the
         # solenoid and release it
@@ -1186,11 +1217,15 @@ async def run_shot(brew_data, utime, asyncio, pump_ratio_calculator, keep_runnin
     diag = getattr(brew_data, 'diag', None)
     if diag is not None:
         diag.quiet = True
+    scale = getattr(brew_data, 'tray_scale', None)
+    arm_drop = getattr(scale, 'arm_drop_detector', None)
+    if arm_drop is not None:
+        th = getattr(brew_data, 'get_pre_infusion_trigger_threshold', lambda: None)()
+        arm_drop(threshold=th, blanking_ms=1800)
     # Uuttoloki (EXPRESSO-UUTTOLOKI): vain kytkimen uutto (PB), ei testiuutto. Naytteet ottaa BLE-tehtava
     # (brew_logger.brew_log_service), joten uuttosilmukoiden ajoitus ei muutu.
     brew_log = getattr(brew_data, 'brew_logger', None) if label == 'PB' else None
     if brew_log is not None:
-        scale = getattr(brew_data, 'tray_scale', None)
         brew_log.start(start_time, brew_data.get_weight(), scale.scale_meta() if scale is not None else None)
     try:
         # ===== PRE-INFUSION ===== #
@@ -1351,6 +1386,16 @@ async def run_shot(brew_data, utime, asyncio, pump_ratio_calculator, keep_runnin
             diag.quiet = False
         if brew_log is not None and brew_log.is_active():
             brew_log.end_session(utime.ticks_ms(), brew_data.get_weight(), 'error')
+        reset_drop = getattr(scale, 'reset_drop_detector', None)
+        if reset_drop is not None:
+            reset_drop()
+    try:
+        dur_ms = utime.ticks_diff(utime.ticks_ms(), start_time)
+        peak_p = getattr(brew_data, 'shot_peak_pressure', 0.0)
+        if hasattr(brew_data, 'record_brew_completed'):
+            brew_data.record_brew_completed(utime.ticks_ms(), peak_p, dur_ms)
+    except Exception:
+        pass
     return abort_reason
 
 
@@ -3413,6 +3458,9 @@ def save_settings(brew_data, json_module):
         'pre_infusion_time'         : pre_infusion_time,
         'pressure_soft_release_time': pressure_soft_release_time,
         'pre_infusion_mode'         : pre_infusion_mode,
+        'pre_infusion_trigger_mode' : getattr(brew_data, 'get_pre_infusion_trigger_mode', lambda: False)(),
+        'pre_infusion_trigger_threshold': getattr(brew_data, 'get_pre_infusion_trigger_threshold', lambda: 0.25)(),
+        'idle_pressure_equalize_mode': getattr(brew_data, 'get_idle_pressure_equalize_mode', lambda: False)(),
         'pressure_soft_release_mode': pressure_soft_release_mode,
         'fast_heatup_mode'          : fast_heatup_mode,
         'brew_pressure'             : brew_pressure,
@@ -3505,6 +3553,12 @@ def load_settings(json_module, brew_data):
         if data.get('weight_rise_limit') is not None:
             brew_data.set_weight_rise_limit(data.get('weight_rise_limit'))
         # Esiuuton opitut arvot 26.9.2026: sama saanto
+        if data.get('pre_infusion_trigger_mode') is not None and hasattr(brew_data, 'set_pre_infusion_trigger_mode'):
+            brew_data.set_pre_infusion_trigger_mode(data.get('pre_infusion_trigger_mode'))
+        if data.get('pre_infusion_trigger_threshold') is not None and hasattr(brew_data, 'set_pre_infusion_trigger_threshold'):
+            brew_data.set_pre_infusion_trigger_threshold(data.get('pre_infusion_trigger_threshold'))
+        if data.get('idle_pressure_equalize_mode') is not None and hasattr(brew_data, 'set_idle_pressure_equalize_mode'):
+            brew_data.set_idle_pressure_equalize_mode(data.get('idle_pressure_equalize_mode'))
         if data.get('eu_ff_pre') is not None:
             brew_data.learned_ff_pre = data.get('eu_ff_pre')
         if data.get('eu_g_pre') is not None:
