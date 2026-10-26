@@ -98,6 +98,13 @@ def _check_setpoint(value):
 
 ###### Class to share data between the cores ####
 class BrewData:
+    IDLE_MODES = ('IDLE', 'idle', 'warming up', 'stabilizing', 'cooling down')
+    TEMP_WARMUP_DEFICIT_C = 2.0     # Reilusti alle: > 2.0 C alle tavoitteen -> warming up
+    TEMP_COOLING_SURPLUS_C = 0.5    # Yli: > 0.5 C yli tavoitteen -> cooling down
+    TEMP_SETTLE_BAND_C = 0.5        # Suurinpiirtein kohdillaan: +-0.5 C sisällä tavoitteesta
+    TEMP_SETTLE_TIME_MS = 10000     # Asettumisaika: 10 s kaistalla ilman heilahtelua -> IDLE
+    TEMP_SETTLE_MAX_SPEED = 0.5     # Suurin sallittu lämmitysnopeus asettuneena (0.5 C / 10 s = 0.05 C/s)
+
     def __init__(self, Pin, ADC, PINS, TARGET_TEMPERATURES, FEATURES, heating_speed_calculator, temperature_sensor, pressure_sensor, utime=None):
         self.heating_speed_calculator = heating_speed_calculator
         self.temperature_sensor       = temperature_sensor
@@ -179,6 +186,8 @@ class BrewData:
         self.fast_heatup_mode   = False
         self.setting_changed    = True
         self.mode               = "IDLE"
+        self.temp_settle_start_ms = None
+        self.last_temp_target   = None
         # Remote test shot (tshot:<s>) and development safe state (dev:safe)
         self.test_shot_request  = None      # seconds, queued by a command
         self.test_shot_abort    = False
@@ -317,7 +326,81 @@ class BrewData:
     # ===== SETTERS - MODES ====== #
 
     def set_mode(self, mode):
-        self.mode = mode
+        if mode in ('IDLE', 'idle'):
+            self.mode = 'IDLE'
+            self.update_temperature_mode()
+        else:
+            self.mode = mode
+
+    def is_idle(self):
+        return self.mode in self.IDLE_MODES
+
+    def update_temperature_mode(self, now_ms=None):
+        if self.mode not in self.IDLE_MODES:
+            return self.mode
+
+        temp = getattr(self, 'boiler_temperature', None)
+        if temp is None and getattr(self, 'temperature_sensor', None) is not None:
+            try:
+                temp = self.get_boiler_temperature()
+            except Exception:
+                temp = getattr(self, 'boiler_temperature', None)
+
+        if temp is None:
+            self.mode = 'IDLE'
+            return self.mode
+
+        target = self.get_target_temperature()
+        if target is None:
+            self.mode = 'IDLE'
+            return self.mode
+
+        utime_mod = getattr(self, 'utime', None)
+        if utime_mod is None:
+            import utime as utime_mod
+        if now_ms is None:
+            now_ms = utime_mod.ticks_ms()
+
+        if getattr(self, 'last_temp_target', None) != target:
+            self.last_temp_target = target
+            self.temp_settle_start_ms = None
+
+        diff = temp - target
+        is_already_idle = (self.mode == 'IDLE')
+        cool_th = (self.TEMP_COOLING_SURPLUS_C + 0.1) if is_already_idle else self.TEMP_COOLING_SURPLUS_C
+        warm_th = (self.TEMP_WARMUP_DEFICIT_C + 0.5) if is_already_idle else self.TEMP_WARMUP_DEFICIT_C
+
+        # 1. Yli tavoitteen -> cooling down
+        if diff > cool_th:
+            self.temp_settle_start_ms = None
+            self.mode = 'cooling down'
+            return self.mode
+
+        # 2. Reilusti alle -> warming up
+        if diff < -warm_th:
+            self.temp_settle_start_ms = None
+            self.mode = 'warming up'
+            return self.mode
+
+        # 3. Kohdillaan tai heilahteluvaiheessa (-2.0 <= diff <= +0.5)
+        # Jos olemme jo IDLEssä, pieni hystereesi (+0.1 C) estää turhan heilahtelun
+        band = (self.TEMP_SETTLE_BAND_C + 0.1) if is_already_idle else self.TEMP_SETTLE_BAND_C
+        in_band = abs(diff) <= band
+        speed = abs(getattr(self, 'heating_speed', 0.0))
+
+        if in_band:
+            if self.temp_settle_start_ms is None:
+                self.temp_settle_start_ms = now_ms
+            settle_ms = utime_mod.ticks_diff(now_ms, self.temp_settle_start_ms)
+            if (settle_ms >= self.TEMP_SETTLE_TIME_MS or is_already_idle) and speed <= self.TEMP_SETTLE_MAX_SPEED:
+                self.mode = 'IDLE'
+            else:
+                self.mode = 'stabilizing'
+        else:
+            self.temp_settle_start_ms = None
+            self.mode = 'stabilizing'
+
+        return self.mode
     
     
     def set_fast_heatup_mode(self, enabled):
@@ -597,7 +680,7 @@ class BrewData:
     def update_standby(self, now_ms):
         # Latch: once on it stays on until note_activity(); a negative ticks_diff (ticks_ms wrap,
         # valid only ~6 days) therefore cannot release it.
-        if not self.standby and self.mode == 'IDLE':
+        if not self.standby and (self.mode == 'IDLE' or self.is_idle()):
             import utime
             if getattr(self, 'has_brewed', False):
                 timeout_ms = getattr(self, 'standby_brew_timeout_ms', self.standby_timeout_ms)
@@ -621,7 +704,7 @@ class BrewData:
 
         # Sallittu vain alku lämmitysvaiheessa tai IDLE-tilassa
         mode = getattr(self, 'mode', 'IDLE')
-        if mode not in ('IDLE', 'idle', 'fast_heatup'):
+        if mode not in getattr(self, 'IDLE_MODES', ('IDLE', 'idle')) and mode != 'fast_heatup':
             return False
 
         # Ei kytkintoimintoja (uutto, kuumavesi, höyrytys)
@@ -679,7 +762,7 @@ class BrewData:
                 self.utime.sleep_ms(pulse_ms)
         finally:
             sw_b, sw_w, sw_s = self.get_switches()
-            if not (sw_b.value() or sw_w.value() or sw_s.value() or pump.value() or getattr(self, 'mode', 'IDLE') not in ('IDLE', 'idle', 'fast_heatup')):
+            if not (sw_b.value() or sw_w.value() or sw_s.value() or pump.value() or (getattr(self, 'mode', 'IDLE') not in getattr(self, 'IDLE_MODES', ('IDLE', 'idle')) and getattr(self, 'mode', 'IDLE') != 'fast_heatup')):
                 solenoid.value(0)
         try:
             print('PEQ bar=%.2f' % p)
@@ -690,7 +773,7 @@ class BrewData:
     def get_target_temperature(self):
         if self.mode == "BREW":
             target_temperature = self.brew_temperature
-        elif self.mode == "IDLE":
+        elif self.mode == "IDLE" or self.mode in getattr(self, 'IDLE_MODES', ()):
             target_temperature = self.brew_temperature
             if self.standby:
                 target_temperature = min(self.brew_temperature, self.standby_temperature)
@@ -1045,7 +1128,7 @@ class BrewData:
     @property
     def boiler_temperature(self):
         ts = getattr(self, 'temperature_sensor', None)
-        t = ts.c1_temperature() if ts is not None else None
+        t = ts.c1_temperature() if ts is not None and hasattr(ts, 'c1_temperature') else None
         return getattr(self, '_boiler_temperature', 0.0) if t is None else t
 
     @boiler_temperature.setter
@@ -1055,7 +1138,7 @@ class BrewData:
     @property
     def boiler_temperature_ms(self):
         ts = getattr(self, 'temperature_sensor', None)
-        ms = ts.c1_ms() if ts is not None else None
+        ms = ts.c1_ms() if ts is not None and hasattr(ts, 'c1_ms') else None
         return getattr(self, '_boiler_temperature_ms', None) if ms is None else ms
 
     @boiler_temperature_ms.setter
@@ -1885,18 +1968,19 @@ class Thermostat:
             self.steam_drop_count = 0
             self.steam_rise_count = 0
         self._t10(now, mode, boiler_temperature, target_temperature)
+        idle_mode = (mode == 'IDLE' or mode in getattr(self.brew_data, 'IDLE_MODES', ()))
         # A new arm also restarts a pending pay or settle: run_shot kept the sums, so pay the rest and learn the total
-        if mode == 'IDLE' and getattr(self.brew_data, 'bh_arm', 0):
+        if idle_mode and getattr(self.brew_data, 'bh_arm', 0):
             self.bh_phase = 'pay'
             self.bh_learn = self.brew_data.bh_arm == 1
             self.bh_t = now
             self.brew_data.bh_arm = 0
-        if self.bh_phase is not None and mode != 'IDLE':
+        if self.bh_phase is not None and not idle_mode:
             self.bh_phase = None          # a new shot or steam: no learning from this one
         if self.bh_phase is not None and self._post_brew(now, boiler_temperature, target_temperature):
             self.pi_start = None
             self.step_start = None
-        elif mode == 'IDLE' and abs(target_temperature - boiler_temperature) <= PI_BAND_C:
+        elif idle_mode and abs(target_temperature - boiler_temperature) <= PI_BAND_C:
             # PI: heater on for the first pi_on_ms of each 5 s period
             if self.pi_start is None or self.utime.ticks_diff(now, self.pi_start) >= HEAT_PERIOD_IDLE_MS:
                 self.pi_start = now
@@ -1908,7 +1992,7 @@ class Thermostat:
         else:
             # Step cycler: decide once per step and hold it
             self.pi_start = None
-            step_ms = (HEAT_PERIOD_IDLE_MS if mode == 'IDLE' else HEAT_PERIOD_MS) // HEAT_STEPS
+            step_ms = (HEAT_PERIOD_IDLE_MS if idle_mode else HEAT_PERIOD_MS) // HEAT_STEPS
             if self.step_start is None or self.utime.ticks_diff(now, self.step_start) >= step_ms:
                 self.step_start = now
                 # Heat only below target - heating speed; the cycler advances only then (as before)
