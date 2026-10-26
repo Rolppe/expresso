@@ -3491,11 +3491,27 @@ def save_settings(brew_data, json_module):
         'eb_coast_s'                : getattr(brew_data, 'eb_coast_s', EB_COAST_S0)
     }
     
-    # Save data to file in json format
-    with open('settings.txt', 'w') as file:
-        json_module.dump(data, file)
+    # Save data to file in json format atomically (tmp + rename)
+    # A crash or reset mid-write must not corrupt or truncate settings.txt (wmax-pysyvyys)
+    tmp_filename = 'settings.txt.tmp'
+    filename = 'settings.txt'
+    try:
+        with open(tmp_filename, 'w') as file:
+            json_module.dump(data, file)
+        try:
+            os.rename(tmp_filename, filename)
+        except OSError:
+            try:
+                os.remove(filename)
+            except OSError:
+                pass
+            os.rename(tmp_filename, filename)
+    except Exception as e:
+        print('save_settings failed: %r' % e)
+        return False
     
     print("save_settings")
+    return True
 
 
 # ============================================================================
@@ -3503,89 +3519,166 @@ def save_settings(brew_data, json_module):
 # ============================================================================
 
 def load_settings(json_module, brew_data):
+    filename = 'settings.txt'
+    tmp_filename = 'settings.txt.tmp'
+    data = None
     
-    # Get values from file to variables
+    # Try reading settings.txt first; fall back to settings.txt.tmp if missing or corrupted
     try:
-        with open('settings.txt', 'r') as file:
+        with open(filename, 'r') as file:
             data = json_module.load(file)
-            
-            brew_temperature           = data.get('brew_temperature')
-            steam_temperature          = data.get('steam_temperature')
-            pre_infusion_time          = data.get('pre_infusion_time')
-            pressure_soft_release_time = data.get('pressure_soft_release_time')
-            pre_infusion_mode          = data.get('pre_infusion_mode')
-            pressure_soft_release_mode = data.get('pressure_soft_release_mode')
-            fast_heatup_mode           = data.get('fast_heatup_mode')
-        
-        # Set settings to brew_data object
-        # A setpoint over SETPOINT_MAX_C keeps its default; it must not take the whole file (and wmax) with it
-        for setter, value in ((brew_data.set_brew_temperature, brew_temperature),
-                              (brew_data.set_steam_temperature, steam_temperature)):
+    except (OSError, ValueError, Exception) as e:
+        # If settings.txt is missing or corrupted, check if a valid settings.txt.tmp exists
+        print('settings.txt could not be loaded: %r' % e)
+        try:
+            with open(tmp_filename, 'r') as file:
+                candidate = json_module.load(file)
+            if isinstance(candidate, dict):
+                data = candidate
+                print('settings.txt: recovered from %s' % tmp_filename)
+                try:
+                    os.rename(tmp_filename, filename)
+                except OSError:
+                    try:
+                        os.remove(filename)
+                    except OSError:
+                        pass
+                    try:
+                        os.rename(tmp_filename, filename)
+                    except OSError:
+                        pass
+        except Exception:
+            pass
+    
+    if not isinstance(data, dict):
+        # We NEVER delete settings.txt on error! Keep file intact to avoid losing limits/settings (wmax-pysyvyys)
+        print('settings.txt: no valid data loaded, keeping defaults (file preserved)')
+        return False
+    
+    # Set settings to brew_data object safely
+    brew_temperature           = data.get('brew_temperature')
+    steam_temperature          = data.get('steam_temperature')
+    pre_infusion_time          = data.get('pre_infusion_time')
+    pressure_soft_release_time = data.get('pressure_soft_release_time')
+    pre_infusion_mode          = data.get('pre_infusion_mode')
+    pressure_soft_release_mode = data.get('pressure_soft_release_mode')
+    fast_heatup_mode           = data.get('fast_heatup_mode')
+
+    # A setpoint over SETPOINT_MAX_C keeps its default; it must not take the whole file (and wmax) with it
+    for setter, value in ((brew_data.set_brew_temperature, brew_temperature),
+                          (brew_data.set_steam_temperature, steam_temperature)):
+        if value is not None:
             try:
                 setter(value)
             except ValueError as e:
                 print('settings.txt: %s, default kept' % e)
-        brew_data.set_pre_infusion_time(pre_infusion_time)
-        brew_data.set_pressure_soft_release_time(pressure_soft_release_time)
-        brew_data.set_pre_infusion_mode(pre_infusion_mode)
-        brew_data.set_pressure_soft_release_mode(pressure_soft_release_mode)
-        brew_data.set_fast_heatup_mode(fast_heatup_mode)
-        
-        # Pressures were added 17.9.2026: older settings.txt has no keys -> keep defaults
-        if data.get('brew_pressure') is not None:
-            brew_data.set_brew_pressure(data.get('brew_pressure'))
-        if data.get('pre_infusion_pressure') is not None:
-            brew_data.set_pre_infusion_pressure(data.get('pre_infusion_pressure'))
-        p_trig = data.get('steam_valve_trigger', data.get('steam_pressure_low'))
-        if p_trig is not None and hasattr(brew_data, 'set_steam_valve_trigger'):
-            brew_data.set_steam_valve_trigger(p_trig)
-        elif p_trig is not None and hasattr(brew_data, 'set_steam_pressure_low'):
-            brew_data.set_steam_pressure_low(p_trig)
-        if data.get('steam_valve_release') is not None and hasattr(brew_data, 'set_steam_valve_release'):
-            brew_data.set_steam_valve_release(data.get('steam_valve_release'))
-        if data.get('steam_pressure_high') is not None and hasattr(brew_data, 'set_steam_pressure_high'):
-            brew_data.set_steam_pressure_high(data.get('steam_pressure_high'))
-        if data.get('steam_temperature_max') is not None and hasattr(brew_data, 'set_steam_temperature_max'):
-            brew_data.set_steam_temperature_max(data.get('steam_temperature_max'))
-        # Weight limits added 18.9.2026: same rule, a file without the keys keeps the defaults (off)
-        if data.get('weight_limit') is not None:
-            brew_data.set_weight_limit(data.get('weight_limit'))
-        if data.get('weight_rise_limit') is not None:
-            brew_data.set_weight_rise_limit(data.get('weight_rise_limit'))
-        # Esiuuton opitut arvot 26.9.2026: sama saanto
-        if data.get('pre_infusion_trigger_mode') is not None and hasattr(brew_data, 'set_pre_infusion_trigger_mode'):
-            brew_data.set_pre_infusion_trigger_mode(data.get('pre_infusion_trigger_mode'))
-        if data.get('pre_infusion_trigger_threshold') is not None and hasattr(brew_data, 'set_pre_infusion_trigger_threshold'):
-            brew_data.set_pre_infusion_trigger_threshold(data.get('pre_infusion_trigger_threshold'))
-        if data.get('idle_pressure_equalize_mode') is not None and hasattr(brew_data, 'set_idle_pressure_equalize_mode'):
-            brew_data.set_idle_pressure_equalize_mode(data.get('idle_pressure_equalize_mode'))
-        if data.get('eu_ff_pre') is not None:
-            brew_data.learned_ff_pre = data.get('eu_ff_pre')
-        if data.get('eu_g_pre') is not None:
-            brew_data.eu_g_pre = data.get('eu_g_pre')
-        if data.get('eu_tau_pre') is not None:
-            brew_data.eu_tau_pre = data.get('eu_tau_pre')
-        if data.get('eu_coast_s') is not None:
-            brew_data.eu_coast_s = data.get('eu_coast_s')
-        if data.get('eu_coast_fast_s') is not None:
-            brew_data.eu_coast_fast_s = data.get('eu_coast_fast_s')
-        # Uuton opitut arvot 27.9.2026 (EXPRESSO-UUTTO-8BAR): sama saanto, vanha tiedosto -> oletukset
-        for key in ('eb_ff', 'eb_x', 'eb_g', 'eb_tau', 'eb_coast_s'):
-            if data.get(key) is not None:
-                setattr(brew_data, key, data.get(key))
-        
-        print('Loaded settings: brew_temperature, steam_temperature, pre_infusion_time, pressure_soft_release_time, pre_infusion_mode, pressure_soft_release_mode, fast_heatup_mode')
-        return True
-    
-    # If data is not available: remove settings file and return False
-    except (OSError, ValueError):   # ValueError = JSON syntax error 
+    if pre_infusion_time is not None:
         try:
-            os.remove('settings.txt')
-            print('settings.txt deleted pecause of error')
-        except OSError:
-            print('tried to delete settings.txt pecause of error but theres error in file deleting process')
-        
-        return False
+            brew_data.set_pre_infusion_time(pre_infusion_time)
+        except Exception as e:
+            print('settings.txt pre_infusion_time: %s' % e)
+    if pressure_soft_release_time is not None:
+        try:
+            brew_data.set_pressure_soft_release_time(pressure_soft_release_time)
+        except Exception as e:
+            print('settings.txt pressure_soft_release_time: %s' % e)
+    if pre_infusion_mode is not None:
+        try:
+            brew_data.set_pre_infusion_mode(pre_infusion_mode)
+        except Exception as e:
+            print('settings.txt pre_infusion_mode: %s' % e)
+    if pressure_soft_release_mode is not None:
+        try:
+            brew_data.set_pressure_soft_release_mode(pressure_soft_release_mode)
+        except Exception as e:
+            print('settings.txt pressure_soft_release_mode: %s' % e)
+    if fast_heatup_mode is not None:
+        try:
+            brew_data.set_fast_heatup_mode(fast_heatup_mode)
+        except Exception as e:
+            print('settings.txt fast_heatup_mode: %s' % e)
+    
+    # Pressures were added 17.9.2026: older settings.txt has no keys -> keep defaults
+    if data.get('brew_pressure') is not None:
+        try:
+            brew_data.set_brew_pressure(data.get('brew_pressure'))
+        except Exception as e:
+            print('settings.txt brew_pressure: %s' % e)
+    if data.get('pre_infusion_pressure') is not None:
+        try:
+            brew_data.set_pre_infusion_pressure(data.get('pre_infusion_pressure'))
+        except Exception as e:
+            print('settings.txt pre_infusion_pressure: %s' % e)
+    p_trig = data.get('steam_valve_trigger', data.get('steam_pressure_low'))
+    if p_trig is not None and hasattr(brew_data, 'set_steam_valve_trigger'):
+        try:
+            brew_data.set_steam_valve_trigger(p_trig)
+        except Exception as e:
+            print('settings.txt steam_valve_trigger: %s' % e)
+    elif p_trig is not None and hasattr(brew_data, 'set_steam_pressure_low'):
+        try:
+            brew_data.set_steam_pressure_low(p_trig)
+        except Exception as e:
+            print('settings.txt steam_pressure_low: %s' % e)
+    if data.get('steam_valve_release') is not None and hasattr(brew_data, 'set_steam_valve_release'):
+        try:
+            brew_data.set_steam_valve_release(data.get('steam_valve_release'))
+        except Exception as e:
+            print('settings.txt steam_valve_release: %s' % e)
+    if data.get('steam_pressure_high') is not None and hasattr(brew_data, 'set_steam_pressure_high'):
+        try:
+            brew_data.set_steam_pressure_high(data.get('steam_pressure_high'))
+        except Exception as e:
+            print('settings.txt steam_pressure_high: %s' % e)
+    if data.get('steam_temperature_max') is not None and hasattr(brew_data, 'set_steam_temperature_max'):
+        try:
+            brew_data.set_steam_temperature_max(data.get('steam_temperature_max'))
+        except Exception as e:
+            print('settings.txt steam_temperature_max: %s' % e)
+    # Weight limits added 18.9.2026: same rule, a file without the keys keeps the defaults (off)
+    if data.get('weight_limit') is not None:
+        try:
+            brew_data.set_weight_limit(data.get('weight_limit'))
+        except Exception as e:
+            print('settings.txt weight_limit: %s' % e)
+    if data.get('weight_rise_limit') is not None:
+        try:
+            brew_data.set_weight_rise_limit(data.get('weight_rise_limit'))
+        except Exception as e:
+            print('settings.txt weight_rise_limit: %s' % e)
+    # Esiuuton opitut arvot 26.9.2026: sama saanto
+    if data.get('pre_infusion_trigger_mode') is not None and hasattr(brew_data, 'set_pre_infusion_trigger_mode'):
+        try:
+            brew_data.set_pre_infusion_trigger_mode(data.get('pre_infusion_trigger_mode'))
+        except Exception as e:
+            print('settings.txt pre_infusion_trigger_mode: %s' % e)
+    if data.get('pre_infusion_trigger_threshold') is not None and hasattr(brew_data, 'set_pre_infusion_trigger_threshold'):
+        try:
+            brew_data.set_pre_infusion_trigger_threshold(data.get('pre_infusion_trigger_threshold'))
+        except Exception as e:
+            print('settings.txt pre_infusion_trigger_threshold: %s' % e)
+    if data.get('idle_pressure_equalize_mode') is not None and hasattr(brew_data, 'set_idle_pressure_equalize_mode'):
+        try:
+            brew_data.set_idle_pressure_equalize_mode(data.get('idle_pressure_equalize_mode'))
+        except Exception as e:
+            print('settings.txt idle_pressure_equalize_mode: %s' % e)
+    if data.get('eu_ff_pre') is not None:
+        brew_data.learned_ff_pre = data.get('eu_ff_pre')
+    if data.get('eu_g_pre') is not None:
+        brew_data.eu_g_pre = data.get('eu_g_pre')
+    if data.get('eu_tau_pre') is not None:
+        brew_data.eu_tau_pre = data.get('eu_tau_pre')
+    if data.get('eu_coast_s') is not None:
+        brew_data.eu_coast_s = data.get('eu_coast_s')
+    if data.get('eu_coast_fast_s') is not None:
+        brew_data.eu_coast_fast_s = data.get('eu_coast_fast_s')
+    # Uuton opitut arvot 27.9.2026 (EXPRESSO-UUTTO-8BAR): sama saanto, vanha tiedosto -> oletukset
+    for key in ('eb_ff', 'eb_x', 'eb_g', 'eb_tau', 'eb_coast_s'):
+        if data.get(key) is not None:
+            setattr(brew_data, key, data.get(key))
+    
+    print('Loaded settings: brew_temperature, steam_temperature, pre_infusion_time, pressure_soft_release_time, pre_infusion_mode, pressure_soft_release_mode, fast_heatup_mode')
+    return True
 
 
 
