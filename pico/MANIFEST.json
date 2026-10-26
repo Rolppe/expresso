@@ -16,8 +16,8 @@
   },
   {
     "name": "/boot.py",
-    "sha256": "308be0f8f6d1a6f4129eec0aea2c9e468c5bd3709abf17942293c9387478f967",
-    "size": 748
+    "sha256": "0d488031e79ff6a97e17865f5c6e38cdb8d4f52524991a3ef6ca0d2b02bd1697",
+    "size": 510
   },
   {
     "name": "/boot_bluetooth_test.py",
