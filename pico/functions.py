@@ -323,7 +323,6 @@ EB_GC_RISE_FRAC = 0.5        # vaiheen 3 taydella nousulla keruu vain nousun alk
 # kun sen keskipaine nousi edellisesta ikkunasta alle EB_CLK_RATE bar/s: vaiheen 3 taysi nousu ei opeta (gate=-1),
 # rampin loppu ja loppulahestyminen opettavat, joten kello lukittuu ennen pitoa.
 EB_CLK_RATE = 2.0            # bar/s
-EB_HEAT_OFF_MS, EB_HEAT_ON_MS = 100, 50   # lammittimen pulssitus kuten vanhassa uuttosilmukassa (pois 100 ms, paalla 50 ms)
 # Uuton lammitys virtauksesta (TILAUS-N, TILAUS-R, kayttaja 21.10.2026), vaiheet 1-4: jokainen pumpun isku tuo kattilaan
 # kylmaa vetta, jonka lammitys maksaa brew_heat_k ms lammitinaikaa nollapaineessa; iskun tilavuus pienenee paineen mukana
 # (EP5, ~0 BH_PMAX barissa). Lammitin on paalla, kun kertymaa on jaljella. Jaannos maksetaan uuton jalkeen ja kerroin
