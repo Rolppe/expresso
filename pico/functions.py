@@ -879,10 +879,13 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                     slot = nxt
 
                 if n_slot % EU_LOG_SLOTS == 0:
-                    out.append('EU %d %.2f %.2f %d %.2f %d p5=%.2f sd_us=%.0f rm=%d sk10=%d sk20=%d late=%d %s' % (
+                    w = brew_data.get_weight()
+                    f = brew_data.get_flow()
+                    out.append('EU %d %.2f %.2f %d %.2f %d p5=%.2f sd_us=%.0f rm=%d sk10=%d sk20=%d late=%d w=%s f=%s' % (
                         utime.ticks_diff(t, t0) // 1000, p, sp, 1 if relay[0] else 0, d, phase, p5,
                         clock.sd_us(t) if sd_t is None else sd_t, removed, skips10, skips20, late,
-                        weight_flow_log(brew_data)))
+                        '-' if w is None else '%.1f' % w,
+                        '-' if f is None else '%.2f' % f))
                 # Lammitin iskujen kertymasta (BH_*), kaikissa vaiheissa: paalla, kun kertymaa on jaljella
                 if hc_t is not None and heat:
                     hc -= utime.ticks_diff(t, hc_t)
@@ -898,10 +901,12 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                         brew_data.set_pump_ratio(pump_ratio_calculator.get_ratio())
                     # Esiuuton loppurivit siirtymasta: enintaan yksi jaksoa kohden ja vain, jos jakson rivit mahtuvat
                     # USB-CDC:n 256 tavun jonoon (EU_PRINT_GAP_MS), eika silmukka pysahdy releen ollessa paalla
-                    if q and sum(len(x) + 1 for x in out) + len(q[0]) < 256:
+                    out_len = 0
+                    for x in out: out_len += len(x) + 1
+                    if q and out_len + len(q[0]) < 256:
                         out.append(q.pop(0))
                 for line in out: print(line)
-                out = []
+                del out[:]
                 k_us = utime.ticks_diff(utime.ticks_us(), t)
                 if k_us > k_max: k_max = k_us
                 if k_us > EU_STALL_US:
