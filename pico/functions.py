@@ -340,6 +340,7 @@ BH_FREE_G = 10.0
 BH_STEAM_NOLEARN_MS = 1200000   # hoyrysta alle 20 min: ei oppia (kattila vajaa, runko kuuma)
 BH_START_US = 200000  # ensimmainen lampotilalukema valmis (ydin 1: 80 ms c1_on:sta); kertyma siirtyy
 BH_K0_MS = 70.0      # kun brew_dataa ei ole luotu classes.BrewDatana (testit); sama kuin classes.BH_K0_MS
+BH_COLD_C = 15.0     # kattila nain paljon alle tavoitteen: kylma (alkulammitys), ei uuton jalkeista tilaa
 EB_RATIO_MS = 1000           # set_pump_ratio 1 s valein kuten vanhassa uuttosilmukassa
 
 
@@ -1347,13 +1348,19 @@ async def run_shot(brew_data, utime, asyncio, pump_ratio_calculator, keep_runnin
         # Uuton jalkeinen lammitys (classes.Thermostat BH_*): 1 = jaannoksen maksu ja oppi, 2 = vain maksu
         # (keskeytys tai vanha uuttosilmukka, jonka iskut eivat kerryta)
         if brew_data.bh_sum_us > 0.0:
-            if not phased_brew or abort_reason: brew_data.bh_nolearn = 1
-            st = getattr(brew_data, 'bh_steam_t', None)
-            if st is not None and utime.ticks_diff(utime.ticks_ms(), st) < BH_STEAM_NOLEARN_MS: brew_data.bh_nolearn = 1
-            brew_data.bh_arm = 2 if getattr(brew_data, 'bh_nolearn', 0) else 1
-            print('BH_END sum_ms=%d left_ms=%d k=%.1f arm=%d fill=%d' % (
-                brew_data.bh_sum_us // 1000, brew_data.bh_credit_us // 1000, getattr(brew_data, 'brew_heat_k', BH_K0_MS),
-                brew_data.bh_arm, getattr(brew_data, 'bh_fill_n', -1)))
+            target = getattr(brew_data, 'get_target_temperature', lambda: 98.0)() or 98.0
+            t_now = getattr(brew_data, 'boiler_temperature', None)
+            if t_now is not None and t_now < target - BH_COLD_C:
+                brew_data.bh_sum_us = brew_data.bh_credit_us = 0.0
+                brew_data.bh_arm = 0
+            else:
+                if not phased_brew or abort_reason: brew_data.bh_nolearn = 1
+                st = getattr(brew_data, 'bh_steam_t', None)
+                if st is not None and utime.ticks_diff(utime.ticks_ms(), st) < BH_STEAM_NOLEARN_MS: brew_data.bh_nolearn = 1
+                brew_data.bh_arm = 2 if getattr(brew_data, 'bh_nolearn', 0) else 1
+                print('BH_END sum_ms=%d left_ms=%d k=%.1f arm=%d fill=%d' % (
+                    brew_data.bh_sum_us // 1000, brew_data.bh_credit_us // 1000, getattr(brew_data, 'brew_heat_k', BH_K0_MS),
+                    brew_data.bh_arm, getattr(brew_data, 'bh_fill_n', -1)))
 
         # ===== PRESSURE SOFT RELEASE ===== #
         RELAY_PUMP.value(0)

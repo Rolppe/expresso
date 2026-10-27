@@ -196,6 +196,7 @@ C.Thermostat.BH_FILE = os.path.join(tempfile.mkdtemp(), 'brew_heat.json')
 
 
 class BD2(BD):
+    IDLE_MODES = ('IDLE', 'idle', 'warming up', 'stabilizing', 'cooling down')
     def __init__(self, *a):
         BD.__init__(self, *a)
         self.brew_heat_k, self.bh_credit_us, self.bh_sum_us, self.bh_arm = C.BH_K0_MS, 0.0, 0.0, 0
@@ -361,6 +362,88 @@ for need_k, name in ((54.4, 'ylitys'), (47.6, 'iso ylitys')):
 r = shots(54.4, 0.6, lag_s=40, n_shots=1, n_eff=147, shot_s=3, arm=2, k0=70.0, dead_s=25)
 check('H10 arm 2 hidas kattila: ei luovutusta kuopassa (max T ≤ 99,5 myös luovutuksen jälkeen)',
       max(r[0][3], r[0][8]) <= 99.5, 'max %.2f, min %.2f' % (max(r[0][3], r[0][8]), r[0][7]))
+
+# 11. Kylmäkäynnistys ja kylmä huuhtelu (EXPRESSO-POST-BREW-COLD-SETTLE):
+# Kun kattila on kylmä (T < target - BH_COLD_C, esim. 25 C), huuhtelu ei saa jäädä settle-tilaan 5,6 % pito-teholla.
+# Sen tulee luovuttaa ohjaus heti normaalille lämmitykselle (step cycler), jotta kattila lämpenee täydellä teholla.
+sensor = Sensor()
+sensor.t = 25.0
+calc = C.HeatingSpeedCalculator(U, None)
+relay = Relay()
+bd = BD2('warming up', 98.0, sensor, calc)
+bd.bh_sum_us, bd.bh_credit_us, bd.bh_arm = 5000.0 * 1000, 2000.0 * 1000, 2
+th = C.Thermostat(bd, {}, relay, sensor, U)
+th.run()
+check('K1 kylmä huuhtelu T=25 C: bh_arm nollataan eikä siirry settle-tilaan', bd.bh_arm == 0 and th.bh_phase is None)
+check('K2 kylmä huuhtelu T=25 C: lämmitin on päällä (step cycler lämmittää)', relay.v == 1)
+
+# Kylmä settle-poistuminen: jos bh_phase jostain syystä olisi settle ja T < target - BH_COLD_C, luovutus tapahtuu heti
+th.bh_phase = 'settle'
+th.run()
+check('K3 settle-tila kylmällä T=25 C: luovutus välittömästi (cold)', th.bh_phase is None)
+
+# Myös IDLE-tilassa kylmällä (esim. T=25 C) bh_arm nollataan
+bd.mode = 'IDLE'
+bd.bh_arm = 2
+th.run()
+check('K4 IDLE-tila kylmällä T=25 C: bh_arm nollataan', bd.bh_arm == 0 and th.bh_phase is None)
+
+# 12. Thermal stability (TILAUS-Q, EXPRESSO-THERMAL-STABILITY):
+# Asteikko -10...+10, P0 = 0.045 (vakiotila 0.0), span = 0.040 (kylmäkäynnistyksen tasaantumisteho ~0.085 -> -10.0).
+sensor = Sensor()
+sensor.t = 98.0
+relay = Relay()
+bd = BD2('IDLE', 98.0, sensor, calc)
+th = C.Thermostat(bd, {}, relay, sensor, U)
+th.ts_p0 = 0.045
+th.ts_span = 0.040
+
+# L1: Kylmä tila (pi_i = 0.085)
+th.pi_i = 0.085
+th._update_ts()
+check('L1 kylmä tila pi_i=0.085 -> thermal stability -10.0', th.thermal_stability == -10.0 and bd.thermal_stability == -10.0, th.thermal_stability)
+
+# L2: Vakiotila (pi_i = 0.045)
+th.pi_i = 0.045
+th._update_ts()
+check('L2 vakiotila pi_i=0.045 -> thermal stability 0.0', th.thermal_stability == 0.0 and bd.thermal_stability == 0.0, th.thermal_stability)
+
+# L3: Kuuma tila (pi_i = 0.005)
+th.pi_i = 0.005
+th._update_ts()
+check('L3 kuuma tila pi_i=0.005 -> thermal stability +10.0', th.thermal_stability == 10.0 and bd.thermal_stability == 10.0, th.thermal_stability)
+
+# L4: Rajaus [-10.0, +10.0]
+th.pi_i = 0.150
+th._update_ts()
+check('L4a alaraja: pi_i=0.150 rajautuu -10.0', th.thermal_stability == -10.0, th.thermal_stability)
+th.pi_i = 0.000
+th._update_ts()
+check('L4b yläraja: pi_i=0.000 rajautuu +10.0', th.thermal_stability == 10.0, th.thermal_stability)
+
+# L5: 30 min vakaa IDLE oppii uuden P0:n
+clock[0] = 1000
+th.pi_i = 0.048
+th.run() # candidate starts at 0.048
+clock[0] = 1000 + 1790000 # 29.8 min
+th.run()
+check('L5a alle 30 min: P0 ei vielä päivity', th.ts_p0 == 0.045, th.ts_p0)
+clock[0] = 1000 + 1805000 # 30.1 min
+th.run()
+check('L5b 30 min vakaa IDLE: P0 oppii uuden arvon', abs(th.ts_p0 - 0.048) < 0.001, th.ts_p0)
+
+# L6: Muut tilat (STEAM, BREW) säilyttävät edellisen IDLE-arvon
+saved_ts = th.thermal_stability
+bd.mode = 'STEAM'
+sensor.t = 135.0
+th.run()
+check('L6 STEAM-tilassa thermal stability säilyy', th.thermal_stability == saved_ts and bd.thermal_stability == saved_ts, th.thermal_stability)
+
+# Siivoa testin luoma pysyvyystiedosto
+for f in ('thermal_stability.json', 'thermal_stability.json.tmp'):
+    if os.path.exists(f):
+        try: os.remove(f)
+        except Exception: pass
 
 print('RESULT: %d failed' % len(FAILED))
 sys.exit(1 if FAILED else 0)

@@ -39,6 +39,10 @@ def _f2(x):
     return '-' if x is None else '%.2f' % x
 
 
+def _f1(x):
+    return '-' if x is None else '%.1f' % x
+
+
 class Ring:
     """Byte ring: put() never fails, take_into() copies up to k of the oldest bytes out. Both update the
     ring with IRQs off, because the relay guard prints from a Timer callback that can land inside either.
@@ -296,10 +300,11 @@ class DiagNet:
         th = getattr(bd, 'thermostat', None)
         n10, d10mn, d10mx = th.take_t10() if th is not None else (0, None, None)
         pi_i = th.pi_i if th is not None else None
+        ts = getattr(bd, 'thermal_stability', None)
         self.line('DIAG_MIN win_ms=%d heat_ms=%d pump_ms=%d p_n=%d p_avg=%s p_min=%s p_max=%s T=%s target=%s '
-                  'n10=%d d10_min=%s d10_max=%s pi_i=%s' % (
+                  'n10=%d d10_min=%s d10_max=%s pi_i=%s ts=%s' % (
             win, heat, pump, n, _f2(avg), _f2(mn), _f2(mx), _f2(t), _f2(target),
-            n10, _d3(d10mn), _d3(d10mx), _d3(pi_i)))
+            n10, _d3(d10mn), _d3(d10mx), _d3(pi_i), _f1(ts)))
 
     # ---- sender -------------------------------------------------------------------------------------
     def _send_one(self):

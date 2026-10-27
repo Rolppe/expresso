@@ -168,6 +168,7 @@ class BrewData:
         self.standby_temperature        = 90
         self.standby                    = False
         self.has_brewed                 = False
+        self.thermal_stability          = -10.0
         self.startup_ms                 = utime.ticks_ms() if _clock_given else 0
         self.last_brew_ms               = self.startup_ms
         self.last_activity_ms           = utime.ticks_ms() if _clock_given else 0
@@ -652,6 +653,9 @@ class BrewData:
         steam_temperature = self.steam_temperature
         
         return steam_temperature
+    
+    def get_thermal_stability(self):
+        return self.thermal_stability
     
     
     def note_activity(self, now_ms, reason):
@@ -1771,7 +1775,17 @@ BH_SETTLE_DELTA_C = 0.05     # settled: two consecutive 10 s averages within thi
 BH_SETTLE_BAND_C = 1.5       # below target - this and not rising: learn now and hand over (fast recovery, TILAUS-R)
 BH_NOLEARN_MAX_MS = 600000   # arm 2: losses only above the target, the PI gets the heater back at the target
 BH_HOLD_LEAD_S = 50          # arm 2: hold power back on when the fall reaches the target within this (fit: dead 25 s, lag 10 s)
+BH_COLD_C = 15.0             # boiler this far under target: cold (warmup), do not enter settle with hold power
 T10_SAMPLE_MS = 250          # one sample per core-1 reading
+
+# Thermal stability (TILAUS-Q, kayttaja 21.10.2026): -10...+10 from holding duty.
+# Nominal steady state P0 = 0.045 (~45 W holding duty at 98 C), learned after 30 min unchanged PI integral.
+# Cold settle delta ~0.040 (duty ~0.085 at cold first settle = -10.0). Clamped to [-10.0, +10.0].
+TS_P0_DEFAULT = 0.045
+TS_SPAN_DEFAULT = 0.040
+TS_STABLE_TIME_MS = 1800000   # 30 min
+TS_STABLE_EPS = 0.003
+TS_FILE = 'thermal_stability.json'
 
 
 class Thermostat:
@@ -1810,6 +1824,8 @@ class Thermostat:
         self.bh_wsum = 0.0
         self.bh_wn = 0
         self.bh_prev = None
+        self.bh_rise = False
+        self.bh_hold = False
         self.bh_last_t = None         # settled temperature of the last learned shot
         # Steam mode pressure control
         self.steam_boost = False
@@ -1817,7 +1833,15 @@ class Thermostat:
         self.steam_p_min = None
         self.steam_drop_count = 0
         self.steam_rise_count = 0
+        # Thermal stability (TILAUS-Q)
+        self.ts_p0 = TS_P0_DEFAULT
+        self.ts_span = TS_SPAN_DEFAULT
+        self.ts_candidate_p = self.pi_i
+        self.ts_candidate_start = None
+        self.thermal_stability = -10.0
+        self._ts_load()
         brew_data.thermostat = self
+        brew_data.thermal_stability = self.thermal_stability
         self._bh_load()
 
     BH_FILE = 'brew_heat.json'
@@ -1842,6 +1866,33 @@ class Thermostat:
         except Exception as e:
             print('BH_SAVE_FAIL %r' % e)
 
+    def _ts_load(self):
+        try:
+            import json
+            with open(TS_FILE) as f:
+                d = json.load(f)
+                p0 = float(d['p0'])
+                span = float(d.get('span', TS_SPAN_DEFAULT))
+            if 0.01 <= p0 <= 0.20 and 0.01 <= span <= 0.20:
+                self.ts_p0 = p0
+                self.ts_span = span
+        except Exception:
+            pass
+
+    def _ts_save(self):
+        try:
+            import json, os
+            with open(TS_FILE + '.tmp', 'w') as f:
+                json.dump({'p0': self.ts_p0, 'span': self.ts_span}, f)
+            os.rename(TS_FILE + '.tmp', TS_FILE)
+        except Exception as e:
+            print('TS_SAVE_FAIL %r' % e)
+
+    def _update_ts(self):
+        raw_ts = (self.ts_p0 - self.pi_i) / self.ts_span * 10.0
+        self.thermal_stability = -10.0 if raw_ts < -10.0 else (10.0 if raw_ts > 10.0 else round(raw_ts, 1))
+        self.brew_data.thermal_stability = self.thermal_stability
+
     def _bh_learn(self, t_s, target, why):
         bd = self.brew_data
         self.bh_last_t = t_s
@@ -1858,7 +1909,7 @@ class Thermostat:
         self.bh_phase = None
 
     def _bh_end(self, t_s, target, why):
-        if self.bh_learn:
+        if self.bh_learn and why != 'cold':
             self._bh_learn(t_s, target, why)
         else:
             print('BH_SETTLED T=%.2f err=%.2f why=%s (no learning)' % (t_s, target - t_s, why))
@@ -1866,6 +1917,9 @@ class Thermostat:
 
     def _post_brew(self, now, t, target):
         """True while the post-shot phase owns the heater (heat_on set)."""
+        if t < target - BH_COLD_C:
+            self._bh_end(t, target, 'cold')
+            return False
         bd = self.brew_data
         if self.bh_phase == 'pay':
             if self.heat_on:
@@ -1974,6 +2028,7 @@ class Thermostat:
         if self.pi_carry > PI_QUANT_MS:   # cannot be paid back while saturated
             self.pi_carry = PI_QUANT_MS
         self.pi_on_ms = on
+        self._update_ts()
 
     def run(self): # def run(self, brew_data, switch_steam, RELAY_HEATER):
         
@@ -2001,12 +2056,32 @@ class Thermostat:
         idle_mode = (mode == 'IDLE' or mode in getattr(self.brew_data, 'IDLE_MODES', ()))
         # A new arm also restarts a pending pay or settle: run_shot kept the sums, so pay the rest and learn the total
         if idle_mode and getattr(self.brew_data, 'bh_arm', 0):
-            self.bh_phase = 'pay'
-            self.bh_learn = self.brew_data.bh_arm == 1
-            self.bh_t = now
-            self.brew_data.bh_arm = 0
+            if boiler_temperature < target_temperature - BH_COLD_C:
+                self.bh_phase = None
+                self.brew_data.bh_arm = 0
+            else:
+                self.bh_phase = 'pay'
+                self.bh_learn = self.brew_data.bh_arm == 1
+                self.bh_t = now
+                self.brew_data.bh_arm = 0
         if self.bh_phase is not None and not idle_mode:
             self.bh_phase = None          # a new shot or steam: no learning from this one
+
+        # Thermal stability candidate tracking: in IDLE PI band only
+        if idle_mode and abs(target_temperature - boiler_temperature) <= PI_BAND_C and self.bh_phase is None:
+            if self.ts_candidate_start is None or abs(self.pi_i - self.ts_candidate_p) > TS_STABLE_EPS:
+                self.ts_candidate_p = self.pi_i
+                self.ts_candidate_start = now
+            elif self.utime.ticks_diff(now, self.ts_candidate_start) >= TS_STABLE_TIME_MS:
+                if abs(self.ts_p0 - self.ts_candidate_p) >= 0.001:
+                    print('TS_LEARN p0=%.3f->%.3f' % (self.ts_p0, self.ts_candidate_p))
+                    self.ts_p0 = round(self.ts_candidate_p, 4)
+                    self._ts_save()
+                    self._update_ts()
+                self.ts_candidate_start = now
+        else:
+            self.ts_candidate_start = None
+
         if self.bh_phase is not None and self._post_brew(now, boiler_temperature, target_temperature):
             self.pi_start = None
             self.step_start = None
