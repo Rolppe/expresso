@@ -290,6 +290,7 @@ class BrewData:
         self.tare_abs_g              = None
         self.scale_cal               = None
         self.smart_tray              = None
+        self.water_tank              = None
         self.pending_brew_log        = None
         self.brew_log_send_requested = False
         self.brew_log_tx_reset       = False
@@ -1273,6 +1274,22 @@ class BrewData:
         st = getattr(self, 'smart_tray', None)
         return st.emptied_offline if st is not None else False
 
+    def get_tank_water_l(self):
+        wt = getattr(self, 'water_tank', None)
+        return wt.tank_water_l if wt is not None else 0.0
+
+    def get_tank_water_pct(self):
+        wt = getattr(self, 'water_tank', None)
+        return wt.tank_water_pct if wt is not None else 0.0
+
+    def get_tank_status(self):
+        wt = getattr(self, 'water_tank', None)
+        return wt.status if wt is not None else 'unknown'
+
+    def get_tank_last_reach_s(self):
+        wt = getattr(self, 'water_tank', None)
+        return wt.last_reach_time_s if wt is not None else None
+
     def get_pump_ratio(self):
         pump_ratio = self.pump_ratio
         
@@ -2081,6 +2098,11 @@ class Thermostat:
                 self.ts_candidate_start = now
         else:
             self.ts_candidate_start = None
+
+        # Water tank tracker update from thermal stability (TILAUS-Q)
+        wt = getattr(self.brew_data, 'water_tank', None)
+        if wt is not None:
+            wt.update(self.thermal_stability, now, mode)
 
         if self.bh_phase is not None and self._post_brew(now, boiler_temperature, target_temperature):
             self.pi_start = None
