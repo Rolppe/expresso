@@ -660,6 +660,28 @@ def handle_command(brew_data, command):
             getattr(brew_data, 'idle_pressure_equalize_interval_ms', 30000) // 1000,
             last_s))
 
+    elif command in ('ts?', 'thermal?'):
+        th = getattr(brew_data, 'thermostat', None)
+        ts = getattr(brew_data, 'get_thermal_stability', lambda: -10.0)()
+        p0 = getattr(th, 'ts_p0', 0.045)
+        pi_i = getattr(th, 'pi_i', 0.05)
+        print('TS val=%.1f p0=%.3f pi_i=%.3f' % (ts, p0, pi_i))
+
+    elif command.startswith('ts:p0:'):
+        sub = command[6:]
+        th = getattr(brew_data, 'thermostat', None)
+        if th is not None:
+            try:
+                val = float(sub)
+                th.ts_p0 = val
+                th._ts_save()
+                th._update_ts()
+                print('TS_P0 ok=%.3f' % val)
+            except Exception as e:
+                print('TS_P0 err %r' % e)
+        else:
+            print('TS_P0 no_thermostat')
+
     # App protocol of the August firmware (EXPRESSO-UUTTOLOKI, 5.10.2026). The app sends these on every connect;
     # none sets updated, so none counts as activity or leaves standby. bluetooth_handler acts on the flags.
     elif command in ('sync', 'get:settings', 'settings?'):

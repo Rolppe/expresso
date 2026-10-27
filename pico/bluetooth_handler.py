@@ -21,7 +21,7 @@ MAX_NOTIFY = 240
 # Dropped in this order when a packet does not fit: the newest and least critical field first.
 # Adding weight pushed the longest mode string to 246 B and the whole packet - pressure,
 # temperature, mode - was lost exactly during a shot (18.9.2026).
-NOTIFY_DROP_ORDER = ()     # weight moved to scale_payload (V-210, 20.10.2026): nothing left to drop
+NOTIFY_DROP_ORDER = ('thermal_stability',)     # thermal stability drops first if packet exceeds 240 B
 
 # Brew log multipack (EXPRESSO-UUTTOLOKI, 5.10.2026), the August firmware's protocol unchanged for the app:
 # meta (header + events) -> samples parts of BREW_LOG_CHUNK_ROWS rows -> end, one frame per transmission
@@ -77,6 +77,9 @@ def live_payload(brew_data):
         'fast_heatup_mode'           : brew_data.get_fast_heatup_mode(),
         'pump_ratio'                 : brew_data.get_pump_ratio(),
     }
+    ts = getattr(brew_data, 'get_thermal_stability', lambda: None)()
+    if ts is not None:
+        data['thermal_stability'] = round(ts, 1)
     if brew_data.standby:
         # VALMIUSTILA (5.10.2026): the key rides only while standby holds - standby is IDLE-only, so the
         # packet carries the shortest mode string and stays within 240 B; a live packet without it means off.
@@ -110,6 +113,9 @@ def scale_payload(brew_data):
         data['detected_object'] = st.detected_object
         if getattr(st, 'object_present', False):
             data['object_weight_g'] = round(st.object_weight, 1)
+    ts = getattr(brew_data, 'get_thermal_stability', lambda: None)()
+    if ts is not None:
+        data['thermal_stability'] = round(ts, 1)
     return data
 
 
