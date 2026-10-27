@@ -76,6 +76,51 @@ def handle_command(brew_data, command):
             print('TRAY unknown %s' % sub)
         return False
 
+    if command == 'tank?':
+        wt = getattr(brew_data, 'water_tank', None)
+        if wt is not None:
+            print(wt.info())
+        else:
+            print('TANK no_water_tank')
+        return False
+
+    if command.startswith('tank:'):
+        sub = command[5:]
+        wt = getattr(brew_data, 'water_tank', None)
+        if wt is None:
+            print('TANK no_water_tank')
+            return False
+        if sub == 'fill':
+            wt.fill_tank()
+            print('TANK_FILL ok level=%.2fL' % wt.tank_water_l)
+        elif sub.startswith('set:'):
+            try:
+                val = float(sub[4:])
+                wt.set_water_level(val)
+                print('TANK_SET ok level=%.2fL status=%s' % (wt.tank_water_l, wt.status))
+            except Exception as e:
+                print('TANK_SET err %r' % e)
+        elif sub.startswith('consume:'):
+            try:
+                val = float(sub[8:])
+                wt.consume_water_ml(val)
+                print('TANK_CONSUME ok level=%.2fL status=%s' % (wt.tank_water_l, wt.status))
+            except Exception as e:
+                print('TANK_CONSUME err %r' % e)
+        elif sub.startswith('cal:'):
+            try:
+                parts = sub[4:].split(':')
+                if len(parts) == 2:
+                    wt.set_calibration(float(parts[0]), float(parts[1]))
+                    print('TANK_CAL ok a=%.4f b=%.2f' % (wt.model_a, wt.model_b))
+                else:
+                    print('TANK_CAL syntax_error')
+            except Exception as e:
+                print('TANK_CAL err %r' % e)
+        else:
+            print('TANK unknown %s' % sub)
+        return False
+
     if command == 'obj?':
         st = getattr(brew_data, 'smart_tray', None)
         if st is not None:

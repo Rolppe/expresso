@@ -112,6 +112,12 @@ if tray_scale is not None:
     except Exception as e:
         print('SMART_TRAY init fail: %r' % (e,))
 
+try:
+    import water_tank
+    brew_data.water_tank = water_tank.WaterTankTracker(utime)
+except Exception as e:
+    print('WATER_TANK init fail: %r' % (e,))
+
 
 # 30 ms task lateness since the last DIAG_HB: max us and count over 100 ms (EXPRESSO-GC-UUTTO 20.10.2026: the user saw
 # delays of up to ~0.5 s after the machine had been on for long, maybe also without the Zero; the HB tracks it by uptime)
