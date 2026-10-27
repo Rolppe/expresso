@@ -256,5 +256,12 @@ check('main.py: brew and tshot branches note activity on return, hot water via h
       loop.count('brew_data.note_activity(utime.ticks_ms()') == 2 and 'await hot_water_run(' in loop and
       "brew_data.note_activity(utime.ticks_ms(), 'switch')" in hw)
 
+# classes.py wiring: update_standby does not import utime locally (EXPRESSO-STANDBY-IMPORT-UTIME)
+csrc = open(os.path.join(FW, 'classes.py')).read()
+upd_fn = csrc[csrc.index('def update_standby('):]
+upd_body = upd_fn[:upd_fn.index('def check_pressure_equalization(')]
+check('classes.py: update_standby does not import utime locally', 'import utime' not in upd_body)
+check('classes.py: utime imported at module level', 'import utime' in csrc[:csrc.index('class PumpRatioCalculator')])
+
 print('RESULT: %d failed' % len(fails))
 sys.exit(1 if fails else 0)

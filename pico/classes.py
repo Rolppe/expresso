@@ -1,3 +1,8 @@
+try:
+    import utime
+except ImportError:
+    utime = None
+
 # ============================================================================
 # PUMP RATIO CALCULATOR
 # ============================================================================
@@ -682,19 +687,19 @@ class BrewData:
         # Latch: once on it stays on until note_activity(); a negative ticks_diff (ticks_ms wrap,
         # valid only ~6 days) therefore cannot release it.
         if not self.standby and (self.mode == 'IDLE' or self.is_idle()):
-            import utime
+            clock = self.utime or utime
             if getattr(self, 'has_brewed', False):
                 timeout_ms = getattr(self, 'standby_brew_timeout_ms', self.standby_timeout_ms)
                 ref_ms = getattr(self, 'last_brew_ms', self.last_activity_ms)
                 act_ms = getattr(self, 'last_activity_ms', ref_ms)
-                if utime.ticks_diff(act_ms, ref_ms) > 0:
+                if clock.ticks_diff(act_ms, ref_ms) > 0:
                     ref_ms = act_ms
             else:
                 timeout_ms = getattr(self, 'standby_startup_timeout_ms', self.standby_timeout_ms)
                 ref_ms = getattr(self, 'startup_ms', self.last_activity_ms)
 
             if timeout_ms > 0:
-                idle_ms = utime.ticks_diff(now_ms, ref_ms)
+                idle_ms = clock.ticks_diff(now_ms, ref_ms)
                 if idle_ms >= timeout_ms:
                     self.standby = True
                     print('STBY_ON idle_s=%d target=%s' % (idle_ms // 1000, min(self.brew_temperature, self.standby_temperature)))
