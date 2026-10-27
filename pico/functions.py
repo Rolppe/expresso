@@ -233,10 +233,11 @@ EB_C1X_KP_TAIL = 0.2         # uuton pidon 1. s:n P c1x:lla (vanha polku max(EB_
                              # jakson myohemmin, ja korotettu P varahtelee pidon alussa (malli 25b kohina, 8 siementa: ylitys
                              # 0,26 -> 0,22, vanha 0,20 +- 0,06; kaanto 0,3 -> 0,6 kaistalle 0,67 -> 0,61 s, vanha 0,60 +- 0,03).
                              # Virheen ennuste jakson eteenpain kokeiltiin mallissa: ylitys 0,28-0,35
-EU_C1X_LAG_S = 0.02          # paatos toteutuu jakson myohemmin: katkaisun ennuste p5 + nousu x (jalkinousu + tama), ja
-                             # jalkinousun oppi vahentaa sen, jotta opittu coast_s ei riipu polusta. Laite 20.10.2026 (sarja
-                             # 3 + 3, katkaisussa ~21 bar/s): ilman tata c1x:n jalkinousu 1,85-1,95 vs vanha 1,42-1,72 bar,
-                             # ylitys 0,52 vs 0,16. Mallin 8 barin nousu ~11 bar/s ei nayttanyt sita (ylitys pidon alusta)
+EU_C1X_LAG_S = 0.025         # paatos toteutuu k+2-jonon (20 ms) ja SSR-nollaylityksen (keskim. 5 ms) jalkeen:
+                             # katkaisun ennuste p5 + nousu x (jalkinousu + tama), ja jalkinousun oppi vahentaa sen,
+                             # jotta opittu coast_s ei riipu polusta. Laitedatasovitus 27.10.2026 (EXPRESSO-C1X-JALKINOUSU):
+                             # mitattu lisaero sarjoissa 1 ja 2 ka 24,1 ms (20.10.2026 sarja 3+3, ~21 bar/s); 25 ms
+                             # poistaa myos sarjan 2 jaannosylityksen (+0,06 bar @ 21,5 bar/s = 3 ms).
 
 
 def _cx_put(x, ev, wt, ne, utime, t, on):
