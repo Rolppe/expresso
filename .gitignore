@@ -1,3 +1,13 @@
 .ohjevahti-tila.json
 __pycache__/
 *.pyc
+
+# local configuration, secrets and logs
+secrets.py
+diag_wifi.py
+*.env
+.env
+*.log
+*.stdout
+*.lock
+.ohjevahti-tila.json
