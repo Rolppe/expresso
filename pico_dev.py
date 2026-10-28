@@ -47,8 +47,8 @@ Usage:
                                         RESTORE_OK/FAIL (default 420 s: 20260928-kuri1 ran past 300 s)
   pico_dev.py charger on|off            phone link only: switch the hub's charger (Shelly via HA)
 
-With PICO_LINK=phone every operation except `charger` runs with the charger off and powers it again
-when done (CHARGER_CYCLE; PICO_CHARGER_CYCLE=0 disables). The Zero link has no charger to cycle.
+With PICO_LINK=phone and PICO_CHARGER_CYCLE=1 every operation except `charger` runs with the charger off and powers it again
+when done if PICO_CHARGER_CYCLE=1 (CHARGER_CYCLE, off by default; needs Home Assistant). The Zero link has no charger to cycle.
 
 Lock: one run at a time per machine, flock on PICO_DEV_LOCK (default /tmp/pico_dev.lock); a second run
 exits 1 with "PICO_BUSY pid=.. op=.. since=..". SIGTERM/SIGHUP run the charger restore (exit 128+signum).
@@ -76,16 +76,15 @@ ADB = os.environ.get('PICO_ADB') or next(
     (a for a in ('/opt/homebrew/bin/adb', os.path.expanduser('~/.local/share/platform-tools/adb'))
      if os.path.exists(a)), None) or shutil.which('adb') or 'adb'
 LINK = os.environ.get('PICO_LINK', 'zero')
-ZERO = '192.0.2.10'
-PHONE = '192.0.2.11:5555'
+ZERO = os.environ.get('PICO_ZERO', '192.0.2.10')  # example address (RFC 5737): set your own
+PHONE = os.environ.get('PICO_PHONE', '192.0.2.11:5555')  # example address (RFC 5737): set your own
 PORT = 2217
 APP = 'com.example.silvia_pico_ui'
 
-# TEMPORARY (user 23.9.2026): with the hub's PD charger powered the phone drops the USB2 hub and the
-# Pico, so every USB operation cuts the charger through the Shelly first and powers it again when
-# done. Turn off (False, or PICO_CHARGER_CYCLE=0) once the Type-C fault is found and fixed
-# (PICO-HALLINTA.md luku 8).
-CHARGER_CYCLE = os.environ.get('PICO_CHARGER_CYCLE', '1') != '0'
+# Phone link only. With the hub's PD charger powered the phone can drop the USB2 hub and the Pico,
+# so every USB operation can cut the charger through a Shelly (Home Assistant, ../ha/ha.sh) first and
+# power it again when done. Off by default: needs that Home Assistant setup. PICO_CHARGER_CYCLE=1 enables.
+CHARGER_CYCLE = os.environ.get('PICO_CHARGER_CYCLE', '0') == '1'
 CHARGER_ENTITY = 'switch.shellyplus1pm_example'
 HA_SH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'ha', 'ha.sh')
 PICO_VID = '2e8a'
