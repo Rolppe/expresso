@@ -5,6 +5,7 @@ __pycache__/
 # local configuration, secrets and logs
 secrets.py
 diag_wifi.py
+pico/local_config.py
 *.env
 .env
 *.log

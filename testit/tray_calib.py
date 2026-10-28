@@ -11,8 +11,11 @@ Reads the phone's log only; nothing is sent to the Pico.
 """
 import subprocess, re, sys, time, statistics
 
-ADB = '~/.local/share/platform-tools/adb'
-PHONE = '192.0.2.11:5555'
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import localenv  # noqa: E402,F401  local.env -> os.environ (README: Local configuration)
+ADB = os.environ.get('PICO_ADB') or os.path.expanduser('~/.local/share/platform-tools/adb')
+PHONE = os.environ.get('PICO_PHONE', '192.0.2.11:5555')
 STABLE_S = 3.0          # how long it must sit still
 STABLE_BAND = 2.0       # grams, peak-to-peak, inside the window (resting noise measured ~0.7 g)
 MOVE_BAND = 4.0         # grams away from the last plateau before a new one may be reported

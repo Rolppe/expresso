@@ -26,6 +26,9 @@ import threading
 import time
 import urllib.request
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import localenv  # noqa: E402,F401  local.env -> os.environ (README: Local configuration)
+
 PORTTI = 47210
 OFFLINE_S = 150        # ei paketteja näin kauan -> status offline
 RATE_S = 5             # sensorin päivitys korkeintaan kerran näin monessa sekunnissa entiteettiä kohti

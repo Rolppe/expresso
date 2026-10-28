@@ -30,6 +30,16 @@ python3 pico_dev.py cmd <command> [seconds]       # send CMD <command> to the ru
 relays off and verifies it. After editing files in `pico/` run `python3 pico_dev.py manifest pico/MANIFEST.json`.
 Wi-Fi credentials go in `secrets.py` on the Pico (not in this repository, listed in `.gitignore`).
 
+## Local configuration
+
+Your own addresses stay out of the repository in two files listed in `.gitignore`:
+
+- `local.env` (copy `local.env.example`): the environment variables below, one `KEY=VALUE` per line.
+  `pico_dev.py`, `build_set.py`, `diagnet/keraaja.py` and the hardware scripts read it through
+  `localenv.py`; a variable already set in the environment wins.
+- `pico/local_config.py` (copy `pico/local_config.py.example`): firmware values, now `DIAGNET_HOST`.
+  `pico_dev.py flash` writes it to the Pico beside the manifest's files; it is not in `MANIFEST.json`.
+
 ## Environment variables
 
 | Variable | Default | Meaning |
@@ -39,6 +49,7 @@ Wi-Fi credentials go in `secrets.py` on the Pico (not in this repository, listed
 | `PICO_PHONE` | `192.0.2.11:5555` | adb address of the phone (phone link only) |
 | `PICO_ADB` | search PATH | path to adb |
 | `PICO_CHARGER_CYCLE` | off | `1` = cut the hub's charger through Home Assistant during USB operations (phone link only; needs `../ha/ha.sh`) |
+| `PICO_CHARGER_ENTITY` | `switch.shellyplus1pm_example` | Home Assistant switch of that charger |
 | `PICO_DEV_LOCK` | `/tmp/pico_dev.lock` | lock file, one run at a time per machine |
 | `DIAGNET_PORTTI`, `DIAGNET_OSOITE`, `DIAGNET_TILA` | 47210, `0.0.0.0`, `~/.local/state/expresso-diag` | diagnostics collector |
 | `HA_URL`, `HA_TOKEN_FILE` | `http://192.0.2.12:8123`, `~/.config/ha/token` | Home Assistant for the collector (optional) |

@@ -29,10 +29,12 @@ import shlex
 import subprocess
 import sys
 
+import localenv  # noqa: F401  local.env -> os.environ (README: Local configuration)
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 PICO_DIR = os.path.join(HERE, 'pico')
 ADB = os.environ.get('PICO_ADB') or os.path.expanduser('~/.local/share/platform-tools/adb')
-PHONE = '192.0.2.11:5555'
+PHONE = os.environ.get('PICO_PHONE', '192.0.2.11:5555')
 APP = 'com.example.silvia_pico_ui'
 SETS_DIR = 'files/firmware_backup'
 MIN_BATTERY = 20

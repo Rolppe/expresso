@@ -7,6 +7,11 @@
 # EXPRESSO-DIAGNET (20.10.2026, paketit/DIAGNET.md): stdout and shot samples as UDP to the palvelin
 # collector, which publishes to Home Assistant. enabled False = Wi-Fi off as before.
 DIAGNET = {'enabled': True, 'host': '192.0.2.11', 'port': 47210}
+try:
+    from local_config import DIAGNET_HOST  # pico/local_config.py, not in the repository (README)
+    DIAGNET['host'] = DIAGNET_HOST
+except ImportError:
+    pass
 
 # EXPRESSO-WIFI-AIKAIKKUNA (user 20.10.2026): bluetooth off for now so it does not slow the Pico; the app
 # uses the Wi-Fi link (wifilink.py). enabled True brings the BLE task and advertising back.
