@@ -2,7 +2,7 @@
 """eXpresso Pico development tool — runs without anyone at the machine.
 
 Default link (PICO_LINK=zero, ZERO-USB 1.10.2026): the Pico is on the Zero's USB, and ser2net there
-serves it as raw TCP 192.0.2.10:2217 → /dev/hubi0 (Infra/iot/zero/REKISTERI.md). No adb, app or
+serves it as raw TCP 192.0.2.10:2217 → the Pico's USB serial device. No adb, app or
 charger is involved. PICO_LINK=phone is the old chain: adb forward tcp:2217 → OnePlus
 (192.0.2.11:5555) → PicoBridgeService → USB-CDC → Pico. Every REPL operation starts with
 devsafe: Ctrl-C (firmware's finally drives relays off), then devsafe.enter() reads the relay pins
@@ -55,7 +55,7 @@ exits 1 with "PICO_BUSY pid=.. op=.. since=..". SIGTERM/SIGHUP run the charger r
 Exception: restore installs no signal handler (the app's flasher keeps writing; charger on by hand afterwards).
 The lock is per machine: runs on the Mac and on palvelin do not see each other.
 
-Source of truth: Infra/iot/expresso/pico_dev.py in the project repo (copied to the Mac legacy folder).
+Source of truth: pico_dev.py in this repository.
 """
 import base64
 import fcntl
@@ -410,7 +410,7 @@ def hold(hold_s, out_path=None):
 
 def pcap(ms, out_path=None):
     # One connection for the command and the capture, same pattern as shot(): the bridge serves
-    # a single client (PICO-HALLINTA.md luku 3). ms is <ms>[:<bar>] (korjaus 4); the whole argument
+    # a single client (single-client serial link). ms is <ms>[:<bar>] (korjaus 4); the whole argument
     # goes to the firmware unchanged, only the <ms> part feeds the host-side timeout.
     ms_part = ms.split(':', 1)[0]
     link = Link()
@@ -526,7 +526,7 @@ def pstep(arg, out_path=None):
 
 def phold(seconds, out_path=None):
     # One connection for the command and the capture, same pattern as pcap()/shot(): the bridge
-    # serves a single client (PICO-HALLINTA.md luku 3).
+    # serves a single client (single-client serial link).
     link = Link()
     link.send(('CMD phold:%s\r\n' % seconds).encode())
     tail = capture(float(seconds) + 20, out_path, stop_marker=b'PHOLD_END', link=link)
@@ -603,7 +603,7 @@ FLASH_CHUNK = 1024      # bytes per raw REPL exec; every exec feeds the 8 s watc
 def flash(manifest_path):
     # Zero link flash (EXPRESSO-ZERO-FLASH, 5.10.2026). Not mpremote: it does not feed the devsafe
     # watchdog, so the Pico would reset 8 s into the copy, and it skips the relay read-back. Same order
-    # as the app's PicoFlasher (PICO-HALLINTA.md luku 5): Ctrl-C, relays off + read-back, then files.
+    # as the app's PicoFlasher (same sequence as the app): Ctrl-C, relays off + read-back, then files.
     # Changed files go to <name>.new and are hashed on the Pico before any rename, so a broken copy
     # leaves the old firmware whole.
     manifest = json.load(open(manifest_path))
@@ -662,7 +662,7 @@ def restore(set_name, seconds=420):
     if LINK == 'zero':
         sys.exit('restore is the phone link; on the Zero link use: pico_dev.py flash <MANIFEST.json>')
     # The app's flasher writes the set over USB; wait for its verdict in logcat so the charger stays
-    # off until the flash is over (PICO-HALLINTA.md luku 7: no serial link before RESTORE_OK).
+    # off until the flash is over (no serial link before RESTORE_OK).
     # One argument: adb shell joins its argv with spaces, so a split format string reaches date as two
     # Fresh app process first: after the CHARGER_CYCLE re-enumeration the running app can still hold
     # the dead USB handle, and the flasher then fails at once with 'no size ack for /api_functions.py'

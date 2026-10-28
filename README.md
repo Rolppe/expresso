@@ -53,8 +53,7 @@ The tests run on any machine with Python 3, without a Pico:
 python3 testit/<name>_smoke.py        # prints OK/FAIL lines and a RESULT line, exit code 0 = pass
 ```
 
-Some tests need measurement logs or files that are not part of this repository and fail without them
-(`c1x_lag_smoke`, `c1x_todennus_smoke`, `ohjevahti_smoke`, `tilaus_invariantit_smoke`). The other scripts in
+The other scripts in
 `testit/` (`*_sim.py`, `*_probe.py`, `shot_*`, `tray_calib.py`, ...) analyse logs or talk to real hardware.
 
 ## scale/

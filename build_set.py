@@ -6,7 +6,7 @@ muuttuneet tiedostot ``/data/local/tmp/``:n kautta ja todentaa jokaisen paikalli
 puhelimen ``sha256sum``-tulostetta vasten. Lopuksi laskee ``MANIFEST.json``:in puhelimen omasta
 ``sha256sum``- ja ``stat``-tulosteesta koko uudelle setille, todentaa sen samalla tavalla ja
 kirjoittaa sen myös repon ``pico/MANIFEST.json``:iin.
-Katso Infra/iot/expresso/PICO-HALLINTA.md luku 6.
+Katso README.md.
 
 Vain puhelinketju (PICO_LINK=phone). Pico on 5.10.2026 alkaen Zeron USB:ssä (ZERO-USB): silloin settiä ei
 rakenneta, vaan ``pico_dev.py flash pico/MANIFEST.json`` kirjoittaa repon tiedostot suoraan (luku 7).
@@ -16,7 +16,7 @@ Käyttö:
   build_set.py --check <uusi> [--from <pohja>] [tiedosto...]   # ei yhtään muuttavaa komentoa
 
 Ilman ``--from`` pohja on uusin setti (``ls -1t``). Ilman tiedostolistaa: ``pico/*.py``,
-``pico/scale_cal.json``, ``pico/lib/*.py`` (paikallisesta Infra/iot/expresso/pico/-hakemistosta).
+``pico/scale_cal.json``, ``pico/lib/*.py`` (repon pico/-hakemistosta).
 Adb valitaan ympäristöstä kuten pico_dev.py:ssä: ``PICO_ADB``, muuten
 ``~/.local/share/platform-tools/adb``.
 """
