@@ -12,7 +12,10 @@ import sys
 import time
 import os
 
-HOST = '192.0.2.10'
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+import localenv  # noqa: E402,F401  local.env -> os.environ (README: Local configuration)
+
+HOST = os.environ.get('PICO_ZERO', '192.0.2.10')
 PORT = 2217
 LOG_FILE = os.path.join(os.path.dirname(__file__), 'first_drop_shot_20261025_run2.log')
 

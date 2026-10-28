@@ -42,7 +42,8 @@ Usage:
                                         devsafe, changed files to <name>.new and SHA-256 checked, then
                                         renamed, full verify, reset (VERIFIED n/n, FLASH_OK/FLASH_FAIL)
   pico_dev.py manifest <MANIFEST.json>  rewrite the manifest from the files beside it; entries without a
-                                        local file (secrets.py) are kept as they are
+                                        local file (secrets.py) are kept as they are, local_config.py is
+                                        left out (flash writes it when it exists)
   pico_dev.py restore <set> [seconds]   phone link only: flash a set from the phone backup, wait for
                                         RESTORE_OK/FAIL (default 420 s: 20260928-kuri1 ran past 300 s)
   pico_dev.py charger on|off            phone link only: switch the hub's charger (Shelly via HA)
@@ -70,6 +71,8 @@ import subprocess
 import sys
 import time
 
+import localenv  # noqa: F401  local.env -> os.environ (README: Local configuration)
+
 # Mac: /opt/homebrew/bin/adb; palvelin: ~/.local/share/platform-tools/adb (PICO_ADB overrides)
 # palvelin: /usr/bin/adb from PATH when neither exists
 ADB = os.environ.get('PICO_ADB') or next(
@@ -85,7 +88,7 @@ APP = 'com.example.silvia_pico_ui'
 # so every USB operation can cut the charger through a Shelly (Home Assistant, ../ha/ha.sh) first and
 # power it again when done. Off by default: needs that Home Assistant setup. PICO_CHARGER_CYCLE=1 enables.
 CHARGER_CYCLE = os.environ.get('PICO_CHARGER_CYCLE', '0') == '1'
-CHARGER_ENTITY = 'switch.shellyplus1pm_example'
+CHARGER_ENTITY = os.environ.get('PICO_CHARGER_ENTITY', 'switch.shellyplus1pm_example')
 HA_SH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'ha', 'ha.sh')
 PICO_VID = '2e8a'
 LOCK_PATH = os.environ.get('PICO_DEV_LOCK', '/tmp/pico_dev.lock')
@@ -582,6 +585,7 @@ def manifest(manifest_path):
     names = set(old)
     for pattern in ('*.py', 'scale_cal.json', 'lib/*.py'):
         names.update('/' + os.path.relpath(p, base) for p in glob.glob(os.path.join(base, pattern)))
+    names.difference_update(LOCAL_ONLY)
     out = []
     for name in sorted(names):
         path = base + name
@@ -597,6 +601,11 @@ def manifest(manifest_path):
     return True
 
 
+# Files that exist only in this checkout and on the Pico (.gitignore): kept out of MANIFEST.json and
+# written by flash when present, so the committed manifest stays the same for everyone.
+LOCAL_ONLY = ('/local_config.py',)
+
+
 FLASH_CHUNK = 1024      # bytes per raw REPL exec; every exec feeds the 8 s watchdog
 
 
@@ -609,6 +618,9 @@ def flash(manifest_path):
     manifest = json.load(open(manifest_path))
     base = os.path.dirname(os.path.abspath(manifest_path))
     entries = [e for e in manifest if not e.get('skipped')]
+    for name in LOCAL_ONLY:
+        if os.path.exists(base + name) and all(e['name'] != name for e in entries):
+            entries.append({'name': name, 'sha256': local_sha(base + name), 'size': os.path.getsize(base + name)})
     for e in entries:
         path = base + e['name']
         if os.path.exists(path) and local_sha(path) != e['sha256']:
