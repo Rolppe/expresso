@@ -1,1 +1,3 @@
 .ohjevahti-tila.json
+__pycache__/
+*.pyc
