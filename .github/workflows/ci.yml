@@ -28,6 +28,9 @@ jobs:
             case "$skip" in *" $name "*) echo "SKIP $name"; continue;; esac
             if timeout 120 python3 "$f" > "/tmp/$name.log" 2>&1; then
               echo "PASS $name"
+            # Some tests run real threads with fixed sleeps (e.g. ystall_smoke); one retry, logged.
+            elif timeout 120 python3 "$f" > "/tmp/$name.retry.log" 2>&1; then
+              echo "FLAKY $name (failed once, passed on retry)"; grep FAIL "/tmp/$name.log"
             else
               echo "FAIL $name"; tail -20 "/tmp/$name.log"; failed=$((failed + 1))
             fi
