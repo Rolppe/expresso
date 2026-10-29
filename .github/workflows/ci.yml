@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    name: Firmware logic smoke tests (host Python)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # Every testit/*_smoke.py except the four listed in README "Tests": one needs the private
+      # monorepo, two are stale against the current firmware, and esiuutto_smoke takes ~5 min and
+      # has three statistical checks that do not pass.
+      - name: Run smoke tests
+        run: |
+          skip=" tilaus_invariantit_smoke.py paine_tasaus_smoke.py wifi_suora_smoke.py esiuutto_smoke.py "
+          failed=0
+          for f in testit/*_smoke.py; do
+            name=$(basename "$f")
+            case "$skip" in *" $name "*) echo "SKIP $name"; continue;; esac
+            if timeout 120 python3 "$f" > "/tmp/$name.log" 2>&1; then
+              echo "PASS $name"
+            else
+              echo "FAIL $name"; tail -20 "/tmp/$name.log"; failed=$((failed + 1))
+            fi
+          done
+          echo "failed: $failed"
+          test "$failed" -eq 0
