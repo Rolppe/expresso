@@ -1,0 +1,20 @@
+CMD_OK phold:30
+PHOLD_START s=30
+PHOLD t=502 bar=1.35 filt=1.14 slope=0.00
+PHOLD t=1006 bar=0.13 filt=-0.00 slope=-2.26
+PHOLD t=1506 bar=0.34 filt=0.52 slope=1.04
+PHOLD t=2009 bar=5.38 filt=3.02 slope=4.97
+PHOLD t=2511 bar=7.53 filt=6.44 slope=6.81
+PHOLD t=3015 bar=8.08 filt=7.97 slope=3.04
+PHOLD t=3516 bar=8.62 filt=8.59 slope=1.24
+PHOLD t=4019 bar=9.48 filt=8.93 slope=0.67
+PHOLD t=4523 bar=9.69 filt=9.15 slope=0.43
+PHOLD t=5024 bar=9.59 filt=9.32 slope=0.36
+PHOLD t=5526 bar=9.74 filt=9.36 slope=0.07
+PHOLD t=6028 bar=9.44 filt=9.33 slope=-0.06
+PHOLD t=6532 bar=9.20 filt=9.28 slope=-0.09
+PHOLD t=7035 bar=9.16 filt=9.35 slope=0.14
+PHOLD t=7538 bar=9.24 filt=9.43 slope=0.15
+PHOLD t=8042 bar=9.45 filt=9.39 slope=-0.07
+PHOLD t=8546 bar=9.72 filt=9.37 slope=-0.04
+PHOLD_END reason=tray bar=9.37

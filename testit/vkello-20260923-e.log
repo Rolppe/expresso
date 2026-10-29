@@ -1,0 +1,133 @@
+CMD_OK vkello:0
+MAINSCAL_VENT cycles=2 bar=-1.08
+VKELLO_VENT cycles=2 bar=-1.08
+Connected - sending initial settings
+Received: 'sync'
+Received: 'sync'
+Received: 'brew_log?'
+VKELLO_RISE bar=8.63 reach_ms=11120 reason=plateau
+VKELLO w=1 t_ms=11280 z_us=-8779.8 T_us=19985.472 d=-0.00316 sd_us=727.5 amp=0.299 lock=0 p_bar=8.02 gate=0
+VKELLO w=2 t_ms=11440 z_us=657.3 T_us=19988.250 d=-0.00011 sd_us=543.3 amp=0.382 lock=0 p_bar=8.06 gate=0
+VKELLO w=3 t_ms=11600 z_us=-30.5 T_us=19988.040 d=-0.00037 sd_us=491.1 amp=0.258 lock=0 p_bar=8.05 gate=0
+VKELLO w=4 t_ms=11760 z_us=657.6 T_us=19993.772 d=0.00690 sd_us=480.1 amp=0.291 lock=0 p_bar=8.12 gate=0
+VKELLO w=5 t_ms=11920 z_us=345.8 T_us=19997.092 d=0.01111 sd_us=479.5 amp=0.264 lock=0 p_bar=8.10 gate=0
+VKELLO w=6 t_ms=12080 z_us=549.0 T_us=20002.280 d=0.01780 sd_us=477.0 amp=0.358 lock=0 p_bar=8.11 gate=0
+VKELLO w=7 t_ms=12241 z_us=245.8 T_us=20004.540 d=0.02062 sd_us=470.6 amp=0.262 lock=0 p_bar=8.01 gate=0
+VKELLO w=8 t_ms=12402 z_us=-144.5 T_us=20003.588 d=0.01907 sd_us=456.9 amp=0.323 lock=0 p_bar=7.84 gate=0
+VKELLO w=9 t_ms=12563 z_us=147.4 T_us=20004.752 d=0.02049 sd_us=442.7 amp=0.268 lock=0 p_bar=7.69 gate=0
+VKELLO w=10 t_ms=12724 z_us=-698.6 T_us=20000.734 d=0.01444 sd_us=428.8 amp=0.281 lock=0 p_bar=7.63 gate=0
+VKELLO w=11 t_ms=12885 z_us=276.2 T_us=20002.298 d=0.01662 sd_us=415.4 amp=0.263 lock=0 p_bar=7.69 gate=0
+VKELLO w=12 t_ms=13046 z_us=-712.1 T_us=19999.136 d=0.01142 sd_us=402.9 amp=0.279 lock=0 p_bar=7.76 gate=0
+VKELLO w=13 t_ms=13206 z_us=-8.0 T_us=19999.196 d=0.01136 sd_us=390.9 amp=0.283 lock=1 p_bar=7.75 gate=0
+VKELLO w=14 t_ms=13366 z_us=430.1 T_us=20000.872 d=0.01419 sd_us=379.9 amp=0.230 lock=1 p_bar=7.60 gate=0
+VKELLO w=15 t_ms=13527 z_us=-535.3 T_us=19999.204 d=0.01078 sd_us=370.1 amp=0.293 lock=1 p_bar=7.57 gate=0
+VKELLO w=16 t_ms=13687 z_us=332.4 T_us=20000.294 d=0.01286 sd_us=360.9 amp=0.253 lock=1 p_bar=7.62 gate=0
+VKELLO w=17 t_ms=13847 z_us=107.6 T_us=20000.698 d=0.01353 sd_us=352.6 amp=0.281 lock=1 p_bar=7.55 gate=0
+VKELLO w=18 t_ms=14008 z_us=443.7 T_us=20001.948 d=0.01628 sd_us=345.3 amp=0.234 lock=1 p_bar=7.58 gate=0
+VKELLO w=19 t_ms=14169 z_us=259.6 T_us=20002.704 d=0.01791 sd_us=338.7 amp=0.288 lock=1 p_bar=7.54 gate=0
+VKELLO w=20 t_ms=14330 z_us=400.9 T_us=20003.754 d=0.02047 sd_us=332.8 amp=0.283 lock=1 p_bar=7.64 gate=0
+VKELLO w=21 t_ms=14491 z_us=479.3 T_us=20004.948 d=0.02360 sd_us=327.5 amp=0.322 lock=1 p_bar=7.68 gate=0
+VKELLO w=22 t_ms=14652 z_us=273.0 T_us=20005.698 d=0.02543 sd_us=322.9 amp=0.261 lock=1 p_bar=7.64 gate=0
+VKELLO w=23 t_ms=14813 z_us=-176.5 T_us=20005.550 d=0.02422 sd_us=318.9 amp=0.258 lock=1 p_bar=7.36 gate=0
+VKELLO w=24 t_ms=14974 z_us=333.5 T_us=20006.382 d=0.02656 sd_us=315.4 amp=0.333 lock=1 p_bar=7.28 gate=0
+VKELLO w=25 t_ms=15782 z_us=-1239.7 T_us=20006.382 d=0.02656 sd_us=479.5 amp=0.592 lock=0 p_bar=1.77 gate=1
+VKELLO w=26 t_ms=15943 z_us=-1981.3 T_us=20001.342 d=0.00037 sd_us=425.0 amp=0.481 lock=0 p_bar=3.36 gate=0
+VKELLO w=27 t_ms=16104 z_us=-1805.5 T_us=19996.544 d=-0.01957 sd_us=390.5 amp=0.379 lock=1 p_bar=4.96 gate=0
+VKELLO w=28 t_ms=16264 z_us=-300.5 T_us=19995.692 d=-0.02249 sd_us=366.3 amp=0.269 lock=1 p_bar=6.03 gate=0
+VKELLO w=29 t_ms=16424 z_us=-154.5 T_us=19995.188 d=-0.02387 sd_us=348.8 amp=0.303 lock=1 p_bar=6.62 gate=0
+VKELLO w=30 t_ms=16584 z_us=1063.6 T_us=19997.066 d=-0.01494 sd_us=335.6 amp=0.248 lock=1 p_bar=6.96 gate=0
+VKELLO w=31 t_ms=16744 z_us=-391.2 T_us=19996.226 d=-0.01809 sd_us=325.5 amp=0.222 lock=1 p_bar=7.11 gate=0
+VKELLO w=32 t_ms=16904 z_us=1625.0 T_us=19998.950 d=-0.00538 sd_us=317.6 amp=0.269 lock=1 p_bar=7.14 gate=0
+VKELLO w=33 t_ms=17064 z_us=829.5 T_us=20000.324 d=0.00098 sd_us=311.5 amp=0.276 lock=1 p_bar=7.13 gate=0
+VKELLO w=34 t_ms=17225 z_us=2160.3 T_us=20003.942 d=0.01730 sd_us=306.8 amp=0.290 lock=1 p_bar=7.09 gate=0
+VKELLO w=35 t_ms=17386 z_us=-296.1 T_us=20003.594 d=0.01508 sd_us=303.2 amp=0.303 lock=1 p_bar=7.20 gate=0
+VKELLO w=36 t_ms=17547 z_us=452.6 T_us=20004.450 d=0.01843 sd_us=300.4 amp=0.309 lock=1 p_bar=7.16 gate=0
+VKELLO w=37 t_ms=17708 z_us=493.4 T_us=20005.390 d=0.02205 sd_us=298.3 amp=0.316 lock=1 p_bar=7.11 gate=0
+VKELLO w=38 t_ms=17869 z_us=-122.5 T_us=20005.372 d=0.02116 sd_us=296.6 amp=0.330 lock=1 p_bar=6.91 gate=0
+VKELLO w=39 t_ms=18030 z_us=-297.6 T_us=20005.070 d=0.01902 sd_us=295.2 amp=0.297 lock=1 p_bar=6.95 gate=0
+VKELLO w=40 t_ms=18191 z_us=414.6 T_us=20005.874 d=0.02197 sd_us=294.2 amp=0.331 lock=1 p_bar=6.87 gate=0
+VKELLO w=41 t_ms=18352 z_us=872.6 T_us=20007.408 d=0.02808 sd_us=293.3 amp=0.289 lock=1 p_bar=6.96 gate=0
+VKELLO w=42 t_ms=18513 z_us=247.4 T_us=20008.016 d=0.02979 sd_us=292.5 amp=0.294 lock=1 p_bar=6.99 gate=0
+VKELLO w=43 t_ms=18674 z_us=40.2 T_us=20008.316 d=0.03006 sd_us=291.8 amp=0.320 lock=1 p_bar=6.98 gate=0
+VKELLO w=44 t_ms=18835 z_us=149.1 T_us=20008.784 d=0.03106 sd_us=291.1 amp=0.258 lock=1 p_bar=6.99 gate=0
+VKELLO w=45 t_ms=18996 z_us=827.8 T_us=20010.274 d=0.03646 sd_us=290.4 amp=0.256 lock=1 p_bar=7.04 gate=0
+VKELLO w=46 t_ms=19157 z_us=-135.8 T_us=20010.364 d=0.03559 sd_us=289.7 amp=0.216 lock=1 p_bar=6.98 gate=0
+VKELLO w=47 t_ms=19318 z_us=-288.4 T_us=20010.226 d=0.03379 sd_us=288.9 amp=0.339 lock=1 p_bar=7.03 gate=0
+VKELLO w=48 t_ms=19479 z_us=530.9 T_us=20011.262 d=0.03703 sd_us=288.1 amp=0.247 lock=1 p_bar=7.00 gate=0
+VKELLO_RESTART pause_ms=500 z1_us=-1239.7
+VKELLO w=49 t_ms=20783 z_us=-1455.4 T_us=20011.262 d=0.03703 sd_us=516.4 amp=0.848 lock=0 p_bar=0.41 gate=1
+VKELLO w=50 t_ms=20944 z_us=-1987.5 T_us=20008.294 d=0.01642 sd_us=442.5 amp=0.513 lock=0 p_bar=1.51 gate=0
+VKELLO w=51 t_ms=21105 z_us=-1575.9 T_us=20008.294 d=0.01642 sd_us=471.3 amp=0.840 lock=0 p_bar=2.65 gate=1
+VKELLO w=52 t_ms=21266 z_us=-793.0 T_us=20006.644 d=0.00963 sd_us=414.5 amp=0.440 lock=0 p_bar=4.37 gate=0
+VKELLO w=53 t_ms=21427 z_us=96.3 T_us=20006.912 d=0.01029 sd_us=378.0 amp=0.364 lock=1 p_bar=5.65 gate=0
+VKELLO w=54 t_ms=21588 z_us=-589.8 T_us=20005.986 d=0.00681 sd_us=352.4 amp=0.281 lock=1 p_bar=6.39 gate=0
+VKELLO w=55 t_ms=21749 z_us=-618.3 T_us=20005.104 d=0.00358 sd_us=333.5 amp=0.349 lock=1 p_bar=6.64 gate=0
+VKELLO w=56 t_ms=21910 z_us=936.0 T_us=20006.422 d=0.00803 sd_us=318.9 amp=0.211 lock=1 p_bar=6.85 gate=0
+VKELLO w=57 t_ms=22071 z_us=522.5 T_us=20007.152 d=0.01034 sd_us=307.4 amp=0.244 lock=1 p_bar=6.95 gate=0
+VKELLO w=58 t_ms=22232 z_us=745.7 T_us=20008.126 d=0.01345 sd_us=298.1 amp=0.267 lock=1 p_bar=6.98 gate=0
+VKELLO w=59 t_ms=22393 z_us=410.9 T_us=20008.704 d=0.01509 sd_us=290.6 amp=0.276 lock=1 p_bar=7.02 gate=0
+VKELLO w=60 t_ms=22554 z_us=532.9 T_us=20009.406 d=0.01715 sd_us=284.5 amp=0.301 lock=1 p_bar=7.05 gate=0
+VKELLO w=61 t_ms=22715 z_us=694.6 T_us=20010.278 d=0.01977 sd_us=279.4 amp=0.240 lock=1 p_bar=7.07 gate=0
+VKELLO w=62 t_ms=22876 z_us=165.1 T_us=20010.606 d=0.02039 sd_us=275.2 amp=0.275 lock=1 p_bar=7.10 gate=0
+VKELLO w=63 t_ms=23037 z_us=471.2 T_us=20011.246 d=0.02212 sd_us=271.7 amp=0.288 lock=1 p_bar=7.10 gate=0
+VKELLO w=64 t_ms=23198 z_us=342.2 T_us=20011.766 d=0.02337 sd_us=268.9 amp=0.296 lock=1 p_bar=7.07 gate=0
+VKELLO w=65 t_ms=23359 z_us=354.1 T_us=20012.302 d=0.02466 sd_us=266.6 amp=0.265 lock=1 p_bar=7.07 gate=0
+VKELLO w=66 t_ms=23520 z_us=-135.1 T_us=20012.368 d=0.02417 sd_us=264.7 amp=0.265 lock=1 p_bar=7.08 gate=0
+VKELLO w=67 t_ms=23681 z_us=-1500.7 T_us=20011.104 d=0.01869 sd_us=263.2 amp=0.324 lock=1 p_bar=7.09 gate=0
+VKELLO w=68 t_ms=23842 z_us=-375.5 T_us=20010.890 d=0.01732 sd_us=262.0 amp=0.276 lock=1 p_bar=7.08 gate=0
+VKELLO w=69 t_ms=24003 z_us=-766.9 T_us=20010.288 d=0.01450 sd_us=261.1 amp=0.265 lock=1 p_bar=7.06 gate=0
+VKELLO w=70 t_ms=24164 z_us=301.4 T_us=20010.694 d=0.01562 sd_us=260.4 amp=0.287 lock=1 p_bar=6.95 gate=0
+VKELLO w=71 t_ms=24325 z_us=-596.7 T_us=20010.242 d=0.01340 sd_us=259.9 amp=0.291 lock=1 p_bar=6.97 gate=0
+VKELLO w=72 t_ms=24486 z_us=615.5 T_us=20010.966 d=0.01573 sd_us=259.2 amp=0.316 lock=1 p_bar=6.96 gate=0
+VKELLO_RESTART pause_ms=1000 z1_us=-1455.4
+VKELLO w=73 t_ms=26783 z_us=-733.8 T_us=20010.966 d=0.01573 sd_us=608.3 amp=1.196 lock=0 p_bar=-0.46 gate=1
+VKELLO w=74 t_ms=26945 z_us=-2094.4 T_us=20010.966 d=0.01573 sd_us=641.2 amp=1.143 lock=0 p_bar=0.04 gate=1
+VKELLO w=75 t_ms=27105 z_us=-2151.1 T_us=20010.966 d=0.01573 sd_us=675.2 amp=0.859 lock=0 p_bar=0.79 gate=1
+VKELLO w=76 t_ms=27267 z_us=-2712.4 T_us=20004.886 d=-0.01032 sd_us=511.6 amp=0.567 lock=0 p_bar=1.67 gate=0
+VKELLO w=77 t_ms=27428 z_us=-1096.3 T_us=20002.400 d=-0.01780 sd_us=433.6 amp=0.477 lock=0 p_bar=3.19 gate=0
+VKELLO w=78 t_ms=27588 z_us=-1217.2 T_us=20000.156 d=-0.02438 sd_us=387.0 amp=0.412 lock=1 p_bar=4.55 gate=0
+VKELLO w=79 t_ms=27750 z_us=649.8 T_us=20000.906 d=-0.02140 sd_us=355.6 amp=0.267 lock=1 p_bar=5.64 gate=0
+VKELLO w=80 t_ms=27910 z_us=-79.8 T_us=20000.632 d=-0.02172 sd_us=333.1 amp=0.326 lock=1 p_bar=6.25 gate=0
+VKELLO w=81 t_ms=28071 z_us=1497.1 T_us=20002.200 d=-0.01609 sd_us=316.1 amp=0.197 lock=1 p_bar=6.58 gate=0
+VKELLO w=82 t_ms=28233 z_us=1303.4 T_us=20003.476 d=-0.01145 sd_us=302.9 amp=0.316 lock=1 p_bar=6.74 gate=0
+VKELLO w=83 t_ms=28394 z_us=1255.2 T_us=20004.666 d=-0.00714 sd_us=292.6 amp=0.286 lock=1 p_bar=6.73 gate=0
+VKELLO w=84 t_ms=28554 z_us=846.5 T_us=20005.440 d=-0.00429 sd_us=284.4 amp=0.281 lock=1 p_bar=6.76 gate=0
+VKELLO w=85 t_ms=28716 z_us=932.0 T_us=20006.290 d=-0.00118 sd_us=277.8 amp=0.256 lock=1 p_bar=6.76 gate=0
+VKELLO w=86 t_ms=28877 z_us=744.6 T_us=20006.976 d=0.00130 sd_us=272.6 amp=0.299 lock=1 p_bar=6.83 gate=0
+VKELLO w=87 t_ms=29037 z_us=1247.1 T_us=20008.138 d=0.00549 sd_us=268.5 amp=0.234 lock=1 p_bar=6.81 gate=0
+VKELLO w=88 t_ms=29198 z_us=260.2 T_us=20008.420 d=0.00637 sd_us=265.3 amp=0.266 lock=1 p_bar=6.87 gate=0
+VKELLO w=89 t_ms=29359 z_us=752.9 T_us=20009.162 d=0.00895 sd_us=262.8 amp=0.241 lock=1 p_bar=6.87 gate=0
+VKELLO w=90 t_ms=29521 z_us=489.1 T_us=20009.686 d=0.01066 sd_us=260.9 amp=0.258 lock=1 p_bar=6.91 gate=0
+VKELLO w=91 t_ms=29681 z_us=373.7 T_us=20010.118 d=0.01198 sd_us=259.6 amp=0.239 lock=1 p_bar=6.89 gate=0
+VKELLO w=92 t_ms=29842 z_us=-652.8 T_us=20009.604 d=0.00963 sd_us=258.7 amp=0.297 lock=1 p_bar=7.01 gate=0
+VKELLO w=93 t_ms=30003 z_us=188.1 T_us=20009.858 d=0.01032 sd_us=258.1 amp=0.255 lock=1 p_bar=6.89 gate=0
+VKELLO w=94 t_ms=30164 z_us=-830.0 T_us=20009.150 d=0.00725 sd_us=257.8 amp=0.227 lock=1 p_bar=6.85 gate=0
+VKELLO w=95 t_ms=30325 z_us=-71.8 T_us=20009.140 d=0.00698 sd_us=257.8 amp=0.280 lock=1 p_bar=6.87 gate=0
+VKELLO w=96 t_ms=30486 z_us=-613.7 T_us=20008.602 d=0.00464 sd_us=257.9 amp=0.205 lock=1 p_bar=6.84 gate=0
+VKELLO_RESTART pause_ms=2000 z1_us=-733.8
+VKELLO w=97 t_ms=35784 z_us=1006.8 T_us=20008.602 d=0.00464 sd_us=1440.4 amp=1.261 lock=0 p_bar=-0.96 gate=1
+VKELLO w=98 t_ms=35945 z_us=623.2 T_us=20008.602 d=0.00464 sd_us=1496.7 amp=1.816 lock=0 p_bar=-0.77 gate=1
+VKELLO w=99 t_ms=36106 z_us=-680.0 T_us=20008.602 d=0.00464 sd_us=1554.2 amp=2.109 lock=0 p_bar=-0.64 gate=1
+VKELLO w=100 t_ms=36267 z_us=-3460.7 T_us=20008.602 d=0.00464 sd_us=1613.1 amp=1.526 lock=0 p_bar=0.07 gate=1
+VKELLO w=101 t_ms=36428 z_us=-4801.3 T_us=20008.602 d=0.00464 sd_us=1673.2 amp=0.878 lock=0 p_bar=0.59 gate=1
+VKELLO w=102 t_ms=36589 z_us=-4749.1 T_us=19991.922 d=-0.03708 sd_us=674.0 amp=0.463 lock=0 p_bar=1.65 gate=0
+VKELLO w=103 t_ms=36749 z_us=-841.8 T_us=19989.776 d=-0.04132 sd_us=504.2 amp=0.488 lock=0 p_bar=3.19 gate=0
+VKELLO w=104 t_ms=36909 z_us=-672.7 T_us=19988.402 d=-0.04386 sd_us=424.9 amp=0.343 lock=0 p_bar=4.61 gate=0
+VKELLO w=105 t_ms=37069 z_us=844.6 T_us=19989.116 d=-0.04113 sd_us=377.4 amp=0.410 lock=1 p_bar=5.83 gate=0
+VKELLO w=106 t_ms=37229 z_us=1106.3 T_us=19990.004 d=-0.03783 sd_us=345.6 amp=0.300 lock=1 p_bar=6.34 gate=0
+VKELLO w=107 t_ms=37389 z_us=948.4 T_us=19990.658 d=-0.03506 sd_us=323.0 amp=0.232 lock=1 p_bar=6.64 gate=0
+VKELLO w=108 t_ms=37549 z_us=422.1 T_us=19990.782 d=-0.03383 sd_us=306.3 amp=0.246 lock=1 p_bar=6.76 gate=0
+VKELLO w=109 t_ms=37709 z_us=1194.7 T_us=19991.624 d=-0.03024 sd_us=293.8 amp=0.226 lock=1 p_bar=6.80 gate=0
+VKELLO w=110 t_ms=37869 z_us=581.7 T_us=19991.922 d=-0.02843 sd_us=284.5 amp=0.305 lock=1 p_bar=6.88 gate=0
+VKELLO w=111 t_ms=38029 z_us=1019.8 T_us=19992.646 d=-0.02512 sd_us=277.4 amp=0.292 lock=1 p_bar=6.92 gate=0
+VKELLO w=112 t_ms=38189 z_us=538.7 T_us=19992.956 d=-0.02329 sd_us=272.3 amp=0.272 lock=1 p_bar=6.93 gate=0
+VKELLO w=113 t_ms=38349 z_us=721.2 T_us=19993.466 d=-0.02074 sd_us=268.6 amp=0.239 lock=1 p_bar=6.88 gate=0
+VKELLO w=114 t_ms=38509 z_us=213.2 T_us=19993.512 d=-0.01995 sd_us=266.2 amp=0.312 lock=1 p_bar=6.97 gate=0
+VKELLO w=115 t_ms=38669 z_us=371.4 T_us=19993.728 d=-0.01853 sd_us=264.7 amp=0.245 lock=1 p_bar=6.87 gate=0
+VKELLO w=116 t_ms=38829 z_us=77.0 T_us=19993.660 d=-0.01823 sd_us=263.9 amp=0.260 lock=1 p_bar=6.93 gate=0
+VKELLO w=117 t_ms=38989 z_us=773.4 T_us=19994.340 d=-0.01508 sd_us=263.6 amp=0.203 lock=1 p_bar=6.89 gate=0
+VKELLO w=118 t_ms=39149 z_us=654.4 T_us=19994.934 d=-0.01235 sd_us=263.8 amp=0.325 lock=1 p_bar=6.97 gate=0
+VKELLO w=119 t_ms=39309 z_us=450.6 T_us=19995.336 d=-0.01043 sd_us=264.2 amp=0.233 lock=1 p_bar=6.88 gate=0
+VKELLO w=120 t_ms=39469 z_us=536.7 T_us=19995.860 d=-0.00811 sd_us=264.8 amp=0.264 lock=1 p_bar=6.97 gate=0
+VKELLO_RESTART pause_ms=5000 z1_us=1006.8
+VKELLO_END T_us=19995.860 hz=50.0104 windows=120 gated=11 rebased=0 reason=ok

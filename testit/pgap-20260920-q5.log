@@ -1,0 +1,3 @@
+CMD_OK pgap:4.0:50:300:5:10:7485:14970
+PGAP_START rate=1000 target=4.00 n=50 spacing_ms=300 gap_us=5000 period_us=19960 phases=10 gain=1.0000 offset=-0.990
+PGAP_END gaps=0 pmax=-0.56 reason=noreach

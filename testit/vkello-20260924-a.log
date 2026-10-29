@@ -1,0 +1,73 @@
+CMD_OK vkello:0
+Received: 'sync'
+Received: 'sync'
+Received: 'brew_log?'
+MAINSCAL_VENT cycles=2 bar=-0.68
+VKELLO_VENT cycles=2 bar=-0.68
+VKELLO_R w=1 t_ms=160 z_us=-4480.6 amp=1.577 p_bar=-0.51
+VKELLO_R w=2 t_ms=324 z_us=-3356.9 amp=1.818 p_bar=-0.75
+VKELLO_R w=3 t_ms=485 z_us=-2671.1 amp=1.653 p_bar=-0.89
+VKELLO_R w=4 t_ms=646 z_us=-2757.2 amp=1.610 p_bar=-0.86
+VKELLO_R w=5 t_ms=807 z_us=-2734.3 amp=1.609 p_bar=-0.81
+VKELLO_R w=6 t_ms=967 z_us=-2438.9 amp=1.573 p_bar=-0.84
+VKELLO_R w=7 t_ms=1127 z_us=-2288.7 amp=1.516 p_bar=-0.81
+VKELLO_R w=8 t_ms=1287 z_us=-2233.6 amp=1.642 p_bar=-0.82
+VKELLO_R w=9 t_ms=1447 z_us=-2187.8 amp=1.585 p_bar=-0.82
+VKELLO_R w=10 t_ms=1608 z_us=-2351.1 amp=1.619 p_bar=-0.98
+VKELLO_R w=11 t_ms=1768 z_us=-1834.4 amp=1.486 p_bar=-0.78
+VKELLO_R w=12 t_ms=1929 z_us=-1945.1 amp=1.698 p_bar=-0.77
+VKELLO_R w=13 t_ms=2089 z_us=-1849.7 amp=1.638 p_bar=-0.80
+VKELLO_R w=14 t_ms=2250 z_us=-2063.3 amp=1.709 p_bar=-0.72
+VKELLO_R w=15 t_ms=2410 z_us=-1579.6 amp=1.717 p_bar=-0.66
+VKELLO_R w=16 t_ms=2570 z_us=-2020.1 amp=1.829 p_bar=-0.66
+VKELLO_R w=17 t_ms=2731 z_us=-1799.2 amp=1.950 p_bar=-0.63
+VKELLO_R w=18 t_ms=2891 z_us=-2321.6 amp=1.902 p_bar=-0.67
+VKELLO_R w=19 t_ms=3051 z_us=-1766.4 amp=1.955 p_bar=-0.52
+VKELLO_R w=20 t_ms=3211 z_us=-2299.6 amp=2.048 p_bar=-0.47
+VKELLO_R w=21 t_ms=3372 z_us=-2822.0 amp=2.166 p_bar=-0.32
+VKELLO_R w=22 t_ms=3532 z_us=-3289.8 amp=2.294 p_bar=-0.24
+VKELLO_R w=23 t_ms=3692 z_us=-4330.5 amp=2.007 p_bar=-0.14
+VKELLO_R w=24 t_ms=3853 z_us=-4681.6 amp=1.779 p_bar=-0.20
+VKELLO_R w=25 t_ms=4014 z_us=-5304.7 amp=1.694 p_bar=0.10
+VKELLO_R w=26 t_ms=4174 z_us=-4853.7 amp=1.587 p_bar=-0.20
+VKELLO_R w=27 t_ms=4335 z_us=-4899.9 amp=1.462 p_bar=-0.11
+VKELLO_R w=28 t_ms=4495 z_us=-4902.0 amp=1.446 p_bar=-0.10
+VKELLO_R w=29 t_ms=4655 z_us=-5322.1 amp=1.300 p_bar=0.11
+VKELLO_R w=30 t_ms=4816 z_us=-5183.0 amp=1.205 p_bar=0.21
+VKELLO_R w=31 t_ms=4976 z_us=-4953.3 amp=1.151 p_bar=0.30
+VKELLO_R w=32 t_ms=5136 z_us=-4986.6 amp=1.199 p_bar=0.30
+VKELLO_R w=33 t_ms=5296 z_us=-5046.9 amp=1.086 p_bar=0.30
+VKELLO_R w=34 t_ms=5457 z_us=-4844.3 amp=1.150 p_bar=0.42
+VKELLO_R w=35 t_ms=5618 z_us=-4647.7 amp=1.077 p_bar=0.53
+VKELLO_R w=36 t_ms=5778 z_us=-4593.2 amp=1.112 p_bar=0.65
+VKELLO_R w=37 t_ms=5938 z_us=-4651.1 amp=1.041 p_bar=0.68
+VKELLO_R w=38 t_ms=6099 z_us=-4533.6 amp=1.016 p_bar=0.82
+VKELLO_R w=39 t_ms=6259 z_us=-4304.3 amp=1.072 p_bar=0.94
+VKELLO_R w=40 t_ms=6420 z_us=-4349.1 amp=0.962 p_bar=1.06
+VKELLO_R w=41 t_ms=6581 z_us=-4278.9 amp=0.971 p_bar=1.13
+VKELLO_R w=42 t_ms=6742 z_us=-4282.7 amp=0.849 p_bar=1.35
+VKELLO_R w=43 t_ms=6902 z_us=-4002.5 amp=0.979 p_bar=1.53
+VKELLO_R w=44 t_ms=7063 z_us=-3731.0 amp=0.741 p_bar=1.79
+VKELLO_R w=45 t_ms=7224 z_us=-4020.2 amp=0.759 p_bar=1.90
+VKELLO_R w=46 t_ms=7385 z_us=-3736.2 amp=0.684 p_bar=2.20
+VKELLO_R w=47 t_ms=7545 z_us=-3863.3 amp=0.719 p_bar=2.39
+VKELLO_R w=48 t_ms=7705 z_us=-4465.7 amp=0.616 p_bar=2.61
+VKELLO_R w=49 t_ms=7866 z_us=-3545.3 amp=0.575 p_bar=2.98
+VKELLO_R w=50 t_ms=8027 z_us=-3781.7 amp=0.717 p_bar=3.33
+VKELLO_R w=51 t_ms=8188 z_us=-3419.3 amp=0.507 p_bar=3.75
+VKELLO_R w=52 t_ms=8348 z_us=-3159.3 amp=0.551 p_bar=4.26
+VKELLO_R w=53 t_ms=8509 z_us=-2737.3 amp=0.450 p_bar=4.72
+VKELLO_R w=54 t_ms=8670 z_us=-3757.8 amp=0.469 p_bar=5.19
+VKELLO_R w=55 t_ms=8831 z_us=-2697.3 amp=0.382 p_bar=5.77
+VKELLO_R w=56 t_ms=8991 z_us=-3526.4 amp=0.287 p_bar=6.25
+VKELLO_R w=57 t_ms=9152 z_us=-2635.0 amp=0.365 p_bar=6.78
+VKELLO_R w=58 t_ms=9312 z_us=-2989.5 amp=0.277 p_bar=7.09
+VKELLO_R w=59 t_ms=9472 z_us=-2171.2 amp=0.299 p_bar=7.41
+VKELLO_R w=60 t_ms=9632 z_us=-1859.9 amp=0.296 p_bar=7.60
+VKELLO_R w=61 t_ms=9793 z_us=-2338.3 amp=0.321 p_bar=7.79
+VKELLO_R w=62 t_ms=9954 z_us=-1846.3 amp=0.233 p_bar=7.87
+VKELLO_R w=63 t_ms=10114 z_us=-2632.4 amp=0.246 p_bar=7.95
+VKELLO_R w=64 t_ms=10275 z_us=-1514.5 amp=0.343 p_bar=7.99
+VKELLO_R w=65 t_ms=10436 z_us=-1985.2 amp=0.292 p_bar=8.29
+VKELLO_R w=66 t_ms=10597 z_us=-1721.9 amp=0.280 p_bar=9.44
+VKELLO_END T_us=20000.000 hz=50.0000 windows=0 gated=0 pgated=0 rebased=0 reason=overpressure

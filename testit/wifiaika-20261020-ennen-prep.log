@@ -1,0 +1,29 @@
+CMD_OK pvent
+Received: 'sync'
+Received: 'brew_log?'
+BREW_LOG resend none pending
+Received: 'stby:0'
+STBY timeout_min=0 standby=0 target=100.0
+Received: 'stbt:80'
+STBT temp=80 standby=0 target=100.0
+MAINSCAL_VENT cycles=3 bar=-0.54
+PVENT_END cycles=3 bar=-0.54 reason=ok
+
+CMD_OK wmax:740
+save_settings
+
+CMD_OK wrise:200
+save_settings
+Connected - sending initial settings
+Connected - sending initial settings
+Received: 'sync'
+
+HEAT temp=100.61 age_ms=103 target=100.0 heater=0 dead=0 proven=0 retries=0 dead_c=None dead_age_s=None on_ms=0 window_ms=120000 guard=ok
+CMD_OK heat?
+Received: 'stby:0'
+STBY timeout_min=0 standby=0 target=100.0
+Received: 'wifi:key?'
+Received: 'stbt:80'
+STBT temp=80 standby=0 target=100.0
+Received: 'wifi:key?'
+

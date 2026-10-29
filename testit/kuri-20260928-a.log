@@ -1,0 +1,16 @@
+KURI_START wmax=720 w=513.2
+KURI t=203 bar=-1.00 filt=0.49 w=514.5 n=6
+KURI t=403 bar=-0.90 filt=0.23 w=515.9 n=11
+KURI t=604 bar=-0.82 filt=0.02 w=517.0 n=16
+KURI t=805 bar=-0.76 filt=-0.13 w=517.6 n=21
+KURI t=1005 bar=-0.69 filt=-0.26 w=518.4 n=26
+KURI t=1205 bar=-0.88 filt=-0.37 w=531.3 n=31
+KURI t=1406 bar=-0.88 filt=-0.47 w=622.2 n=36
+KURI t=1607 bar=-0.92 filt=-0.55 w=776.6 n=41
+KURI_END reason=tray filt=-0.57 filt_max=0.68 raw_max=1.82 n=42 ms=1663
+DEVSAFE relays off (main exited) relays=[0, 0, 0]le "classes.py", line 750, in get_pressure
+  File "classes.py", lineget_pressure
+MemoryError: memory allocation failed, allocating 8192 bytes
+MicroPython v1.28.0 on 2026-04-06; Raspberry Pi Pico 2 W with RP2350
+Type "help()" for more information.
+>>> 

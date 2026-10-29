@@ -1,0 +1,125 @@
+CMD_OK ystall:30:34
+YSTALL_START s=30 mode=34 free=121680
+YS_GC t_ms=300 us=17958
+YS_GC t_ms=619 us=17613
+YS_GC t_ms=937 us=78762
+YS_GC t_ms=1317 us=17676
+YSTALL t_ms=1547 us=33454 task=scale:32741
+YS_GC t_ms=1635 us=27400
+YS_GC t_ms=1963 us=17518
+YSTALL t_ms=2047 us=32185 task=log:118
+YSTALL t_ms=2148 us=13528 task=scale:1976
+YS_GC t_ms=2282 us=17435
+YSTALL t_ms=2548 us=32637 task=log:116
+YS_GC t_ms=2600 us=17476
+YS_GC t_ms=2918 us=17662
+YS_GC t_ms=3237 us=67841
+YS_GC t_ms=3605 us=17554
+YS_GC t_ms=3923 us=17513
+YS_GC t_ms=4241 us=29748
+YS_GC t_ms=4584 us=17492
+YS_GC t_ms=4902 us=17453
+YSTALL t_ms=5048 us=34645 task=scale:33493
+YS_GC t_ms=5220 us=17568
+YSTALL t_ms=5446 us=13304 task=scale:12600
+YS_GC t_ms=5538 us=107474
+YS_GC t_ms=5946 us=79597
+YS_GC t_ms=6326 us=17562
+YSTALL t_ms=6447 us=12925 task=diag:196
+YS_GC t_ms=6644 us=19162
+YS_GC t_ms=6963 us=17465
+YSTALL t_ms=7048 us=32849 task=log:127
+YS_GC t_ms=7281 us=17379
+YSTALL t_ms=7548 us=32782 task=log:135
+YS_GC t_ms=7599 us=17460
+YS_GC t_ms=7917 us=19355
+YS_GC t_ms=8239 us=94043
+YSTALL t_ms=8336 us=95929 task=diag:91519
+YS_GC t_ms=8634 us=98280
+YSTALL t_ms=8848 us=11911 task=-:0
+YS_GC t_ms=9033 us=48365
+YS_GC t_ms=9382 us=27072
+YS_GC t_ms=9710 us=17432
+YS_GC t_ms=10028 us=17381
+YSTALL t_ms=10047 us=33653 task=diag:32278
+YS_GC t_ms=10345 us=159896
+YS_GC t_ms=10806 us=17384
+YSTALL t_ms=11046 us=35087 task=scale:32688
+YS_GC t_ms=11124 us=17436
+YS_GC t_ms=11443 us=18164
+YS_GC t_ms=11762 us=17502
+YS_GC t_ms=12081 us=17436
+YS_GC t_ms=12400 us=17430
+YSTALL t_ms=12548 us=32144 task=-:0
+YS_GC t_ms=12719 us=17461
+YS_GC t_ms=13036 us=48247
+YS_GC t_ms=13385 us=17453
+YS_GC t_ms=13703 us=17464
+YS_GC t_ms=14021 us=17382
+YSTALL t_ms=14048 us=33279 task=scale:32566
+YS_GC t_ms=14341 us=18146
+YS_GC t_ms=14660 us=17489
+YS_GC t_ms=14978 us=17453
+YS_GC t_ms=15297 us=17383
+YSTALL t_ms=15348 us=11271 task=-:0
+YS_GC t_ms=15614 us=26861
+YS_GC t_ms=15942 us=79581
+YS_GC t_ms=16322 us=17885
+YS_GC t_ms=16641 us=18154
+YSTALL t_ms=16848 us=12459 task=log:11706
+YS_GC t_ms=16959 us=39558
+YS_GC t_ms=17299 us=17382
+YSTALL t_ms=17448 us=11904 task=-:0
+YS_GC t_ms=17617 us=23865
+YS_GC t_ms=17941 us=18206
+YS_GC t_ms=18260 us=21560
+YS_GC t_ms=18583 us=17495
+YS_GC t_ms=18901 us=17461
+YS_GC t_ms=19219 us=17528
+YS_GC t_ms=19537 us=48306
+YS_GC t_ms=19886 us=53212
+YSTALL t_ms=20148 us=21404 task=ser:112
+YS_GC t_ms=20240 us=20878
+YSTALL t_ms=20548 us=32207 task=-:0
+YS_GC t_ms=20582 us=17711
+YS_GC t_ms=20901 us=17431
+YS_GC t_ms=21219 us=17500
+YS_GC t_ms=21537 us=48288
+YS_GC t_ms=21886 us=42969
+YSTALL t_ms=22046 us=34511 task=scale:1929
+YS_GC t_ms=22230 us=17465
+YSTALL t_ms=22348 us=17050 task=log:9857
+YS_GC t_ms=22548 us=33824
+YS_GC t_ms=22883 us=56992
+YSTALL t_ms=23047 us=34838 task=scale:34098
+YS_GC t_ms=23240 us=30360
+YS_GC t_ms=23584 us=57130
+YS_GC t_ms=23941 us=79580
+YSTALL t_ms=24048 us=30247 task=-:0
+YSTALL t_ms=24148 us=19993 task=-:0
+YS_GC t_ms=24322 us=18017
+YSTALL t_ms=24548 us=34690 task=scale:1948
+YS_GC t_ms=24641 us=105357
+YS_GC t_ms=25047 us=193169
+YS_GC t_ms=25541 us=51531
+YS_GC t_ms=25893 us=46878
+YS_GC t_ms=26240 us=113254
+YSTALL t_ms=26548 us=32229 task=-:0
+YS_GC t_ms=26654 us=17542
+YS_GC t_ms=26973 us=17525
+YSTALL t_ms=27048 us=34505 task=scale:1949
+YS_GC t_ms=27292 us=17496
+YSTALL t_ms=27547 us=34593 task=scale:33884
+YS_GC t_ms=27609 us=17491
+YS_GC t_ms=27928 us=17495
+YS_GC t_ms=28245 us=27753
+YSTALL t_ms=28448 us=13518 task=ser:4019
+YSTALL t_ms=28547 us=34590 task=scale:33887
+YS_GC t_ms=28583 us=17446
+YS_GC t_ms=28901 us=17428
+YSTALL t_ms=29046 us=34003 task=scale:32807
+YS_GC t_ms=29219 us=17453
+YS_GC t_ms=29538 us=48319
+YS_GC t_ms=29886 us=17460
+YSTALL_END s=30 mode=34 n=16544 y10=32 y50=1 y_max_us=95929 gc_n=89 gc_max_us=193169 free=267072 guard_off=0 radio_off=0 c1=1
+

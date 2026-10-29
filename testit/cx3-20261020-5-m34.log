@@ -1,0 +1,25 @@
+CMD_OK ystall:5:34
+YSTALL_START s=5 mode=34 free=92608
+YS_GC t_ms=315 us=18483
+YSTALL t_ms=391 us=11202 task=scale:10060
+YS_GC t_ms=634 us=57336
+YS_GC t_ms=998 us=18085
+YSTALL t_ms=1292 us=41353 task=scale:1923
+YS_GC t_ms=1334 us=17958
+YS_GC t_ms=1654 us=36977
+YSTALL t_ms=1791 us=38048 task=-:0
+YS_GC t_ms=1991 us=100305
+YSTALL t_ms=2192 us=27648 task=ser:98
+YS_GC t_ms=2391 us=166674
+YS_GC t_ms=2858 us=17865
+YS_GC t_ms=3176 us=85921
+YS_GC t_ms=3562 us=17944
+YS_GC t_ms=3881 us=115249
+YSTALL t_ms=4291 us=38544 task=log:112
+YS_GC t_ms=4331 us=17865
+YSTALL t_ms=4391 us=11469 task=log:124
+YS_GC t_ms=4649 us=17840
+YS_GC t_ms=4967 us=18840
+YSTALL t_ms=4989 us=12672 task=diag:1448
+YSTALL_END s=5 mode=34 n=2562 y10=7 y50=0 y_max_us=41353 gc_n=14 gc_max_us=166674 free=263056 guard_off=0 radio_off=0 c1=1
+

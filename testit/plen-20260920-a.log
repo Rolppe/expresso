@@ -1,0 +1,35 @@
+CMD_OK plen:7.0:2
+PLEN_START rate=1000 target=7.00 lengths=16 reps=2 spacing_ms=400 half_cycle_us=9980 gain=1.0000 offset=-0.990
+PLEN k=0 len_ms=6 base_bar=7.912 depth_bar=0.392 trough_ms=25
+PLEN k=1 len_ms=8 base_bar=8.497 depth_bar=0.433 trough_ms=105
+PLEN k=2 len_ms=10 base_bar=8.764 depth_bar=0.486 trough_ms=25
+PLEN k=3 len_ms=12 base_bar=8.831 depth_bar=0.278 trough_ms=185
+PLEN k=4 len_ms=14 base_bar=9.042 depth_bar=0.416 trough_ms=146
+PLEN k=5 len_ms=16 base_bar=8.873 depth_bar=0.401 trough_ms=65
+PLEN k=6 len_ms=18 base_bar=9.037 depth_bar=0.439 trough_ms=5
+PLEN k=7 len_ms=20 base_bar=8.887 depth_bar=0.726 trough_ms=67
+PLEN k=8 len_ms=22 base_bar=8.808 depth_bar=0.828 trough_ms=85
+PLEN k=9 len_ms=24 base_bar=8.844 depth_bar=0.857 trough_ms=66
+PLEN k=10 len_ms=26 base_bar=8.807 depth_bar=0.676 trough_ms=105
+PLEN k=11 len_ms=28 base_bar=9.202 depth_bar=0.775 trough_ms=66
+PLEN k=12 len_ms=30 base_bar=9.618 depth_bar=0.898 trough_ms=65
+PLEN k=13 len_ms=32 base_bar=9.739 depth_bar=0.768 trough_ms=104
+PLEN k=14 len_ms=34 base_bar=9.692 depth_bar=0.914 trough_ms=65
+PLEN k=15 len_ms=36 base_bar=9.841 depth_bar=0.862 trough_ms=68
+PLEN k=16 len_ms=6 base_bar=9.691 depth_bar=0.279 trough_ms=62
+PLEN k=17 len_ms=8 base_bar=9.771 depth_bar=0.298 trough_ms=106
+PLEN k=18 len_ms=10 base_bar=9.834 depth_bar=0.434 trough_ms=25
+PLEN k=19 len_ms=12 base_bar=9.867 depth_bar=0.364 trough_ms=106
+PLEN k=20 len_ms=14 base_bar=9.967 depth_bar=0.403 trough_ms=25
+PLEN k=21 len_ms=16 base_bar=9.958 depth_bar=0.366 trough_ms=86
+PLEN k=22 len_ms=18 base_bar=9.970 depth_bar=0.346 trough_ms=6
+PLEN k=23 len_ms=20 base_bar=9.965 depth_bar=0.902 trough_ms=66
+PLEN k=24 len_ms=22 base_bar=9.880 depth_bar=0.755 trough_ms=125
+PLEN k=25 len_ms=24 base_bar=9.754 depth_bar=0.805 trough_ms=66
+PLEN k=26 len_ms=26 base_bar=9.845 depth_bar=0.864 trough_ms=65
+PLEN k=27 len_ms=28 base_bar=9.940 depth_bar=0.852 trough_ms=68
+PLEN k=28 len_ms=30 base_bar=9.740 depth_bar=0.812 trough_ms=65
+PLEN k=29 len_ms=32 base_bar=9.904 depth_bar=0.853 trough_ms=67
+PLEN k=30 len_ms=34 base_bar=9.755 depth_bar=0.740 trough_ms=65
+PLEN k=31 len_ms=36 base_bar=9.932 depth_bar=0.904 trough_ms=64
+PLEN_END gaps=32 pmax=10.64 reason=ok

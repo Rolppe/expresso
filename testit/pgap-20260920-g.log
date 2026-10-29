@@ -1,0 +1,19 @@
+CMD_OK pgap:7.0:20:300:5:20
+PGAP_START rate=1000 target=7.00 n=20 spacing_ms=300 gap_us=5000 period_us=19960 phases=20 gain=1.0000 offset=-0.990
+PGAP k=0 phase_us=0 len_ms=5 start=67 base_bar=8.334 depth_bar=0.589 trough_ms=52
+PGAP k=1 phase_us=998 len_ms=5 start=367 base_bar=8.840 depth_bar=0.212 trough_ms=93
+PGAP k=2 phase_us=1996 len_ms=5 start=667 base_bar=9.204 depth_bar=0.614 trough_ms=55
+PGAP k=3 phase_us=2994 len_ms=5 start=968 base_bar=9.199 depth_bar=0.714 trough_ms=52
+PGAP k=4 phase_us=3992 len_ms=5 start=1268 base_bar=9.290 depth_bar=0.634 trough_ms=71
+PGAP k=5 phase_us=4990 len_ms=5 start=1569 base_bar=9.406 depth_bar=0.791 trough_ms=51
+PGAP k=6 phase_us=5988 len_ms=5 start=1869 base_bar=9.403 depth_bar=0.678 trough_ms=50
+PGAP k=7 phase_us=6986 len_ms=5 start=2169 base_bar=9.529 depth_bar=0.661 trough_ms=54
+PGAP k=8 phase_us=7984 len_ms=5 start=2470 base_bar=9.958 depth_bar=0.790 trough_ms=51
+PGAP k=9 phase_us=8982 len_ms=5 start=2770 base_bar=10.160 depth_bar=0.842 trough_ms=50
+PGAP k=10 phase_us=9980 len_ms=5 start=3071 base_bar=10.215 depth_bar=0.674 trough_ms=68
+PGAP k=11 phase_us=10978 len_ms=5 start=3371 base_bar=10.302 depth_bar=0.846 trough_ms=51
+PGAP k=12 phase_us=11976 len_ms=5 start=3671 base_bar=10.289 depth_bar=0.793 trough_ms=50
+PGAP k=13 phase_us=12974 len_ms=5 start=3972 base_bar=10.248 depth_bar=0.696 trough_ms=47
+PGAP k=14 phase_us=13972 len_ms=5 start=4272 base_bar=10.299 depth_bar=0.739 trough_ms=51
+PGAP k=15 phase_us=14970 len_ms=5 start=4573 base_bar=10.322 depth_bar=0.666 trough_ms=46
+PGAP_END gaps=16 pmax=11.01 reason=overpressure

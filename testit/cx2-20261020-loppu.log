@@ -1,0 +1,3 @@
+HEAT temp=124.44 age_ms=104 target=125 heater=0 dead=0 proven=0 retries=0 dead_c=None dead_age_s=None on_ms=0 window_ms=120000 guard=ok
+CMD_OK heat?
+

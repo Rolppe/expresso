@@ -1,0 +1,8 @@
+CMD_OK pstep:7.0
+PSTEP_START rate=1000 target=7.00 hold_ms=1000 run_ms=1000 tail_ms=1500 notch_us=19960 gain=1.0000 offset=-0.990
+DEVSAFE relays off (main exited) relays=[0, 0, 0]l_complete
+  File "main.py", line 202, in local_program
+  File "functions.py", line 1002, in memory allocation failed, allocating 28000 bytes
+MicroPython v1.28.0 on 2026-04-06; Raspberry Pi Pico 2 W with RP2350
+Type "help()" for more information.
+>>> 

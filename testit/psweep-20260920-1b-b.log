@@ -1,0 +1,3 @@
+CMD_OK psweep:2000:3.0:5:8
+PSWEEP_START segs=7 n=5 ms=2000 target=3.00 period_us=159680 on_us=19960 mult=8
+PSWEEP_END segs=0 dur_ms=0 reason=overpressure

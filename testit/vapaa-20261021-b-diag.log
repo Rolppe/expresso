@@ -1,0 +1,12 @@
+2026-10-21T11:06:07.872+03:00 d27b4599 DIAG_MIN win_ms=60100 heat_ms=2900 pump_ms=0 p_n=601 p_avg=-0.44 p_min=-0.50 p_max=-0.36 T=98.01 target=98.00 n10=6 d10_min=-0.039 d10_max=0.036 pi_i=0.045
+2026-10-21T11:07:07.924+03:00 d27b4599 DIAG_MIN win_ms=60000 heat_ms=3000 pump_ms=0 p_n=600 p_avg=-0.43 p_min=-0.49 p_max=-0.37 T=97.96 target=98.00 n10=6 d10_min=-0.025 d10_max=0.007 pi_i=0.045
+2026-10-21T11:07:40.814+03:00 d27b4599 BH_FREE fill=121 tray_g=14.2
+2026-10-21T11:07:41.314+03:00 d27b4599 EU_END reason=stop max=0.00 over=-2.50 hold_n=0 hold_mean=0.000 hold_sd=0.000 strokes=147 rm=0 sk10=0 sk20=0 late=0 miss=0
+2026-10-21T11:07:41.833+03:00 d27b4599 PB_END loops=0 max_loop_ms=0 reason=stopped learned_ff_brew=0.50 c1_n=14 c1_gap_ms=252 c1_bad=0 c1_err=0
+2026-10-21T11:07:41.834+03:00 d27b4599 BH_END sum_ms=10300 left_ms=7580 k=67.5 arm=2 fill=147
+2026-10-21T11:08:07.990+03:00 d27b4599 DIAG_MIN win_ms=60100 heat_ms=12487 pump_ms=2881 p_n=601 p_avg=-0.55 p_min=-2.18 p_max=-0.35 T=96.49 target=98.00 n10=6 d10_min=-5.310 d10_max=0.042 pi_i=0.045
+2026-10-21T11:09:08.026+03:00 d27b4599 DIAG_MIN win_ms=60100 heat_ms=700 pump_ms=0 p_n=601 p_avg=-0.38 p_min=-0.44 p_max=-0.31 T=98.82 target=98.00 n10=6 d10_min=-1.382 d10_max=0.914 pi_i=0.045
+2026-10-21T11:09:59.226+03:00 d27b4599 BH_SETTLED T=97.85 err=0.15 why=target (no learning)
+2026-10-21T11:10:08.146+03:00 d27b4599 DIAG_MIN win_ms=60000 heat_ms=900 pump_ms=0 p_n=600 p_avg=-0.44 p_min=-0.53 p_max=-0.34 T=97.53 target=98.00 n10=6 d10_min=-0.294 d10_max=0.787 pi_i=0.045
+2026-10-21T11:11:08.153+03:00 d27b4599 DIAG_MIN win_ms=60000 heat_ms=4800 pump_ms=0 p_n=600 p_avg=-0.47 p_min=-0.55 p_max=-0.39 T=97.83 target=98.00 n10=6 d10_min=-0.862 d10_max=-0.331 pi_i=0.055
+2026-10-21T11:12:08.160+03:00 d27b4599 DIAG_MIN win_ms=60000 heat_ms=2700 pump_ms=0 p_n=600 p_avg=-0.40 p_min=-0.48 p_max=-0.34 T=98.44 target=98.00 n10=6 d10_min=-0.131 d10_max=0.413 pi_i=0.052

@@ -1,0 +1,9 @@
+CMD_OK phold:15
+PHOLD_START s=15
+PHOLD t=505 bar=2.09 filt=2.37 slope=0.00
+PHOLD t=1005 bar=1.07 filt=0.97 slope=-2.80
+PHOLD t=1506 bar=1.95 filt=1.31 slope=0.68
+PHOLD t=2011 bar=4.51 filt=3.03 slope=3.41
+PHOLD t=2513 bar=8.83 filt=6.21 slope=6.33
+PHOLD t=3015 bar=10.18 filt=9.00 slope=5.54
+PHOLD_END reason=overpressure bar=9.77

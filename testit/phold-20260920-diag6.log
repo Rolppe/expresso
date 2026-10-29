@@ -1,0 +1,32 @@
+CMD_OK phold:12
+PHOLD_START s=12
+PHOLD t=505 bar=-0.50 filt=-0.44 slope=0.00
+PHOLD t=1008 bar=-1.91 filt=-0.58 slope=-0.29
+PHOLD t=1513 bar=-2.03 filt=-0.69 slope=-0.22
+PHOLD t=2014 bar=-2.10 filt=-0.73 slope=-0.08
+PHOLD t=2518 bar=-2.00 filt=-0.58 slope=0.30
+PHOLD t=3022 bar=1.51 filt=-0.57 slope=0.01
+PHOLD t=3522 bar=3.15 filt=-0.42 slope=0.30
+PHOLD t=4024 bar=0.33 filt=-0.15 slope=0.54
+PHOLD t=4527 bar=0.28 filt=0.35 slope=0.99
+PHOLD t=5027 bar=1.84 filt=1.25 slope=1.81
+PHOLD t=5532 bar=3.62 filt=2.49 slope=2.45
+PHOLD t=6036 bar=6.02 filt=4.75 slope=4.49
+PHOLD t=6539 bar=8.16 filt=7.09 slope=4.64
+PHOLD t=7040 bar=9.57 filt=8.42 slope=2.65
+PHOLD t=7541 bar=9.81 filt=8.97 slope=1.09
+PHOLD t=8045 bar=8.32 filt=8.93 slope=-0.07
+PHOLD t=8545 bar=8.71 filt=8.79 slope=-0.29
+PHOLD t=9046 bar=8.49 filt=8.79 slope=-0.00
+PHOLD t=9546 bar=9.11 filt=8.86 slope=0.16
+PHOLD t=10046 bar=8.71 filt=8.91 slope=0.09
+PHOLD t=10547 bar=8.58 filt=8.88 slope=-0.05
+PHOLD t=11048 bar=8.89 filt=8.86 slope=-0.05
+PHOLD t=11550 bar=8.55 filt=8.86 slope=0.02
+PHOLD_END reason=ok bar=8.95
+DEVSAFE relays off (main exited) relays=[0, 0, 0]le "classes.py", line 638, in get_pressure
+  File "classes.py", lineget_pressure
+MemoryError: memory allocation failed, allocating 8192 bytes
+MicroPython v1.28.0 on 2026-04-06; Raspberry Pi Pico 2 W with RP2350
+Type "help()" for more information.
+>>> 

@@ -1,0 +1,9 @@
+== uutto 1 oppi
+09:01:21BH_LEARN T=98.28 err=-0.28 sum_ms=13569 k=68.0->66.9 why=settled
+== odotus ennen uuttoa 2
+09:05:40 T=98.02 target=98.00 n10=6 d10_min=-0.030 d10_max=0.001 pi_i=0.040
+EU_END reason=done max=2.87 over=0.11 hold_n=149 hold_mean=2.504 hold_sd=0.120 strokes=89 rm=153 sk10=23 sk20=2 late=0 miss=0
+EB_END reason=stop max=8.52 over=0.19 hold_n=714 hold_mean=8.002 hold_sd=0.234 strokes=198 rm=553 sk10=181 sk20=0 late=0 miss=0
+TS_END loops=751 max_loop_ms=24 reason=stopped learned_ff_brew=0.50 c1_n=81 c1_gap_ms=252 c1_bad=0 c1_err=0
+BH_END sum_ms=12155 left_ms=0 k=66.9 arm=1
+== uutto 2 oppi

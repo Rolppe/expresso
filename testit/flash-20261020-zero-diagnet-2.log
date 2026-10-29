@@ -1,0 +1,38 @@
+e "classes.py", line 1562, in read_temperature
+  File "/lib/adafruit_max31865.py", line 249, in temperature
+  File "/lib/adafruit_max31865.py", line 187, in read_rtd
+KeyboardInterrupt: 
+MicroPython v1.28.0 on 2026-04-06; Raspberry Pi Pico 2 W with RP2350
+Type "help()" for more information.
+>>>
+DEVSAFE relays=[0, 0, 0] ok=True watchdog=True
+SAFE_OK
+FLASH_PLAN 5/21 changed: /brew_logger.py /diagnet.py /functions.py /main.py /preset.py
+WROTE /brew_logger.py                    9196 B 1.0 s
+WROTE /diagnet.py                       10849 B 1.4 s
+WROTE /functions.py                    189045 B 22.9 s
+WROTE /main.py                          20669 B 2.7 s
+WROTE /preset.py                         2700 B 0.7 s
+/api_functions.py                OK
+/backflush.py                    OK
+/bluetooth_handler.py            OK
+/boot.py                         OK
+/boot_bluetooth_test.py          OK
+/brew_logger.py                  OK
+/classes.py                      OK
+/commands.py                     OK
+/devsafe.py                      OK
+/diagnet.py                      OK
+/functions.py                    OK
+/lib/adafruit_max31865.py        OK
+/lib/spi_device.py               OK
+/main.py                         OK
+/preset.py                       OK
+/relayguard.py                   OK
+/scale.py                        OK
+/scale_cal.json                  OK
+/secrets.py                      OK
+/ugit.py                         OK
+/verkkokello.py                  OK
+VERIFIED 21/21
+FLASH_OK

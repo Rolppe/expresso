@@ -1,0 +1,29 @@
+2026-10-21T12:41:44.852+03:00 3c09b1e0 EU_C1X n=2981 gmax_us=1201 ovf=0 nev=148 written=149 lmax_us=98 late=0 starve=0 lidx=48 lwr_us=-38857 lag_max_us=14286 cyc_min=12 fill=0
+2026-10-21T12:41:44.852+03:00 3c09b1e0 PB_END loops=0 max_loop_ms=0 reason=stopped learned_ff_brew=0.50 c1_n=14 c1_gap_ms=252 c1_bad=0 c1_err=0
+2026-10-21T12:41:44.852+03:00 3c09b1e0 BH_END sum_ms=8399 left_ms=5699 k=67.5 arm=2 fill=146
+2026-10-21T12:41:44.852+03:00 3c09b1e0 0
+2026-10-21T12:41:44.852+03:00 3c09b1e0 DIAG_SHOT end reason=switch_off n=31
+2026-10-21T12:41:44.853+03:00 3c09b1e0 BREW_LOG discard id=1 t=3428 < 15000 reason=switch_off
+2026-10-21T12:41:44.853+03:00 3c09b1e0 DIAG_HB up_s=357 free=139344 alloc=317552 drop=0 txp=18 txerr=0 smax_us=2066 tmax_us=666 rssi=-69 brew=0 pend=0 err=0 wtx=66 wtxerr=0 wsmax_us=603 lmax_us=48391 l100=0
+2026-10-21T12:41:50.186+03:00 3c09b1e0 DIAG_MIN win_ms=60000 heat_ms=10899 pump_ms=2900 p_n=600 p_avg=-0.30 p_min=-1.99 p_max=3.18 T=92.37 target=98.00 n10=6 d10_min=-0.180 d10_max=0.356 pi_i=0.056
+2026-10-21T12:42:44.899+03:00 3c09b1e0 DIAG_HB up_s=417 free=164672 alloc=292224 drop=0 txp=20 txerr=0 smax_us=549 tmax_us=0 rssi=-70 brew=0 pend=0 err=0 wtx=416 wtxerr=0 wsmax_us=1630 lmax_us=43910 l100=0
+2026-10-21T12:42:50.239+03:00 3c09b1e0 DIAG_MIN win_ms=60100 heat_ms=3700 pump_ms=0 p_n=601 p_avg=-0.49 p_min=-0.77 p_max=-0.39 T=97.92 target=98.00 n10=6 d10_min=-5.297 d10_max=-0.297 pi_i=0.056
+2026-10-21T12:43:13.262+03:00 3c09b1e0 WIFI sub 192.0.2.15
+2026-10-21T12:43:13.262+03:00 3c09b1e0 WIFI cmd sync
+2026-10-21T12:43:13.567+03:00 3c09b1e0 WIFI cmd sync
+2026-10-21T12:43:20.284+03:00 3c09b1e0 BH_SETTLED T=98.08 err=-0.08 why=target (no learning)
+2026-10-21T12:43:20.367+03:00 3c09b1e0 WIFI unsub 192.0.2.15
+2026-10-21T12:43:28.138+03:00 3c09b1e0 WIFI unsub 192.0.2.15
+2026-10-21T12:43:44.936+03:00 3c09b1e0 DIAG_HB up_s=477 free=34176 alloc=422720 drop=0 txp=27 txerr=0 smax_us=454 tmax_us=511 rssi=-71 brew=0 pend=0 err=0 wtx=719 wtxerr=0 wsmax_us=569 lmax_us=52306 l100=0
+2026-10-21T12:43:50.331+03:00 3c09b1e0 DIAG_MIN win_ms=60100 heat_ms=2100 pump_ms=0 p_n=601 p_avg=-0.46 p_min=-0.53 p_max=-0.37 T=97.77 target=98.00 n10=6 d10_min=-0.132 d10_max=0.101 pi_i=0.057
+2026-10-21T12:44:45.014+03:00 3c09b1e0 DIAG_HB up_s=537 free=134336 alloc=322560 drop=0 txp=29 txerr=0 smax_us=467 tmax_us=0 rssi=-69 brew=0 pend=0 err=0 wtx=719 wtxerr=0 wsmax_us=0 lmax_us=46740 l100=0
+2026-10-21T12:44:50.439+03:00 3c09b1e0 DIAG_MIN win_ms=60100 heat_ms=3800 pump_ms=0 p_n=601 p_avg=-0.45 p_min=-0.53 p_max=-0.38 T=98.19 target=98.00 n10=6 d10_min=-0.280 d10_max=0.134 pi_i=0.058
+2026-10-21T12:45:45.122+03:00 3c09b1e0 DIAG_HB up_s=598 free=174432 alloc=282464 drop=0 txp=31 txerr=0 smax_us=426 tmax_us=0 rssi=-69 brew=0 pend=0 err=0 wtx=719 wtxerr=0 wsmax_us=0 lmax_us=44773 l100=0
+2026-10-21T12:45:50.447+03:00 3c09b1e0 DIAG_MIN win_ms=60000 heat_ms=2700 pump_ms=0 p_n=600 p_avg=-0.45 p_min=-0.51 p_max=-0.37 T=98.35 target=98.00 n10=6 d10_min=0.210 d10_max=0.381 pi_i=0.053
+2026-10-21T12:46:45.147+03:00 3c09b1e0 DIAG_HB up_s=658 free=4464 alloc=452432 drop=0 txp=33 txerr=0 smax_us=418 tmax_us=0 rssi=-71 brew=0 pend=0 err=0 wtx=719 wtxerr=0 wsmax_us=0 lmax_us=44421 l100=0
+2026-10-21T12:46:50.490+03:00 3c09b1e0 DIAG_MIN win_ms=60000 heat_ms=2478 pump_ms=0 p_n=600 p_avg=-0.46 p_min=-0.53 p_max=-0.39 T=98.11 target=98.00 n10=6 d10_min=0.140 d10_max=0.358 pi_i=0.049
+2026-10-21T12:47:45.238+03:00 3c09b1e0 DIAG_HB up_s=718 free=49152 alloc=407744 drop=0 txp=35 txerr=0 smax_us=408 tmax_us=0 rssi=-70 brew=0 pend=0 err=0 wtx=719 wtxerr=0 wsmax_us=0 lmax_us=43290 l100=0
+2026-10-21T12:47:50.480+03:00 3c09b1e0 DIAG_MIN win_ms=60000 heat_ms=2800 pump_ms=0 p_n=600 p_avg=-0.48 p_min=-0.53 p_max=-0.40 T=98.07 target=98.00 n10=6 d10_min=0.057 d10_max=0.110 pi_i=0.048
+2026-10-21T12:48:45.242+03:00 3c09b1e0 DIAG_HB up_s=778 free=82688 alloc=374208 drop=0 txp=37 txerr=0 smax_us=484 tmax_us=0 rssi=-70 brew=0 pend=0 err=0 wtx=719 wtxerr=0 wsmax_us=0 lmax_us=46559 l100=0
+2026-10-21T12:48:50.478+03:00 3c09b1e0 DIAG_MIN win_ms=60000 heat_ms=2700 pump_ms=0 p_n=600 p_avg=-0.45 p_min=-0.51 p_max=-0.40 T=98.11 target=98.00 n10=6 d10_min=0.063 d10_max=0.100 pi_i=0.047
+2026-10-21T12:49:45.319+03:00 3c09b1e0 DIAG_HB up_s=838 free=135696 alloc=321200 drop=0 txp=39 txerr=0 smax_us=420 tmax_us=0 rssi=-71 brew=0 pend=0 err=0 wtx=719 wtxerr=0 wsmax_us=0 lmax_us=47172 l100=0

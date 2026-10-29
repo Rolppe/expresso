@@ -1,0 +1,4 @@
+Received: 'brew_log?'
+BREW_LOG resend none pending
+STBY_ON idle_s=900 target=70
+STBY_OFF reason=switch

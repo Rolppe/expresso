@@ -1,0 +1,15 @@
+2026-10-21T10:48:51.625+03:00 2a803889 DIAG_MIN win_ms=60100 heat_ms=2300 pump_ms=0 p_n=601 p_avg=-0.21 p_min=-0.26 p_max=-0.15 T=89.99 target=90.00 n10=6 d10_min=-0.020 d10_max=0.020 pi_i=0.036
+2026-10-21T10:50:09.757+03:00 d27b4599 DIAG_BOOT rc=3 fw=v1.28.0_on_2026-04-06_(GNU_14.2.0_MinSizeRel) mac=ddeeff001122
+2026-10-21T10:51:07.079+03:00 d27b4599 DIAG_MIN win_ms=59900 heat_ms=20200 pump_ms=0 p_n=600 p_avg=0.69 p_min=-0.27 p_max=1.15 T=100.38 target=98.00 n10=5 d10_min=-8.229 d10_max=1.035 pi_i=0.049
+2026-10-21T10:51:16.778+03:00 d27b4599 EU_START target=2.50 hold_s=3.0 coast_s=0.042 coast_f=0.118 ff=0.12 off_us=13600 vv=1 fr0=232 c1x=1
+2026-10-21T10:51:18.747+03:00 d27b4599 BH_FREE fill=121 tray_g=21.1
+2026-10-21T10:51:20.271+03:00 d27b4599 EU_END reason=stop max=0.18 over=-2.40 hold_n=0 hold_mean=0.000 hold_sd=0.000 strokes=186 rm=0 sk10=0 sk20=0 late=0 miss=0
+2026-10-21T10:51:20.272+03:00 d27b4599 PB_END loops=0 max_loop_ms=0 reason=stopped learned_ff_brew=0.50 c1_n=15 c1_gap_ms=252 c1_bad=0 c1_err=0
+2026-10-21T10:51:20.272+03:00 d27b4599 BH_END sum_ms=12955 left_ms=9455 k=67.5 arm=2 fill=186
+2026-10-21T10:52:07.100+03:00 d27b4599 DIAG_MIN win_ms=60000 heat_ms=14000 pump_ms=3700 p_n=600 p_avg=-0.30 p_min=-2.05 p_max=2.18 T=99.59 target=98.00 n10=6 d10_min=-4.208 d10_max=2.446 pi_i=0.049
+2026-10-21T10:53:07.187+03:00 d27b4599 DIAG_MIN win_ms=60100 heat_ms=0 pump_ms=0 p_n=601 p_avg=-0.37 p_min=-0.44 p_max=-0.32 T=99.32 target=98.00 n10=6 d10_min=1.471 d10_max=1.968 pi_i=0.049
+2026-10-21T10:53:59.850+03:00 d27b4599 BH_SETTLED T=98.03 err=-0.03 why=target (no learning)
+2026-10-21T10:54:07.324+03:00 d27b4599 DIAG_MIN win_ms=60100 heat_ms=800 pump_ms=0 p_n=601 p_avg=-0.50 p_min=-0.58 p_max=-0.40 T=97.70 target=98.00 n10=6 d10_min=0.003 d10_max=1.381 pi_i=0.049
+2026-10-21T10:55:07.435+03:00 d27b4599 DIAG_MIN win_ms=60000 heat_ms=5300 pump_ms=0 p_n=600 p_avg=-0.54 p_min=-0.61 p_max=-0.47 T=97.57 target=98.00 n10=6 d10_min=-0.939 d10_max=-0.263 pi_i=0.060
+2026-10-21T10:56:07.421+03:00 d27b4599 DIAG_MIN win_ms=60100 heat_ms=3200 pump_ms=0 p_n=601 p_avg=-0.44 p_min=-0.54 p_max=-0.37 T=98.52 target=98.00 n10=6 d10_min=-0.458 d10_max=0.479 pi_i=0.057
+2026-10-21T10:57:07.447+03:00 d27b4599 DIAG_MIN win_ms=60000 heat_ms=2400 pump_ms=0 p_n=600 p_avg=-0.44 p_min=-0.50 p_max=-0.37 T=98.19 target=98.00 n10=6 d10_min=0.276 d10_max=0.500 pi_i=0.051

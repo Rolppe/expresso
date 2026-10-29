@@ -1,0 +1,11 @@
+CMD_OK pgap:7.0:40:300:5:20
+PGAP_START rate=1000 target=7.00 n=40 spacing_ms=300 gap_us=5000 period_us=19960 phases=20 gain=1.0000 offset=-0.990
+PGAP k=0 phase_us=0 len_ms=5 base_bar=8.459 depth_bar=0.484 trough_ms=16
+PGAP k=1 phase_us=998 len_ms=5 base_bar=8.927 depth_bar=0.224 trough_ms=55
+PGAP k=2 phase_us=1996 len_ms=5 base_bar=9.301 depth_bar=0.276 trough_ms=95
+PGAP k=3 phase_us=2994 len_ms=5 base_bar=9.558 depth_bar=0.400 trough_ms=36
+PGAP k=4 phase_us=3992 len_ms=5 base_bar=9.577 depth_bar=0.272 trough_ms=75
+PGAP k=5 phase_us=4990 len_ms=5 base_bar=9.728 depth_bar=0.378 trough_ms=116
+PGAP k=6 phase_us=5988 len_ms=5 base_bar=9.711 depth_bar=0.360 trough_ms=56
+PGAP k=7 phase_us=6986 len_ms=5 base_bar=10.174 depth_bar=0.330 trough_ms=75
+PGAP_END gaps=8 pmax=11.03 reason=overpressure

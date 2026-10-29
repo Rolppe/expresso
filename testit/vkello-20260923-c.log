@@ -1,0 +1,27 @@
+CMD_OK vkello:0
+VKELLO_RISE bar=6.29 reach_ms=2000 reason=plateau
+VKELLO w=1 t_ms=2160 z_us=6409.9 T_us=20011.070 d=0.00046 sd_us=735.2 amp=0.355 lock=0
+VKELLO w=2 t_ms=2321 z_us=524.3 T_us=20017.630 d=0.00108 sd_us=593.6 amp=0.313 lock=0
+VKELLO w=3 t_ms=2482 z_us=-551.9 T_us=20007.408 d=0.00003 sd_us=581.1 amp=0.318 lock=0
+VKELLO w=4 t_ms=2643 z_us=56.3 T_us=20008.480 d=0.00015 sd_us=577.8 amp=0.289 lock=0
+VKELLO w=5 t_ms=2804 z_us=364.4 T_us=20014.598 d=0.00090 sd_us=562.1 amp=0.314 lock=0
+VKELLO w=6 t_ms=2965 z_us=431.7 T_us=20020.622 d=0.00174 sd_us=538.8 amp=0.308 lock=0
+VKELLO w=7 t_ms=3126 z_us=-129.7 T_us=20019.156 d=0.00150 sd_us=513.6 amp=0.343 lock=0
+VKELLO w=8 t_ms=3287 z_us=-542.4 T_us=20014.100 d=0.00047 sd_us=489.3 amp=0.266 lock=0
+VKELLO w=9 t_ms=3448 z_us=57.8 T_us=20014.550 d=0.00058 sd_us=466.8 amp=0.361 lock=0
+VKELLO w=10 t_ms=3609 z_us=32.1 T_us=20014.764 d=0.00065 sd_us=446.5 amp=0.297 lock=0
+VKELLO w=11 t_ms=3770 z_us=-407.8 T_us=20012.518 d=-0.00031 sd_us=428.4 amp=0.310 lock=0
+VKELLO w=12 t_ms=3931 z_us=-493.7 T_us=20010.168 d=-0.00160 sd_us=412.3 amp=0.220 lock=0
+VKELLO w=13 t_ms=4092 z_us=-338.0 T_us=20008.752 d=-0.00260 sd_us=397.9 amp=0.280 lock=1
+VKELLO w=14 t_ms=4253 z_us=691.6 T_us=20011.266 d=-0.00031 sd_us=385.0 amp=0.332 lock=1
+VKELLO w=15 t_ms=4414 z_us=-718.3 T_us=20008.908 d=-0.00298 sd_us=373.7 amp=0.316 lock=1
+VKELLO w=16 t_ms=4575 z_us=-251.1 T_us=20008.138 d=-0.00402 sd_us=363.6 amp=0.441 lock=1
+VKELLO w=17 t_ms=4736 z_us=-174.6 T_us=20007.632 d=-0.00482 sd_us=354.7 amp=0.278 lock=1
+VKELLO w=18 t_ms=4897 z_us=-193.4 T_us=20007.106 d=-0.00581 sd_us=346.9 amp=0.441 lock=1
+VKELLO w=19 t_ms=5058 z_us=642.2 T_us=20008.594 d=-0.00208 sd_us=339.3 amp=0.404 lock=1
+VKELLO w=20 t_ms=5219 z_us=-568.3 T_us=20007.290 d=-0.00566 sd_us=332.8 amp=0.342 lock=1
+VKELLO w=21 t_ms=5380 z_us=262.9 T_us=20007.812 d=-0.00387 sd_us=327.4 amp=0.349 lock=1
+VKELLO w=22 t_ms=5541 z_us=-1178.7 T_us=20005.316 d=-0.01248 sd_us=323.0 amp=0.291 lock=1
+VKELLO w=23 t_ms=5702 z_us=-438.2 T_us=20004.322 d=-0.01590 sd_us=319.4 amp=0.294 lock=1
+VKELLO w=24 t_ms=5863 z_us=-274.0 T_us=20003.646 d=-0.01818 sd_us=316.6 amp=0.326 lock=1
+VKELLO_END T_us=20003.646 hz=49.9909 windows=24 reason=tray
