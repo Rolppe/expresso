@@ -1,0 +1,206 @@
+25b lag=0 seed=260 eu[done] mean=2.486 sd=0.163 over=+0.08 max=2.94 str=147 rm=222 late=0 miss=0 | eb[stop] mean=7.999 sd=0.232 over=+0.20 max=8.58 str=328 rm=100 late=0 miss=0 | plant_strokes=476
+25b lag=0 seed=261 eu[done] mean=2.481 sd=0.169 over=+0.16 max=3.10 str=146 rm=226 late=0 miss=0 | eb[stop] mean=8.001 sd=0.241 over=+0.23 max=8.70 str=325 rm=101 late=0 miss=0 | plant_strokes=472
+25b lag=0 seed=262 eu[done] mean=2.486 sd=0.165 over=+0.13 max=3.00 str=147 rm=228 late=0 miss=0 | eb[stop] mean=7.996 sd=0.233 over=+0.36 max=8.64 str=323 rm=100 late=0 miss=0 | plant_strokes=471
+25b lag=0 seed=263 eu[done] mean=2.488 sd=0.167 over=+0.12 max=2.94 str=147 rm=222 late=0 miss=0 | eb[stop] mean=7.996 sd=0.231 over=+0.28 max=8.81 str=329 rm=100 late=0 miss=0 | plant_strokes=476
+25b lag=0 seed=264 eu[done] mean=2.478 sd=0.161 over=+0.16 max=2.90 str=146 rm=220 late=0 miss=0 | eb[stop] mean=8.002 sd=0.265 over=+0.45 max=8.88 str=333 rm=98 late=0 miss=0 | plant_strokes=479
+25b lag=0 seed=265 eu[done] mean=2.479 sd=0.166 over=+0.10 max=2.91 str=146 rm=224 late=0 miss=0 | eb[stop] mean=8.002 sd=0.235 over=+0.29 max=8.78 str=328 rm=99 late=0 miss=1 | plant_strokes=475
+25b lag=0 seed=266 eu[done] mean=2.496 sd=0.180 over=+0.16 max=2.97 str=148 rm=222 late=0 miss=0 | eb[stop] mean=8.007 sd=0.240 over=+0.21 max=8.69 str=325 rm=102 late=0 miss=0 | plant_strokes=474
+25b lag=0 seed=267 eu[done] mean=2.485 sd=0.174 over=+0.26 max=2.96 str=145 rm=222 late=0 miss=0 | eb[stop] mean=8.002 sd=0.243 over=+0.27 max=8.57 str=329 rm=101 late=0 miss=0 | plant_strokes=475
+25b lag=0 seed=268 eu[done] mean=2.501 sd=0.158 over=+0.14 max=3.00 str=146 rm=224 late=0 miss=0 | eb[stop] mean=7.998 sd=0.229 over=+0.20 max=8.71 str=325 rm=103 late=0 miss=0 | plant_strokes=472
+25b lag=0 seed=269 eu[done] mean=2.497 sd=0.178 over=+0.22 max=3.00 str=149 rm=222 late=0 miss=0 | eb[stop] mean=8.002 sd=0.222 over=+0.33 max=8.58 str=326 rm=101 late=0 miss=0 | plant_strokes=475
+25b lag=0 seed=270 eu[done] mean=2.493 sd=0.162 over=+0.07 max=3.09 str=146 rm=221 late=0 miss=0 | eb[stop] mean=8.007 sd=0.223 over=+0.35 max=8.65 str=328 rm=102 late=0 miss=1 | plant_strokes=474
+25b lag=0 seed=271 eu[done] mean=2.500 sd=0.156 over=+0.03 max=2.96 str=146 rm=223 late=0 miss=0 | eb[stop] mean=7.998 sd=0.239 over=+0.40 max=8.72 str=331 rm=97 late=0 miss=0 | plant_strokes=478
+25b lag=0 seed=272 eu[done] mean=2.499 sd=0.177 over=+0.29 max=2.96 str=145 rm=220 late=0 miss=0 | eb[stop] mean=7.999 sd=0.236 over=+0.31 max=8.69 str=332 rm=100 late=0 miss=0 | plant_strokes=478
+25b lag=0 seed=273 eu[done] mean=2.491 sd=0.161 over=+0.14 max=2.91 str=146 rm=219 late=0 miss=0 | eb[stop] mean=8.002 sd=0.245 over=+0.34 max=8.68 str=333 rm=99 late=0 miss=1 | plant_strokes=480
+25b lag=0 seed=274 eu[done] mean=2.492 sd=0.172 over=+0.13 max=2.92 str=146 rm=226 late=0 miss=0 | eb[stop] mean=8.000 sd=0.233 over=+0.33 max=8.62 str=324 rm=102 late=0 miss=0 | plant_strokes=471
+25b lag=0 seed=275 eu[done] mean=2.497 sd=0.171 over=+0.40 max=3.03 str=147 rm=224 late=0 miss=0 | eb[stop] mean=8.004 sd=0.219 over=+0.25 max=8.62 str=326 rm=101 late=0 miss=0 | plant_strokes=474
+25b lag=0 seed=276 eu[done] mean=2.489 sd=0.172 over=+0.11 max=2.87 str=148 rm=220 late=0 miss=0 | eb[stop] mean=8.006 sd=0.237 over=+0.15 max=8.66 str=326 rm=104 late=0 miss=0 | plant_strokes=474
+25b lag=0 seed=277 eu[done] mean=2.482 sd=0.157 over=+0.16 max=2.94 str=146 rm=223 late=0 miss=0 | eb[stop] mean=8.008 sd=0.206 over=+0.29 max=8.65 str=323 rm=105 late=0 miss=0 | plant_strokes=469
+25b lag=0 seed=278 eu[done] mean=2.487 sd=0.166 over=+0.22 max=2.98 str=146 rm=220 late=0 miss=0 | eb[stop] mean=8.005 sd=0.246 over=+0.40 max=8.70 str=333 rm=98 late=0 miss=0 | plant_strokes=480
+25b lag=0 seed=279 eu[done] mean=2.487 sd=0.167 over=+0.10 max=2.94 str=146 rm=224 late=0 miss=0 | eb[stop] mean=7.995 sd=0.241 over=+0.23 max=8.84 str=327 rm=100 late=0 miss=0 | plant_strokes=474
+25b lag=1 seed=260 eu[done] mean=2.500 sd=0.189 over=+0.20 max=3.03 str=149 rm=223 late=0 miss=0 | eb[stop] mean=8.014 sd=0.242 over=+0.37 max=8.69 str=325 rm=100 late=0 miss=0 | plant_strokes=475
+25b lag=1 seed=261 eu[done] mean=2.492 sd=0.183 over=+0.12 max=3.02 str=148 rm=222 late=0 miss=0 | eb[stop] mean=8.004 sd=0.260 over=+0.46 max=8.75 str=327 rm=101 late=0 miss=0 | plant_strokes=476
+25b lag=1 seed=262 eu[done] mean=2.484 sd=0.174 over=+0.21 max=2.93 str=147 rm=228 late=0 miss=0 | eb[stop] mean=8.001 sd=0.253 over=+0.46 max=8.69 str=322 rm=101 late=0 miss=0 | plant_strokes=470
+25b lag=1 seed=263 eu[done] mean=2.494 sd=0.177 over=+0.27 max=2.99 str=151 rm=225 late=0 miss=0 | eb[stop] mean=8.006 sd=0.232 over=+0.32 max=8.68 str=319 rm=103 late=0 miss=1 | plant_strokes=470
+25b lag=1 seed=264 eu[done] mean=2.485 sd=0.177 over=+0.20 max=2.88 str=149 rm=224 late=0 miss=0 | eb[stop] mean=8.006 sd=0.234 over=+0.33 max=8.70 str=322 rm=102 late=0 miss=0 | plant_strokes=471
+25b lag=1 seed=265 eu[done] mean=2.481 sd=0.193 over=+0.09 max=3.08 str=147 rm=225 late=0 miss=0 | eb[stop] mean=8.005 sd=0.242 over=+0.29 max=8.68 str=324 rm=101 late=0 miss=0 | plant_strokes=472
+25b lag=1 seed=266 eu[done] mean=2.492 sd=0.184 over=+0.24 max=3.02 str=147 rm=227 late=0 miss=0 | eb[stop] mean=8.002 sd=0.242 over=+0.45 max=8.67 str=323 rm=100 late=0 miss=1 | plant_strokes=471
+25b lag=1 seed=267 eu[done] mean=2.495 sd=0.186 over=+0.14 max=3.03 str=151 rm=229 late=0 miss=0 | eb[stop] mean=8.000 sd=0.247 over=+0.52 max=8.71 str=315 rm=102 late=0 miss=0 | plant_strokes=467
+25b lag=1 seed=268 eu[done] mean=2.491 sd=0.173 over=+0.23 max=2.92 str=149 rm=227 late=0 miss=0 | eb[stop] mean=7.998 sd=0.237 over=+0.35 max=8.82 str=325 rm=97 late=0 miss=0 | plant_strokes=475
+25b lag=1 seed=269 eu[done] mean=2.486 sd=0.186 over=+0.22 max=3.05 str=149 rm=228 late=0 miss=0 | eb[stop] mean=7.995 sd=0.291 over=+0.65 max=8.92 str=320 rm=100 late=0 miss=0 | plant_strokes=471
+25b lag=1 seed=270 eu[done] mean=2.485 sd=0.181 over=+0.33 max=2.94 str=147 rm=224 late=0 miss=0 | eb[stop] mean=8.005 sd=0.265 over=+0.37 max=8.91 str=326 rm=101 late=0 miss=0 | plant_strokes=473
+25b lag=1 seed=271 eu[done] mean=2.477 sd=0.173 over=+0.21 max=2.95 str=148 rm=226 late=0 miss=0 | eb[stop] mean=7.997 sd=0.258 over=+0.24 max=8.70 str=323 rm=100 late=0 miss=0 | plant_strokes=473
+25b lag=1 seed=272 eu[done] mean=2.494 sd=0.176 over=+0.08 max=3.02 str=148 rm=224 late=0 miss=0 | eb[stop] mean=8.009 sd=0.255 over=+0.50 max=8.88 str=322 rm=103 late=0 miss=0 | plant_strokes=471
+25b lag=1 seed=273 eu[done] mean=2.483 sd=0.194 over=+0.43 max=3.06 str=147 rm=222 late=0 miss=0 | eb[stop] mean=7.998 sd=0.241 over=+0.37 max=8.65 str=324 rm=104 late=0 miss=0 | plant_strokes=472
+25b lag=1 seed=274 eu[done] mean=2.492 sd=0.181 over=+0.14 max=2.97 str=147 rm=225 late=0 miss=0 | eb[stop] mean=8.000 sd=0.235 over=+0.35 max=8.65 str=324 rm=102 late=0 miss=1 | plant_strokes=472
+25b lag=1 seed=275 eu[done] mean=2.509 sd=0.188 over=+0.45 max=3.07 str=150 rm=225 late=0 miss=0 | eb[stop] mean=7.998 sd=0.250 over=+0.54 max=8.67 str=326 rm=97 late=0 miss=0 | plant_strokes=477
+25b lag=1 seed=276 eu[done] mean=2.487 sd=0.178 over=+0.24 max=2.94 str=146 rm=224 late=0 miss=1 | eb[stop] mean=8.007 sd=0.252 over=+0.37 max=8.60 str=323 rm=105 late=0 miss=0 | plant_strokes=470
+25b lag=1 seed=277 eu[done] mean=2.492 sd=0.181 over=+0.15 max=2.98 str=148 rm=223 late=0 miss=0 | eb[stop] mean=7.992 sd=0.265 over=+0.49 max=8.70 str=327 rm=99 late=0 miss=0 | plant_strokes=475
+25b lag=1 seed=278 eu[done] mean=2.499 sd=0.179 over=+0.48 max=3.13 str=149 rm=225 late=0 miss=0 | eb[stop] mean=7.998 sd=0.236 over=+0.33 max=8.68 str=322 rm=101 late=0 miss=0 | plant_strokes=472
+25b lag=1 seed=279 eu[done] mean=2.497 sd=0.171 over=+0.28 max=2.88 str=147 rm=228 late=0 miss=0 | eb[stop] mean=8.007 sd=0.240 over=+0.36 max=8.79 str=323 rm=99 late=0 miss=0 | plant_strokes=471
+25b lag=2 seed=260 eu[done] mean=2.494 sd=0.161 over=+0.25 max=2.98 str=148 rm=229 late=0 miss=0 | eb[stop] mean=8.000 sd=0.245 over=+0.26 max=8.78 str=323 rm=97 late=0 miss=0 | plant_strokes=472
+25b lag=2 seed=261 eu[done] mean=2.494 sd=0.175 over=+0.32 max=3.09 str=148 rm=226 late=0 miss=0 | eb[stop] mean=8.012 sd=0.223 over=+0.35 max=8.57 str=323 rm=101 late=0 miss=0 | plant_strokes=472
+25b lag=2 seed=262 eu[done] mean=2.490 sd=0.161 over=+0.12 max=2.98 str=149 rm=230 late=0 miss=0 | eb[stop] mean=7.991 sd=0.259 over=+0.46 max=8.74 str=319 rm=100 late=0 miss=0 | plant_strokes=469
+25b lag=2 seed=263 eu[done] mean=2.497 sd=0.163 over=+0.32 max=3.03 str=149 rm=226 late=0 miss=0 | eb[stop] mean=8.004 sd=0.237 over=+0.27 max=8.68 str=326 rm=97 late=0 miss=0 | plant_strokes=475
+25b lag=2 seed=264 eu[done] mean=2.492 sd=0.165 over=+0.19 max=2.99 str=148 rm=229 late=0 miss=0 | eb[stop] mean=8.002 sd=0.261 over=+0.44 max=8.88 str=325 rm=95 late=0 miss=0 | plant_strokes=473
+25b lag=2 seed=265 eu[done] mean=2.484 sd=0.169 over=+0.26 max=2.91 str=149 rm=227 late=0 miss=0 | eb[stop] mean=7.999 sd=0.254 over=+0.31 max=8.65 str=323 rm=98 late=0 miss=0 | plant_strokes=473
+25b lag=2 seed=266 eu[done] mean=2.492 sd=0.172 over=+0.35 max=2.98 str=149 rm=228 late=0 miss=0 | eb[stop] mean=8.000 sd=0.274 over=+0.66 max=8.93 str=317 rm=103 late=0 miss=0 | plant_strokes=467
+25b lag=2 seed=267 eu[done] mean=2.495 sd=0.164 over=+0.18 max=2.99 str=149 rm=228 late=0 miss=0 | eb[stop] mean=8.002 sd=0.249 over=+0.30 max=8.63 str=321 rm=99 late=0 miss=1 | plant_strokes=471
+25b lag=2 seed=268 eu[done] mean=2.499 sd=0.169 over=+0.22 max=2.93 str=150 rm=229 late=0 miss=1 | eb[stop] mean=7.991 sd=0.324 over=+0.66 max=9.11 str=320 rm=99 late=0 miss=0 | plant_strokes=472
+25b lag=2 seed=269 eu[done] mean=2.489 sd=0.170 over=+0.31 max=3.03 str=150 rm=231 late=0 miss=0 | eb[stop] mean=8.003 sd=0.246 over=+0.29 max=8.61 str=319 rm=98 late=0 miss=1 | plant_strokes=470
+25b lag=2 seed=270 eu[done] mean=2.497 sd=0.181 over=+0.25 max=3.00 str=149 rm=227 late=0 miss=0 | eb[stop] mean=8.003 sd=0.259 over=+0.33 max=8.92 str=322 rm=99 late=0 miss=0 | plant_strokes=471
+25b lag=2 seed=271 eu[done] mean=2.496 sd=0.156 over=+0.18 max=2.92 str=148 rm=229 late=0 miss=0 | eb[stop] mean=7.987 sd=0.278 over=+0.46 max=8.69 str=321 rm=99 late=0 miss=0 | plant_strokes=470
+25b lag=2 seed=272 eu[done] mean=2.490 sd=0.175 over=+0.23 max=3.10 str=147 rm=226 late=0 miss=0 | eb[stop] mean=8.003 sd=0.237 over=+0.35 max=8.64 str=324 rm=100 late=0 miss=0 | plant_strokes=472
+25b lag=2 seed=273 eu[done] mean=2.496 sd=0.173 over=+0.35 max=3.02 str=150 rm=226 late=0 miss=0 | eb[stop] mean=8.000 sd=0.268 over=+0.38 max=8.83 str=323 rm=98 late=0 miss=0 | plant_strokes=474
+25b lag=2 seed=274 eu[done] mean=2.497 sd=0.176 over=+0.44 max=3.15 str=148 rm=228 late=0 miss=0 | eb[stop] mean=8.001 sd=0.305 over=+0.41 max=8.76 str=325 rm=97 late=0 miss=0 | plant_strokes=474
+25b lag=2 seed=275 eu[done] mean=2.496 sd=0.189 over=+0.45 max=3.08 str=148 rm=223 late=0 miss=1 | eb[stop] mean=8.000 sd=0.268 over=+0.44 max=8.72 str=327 rm=100 late=0 miss=0 | plant_strokes=476
+25b lag=2 seed=276 eu[done] mean=2.489 sd=0.171 over=+0.15 max=3.01 str=150 rm=226 late=0 miss=0 | eb[stop] mean=8.007 sd=0.263 over=+0.57 max=8.76 str=325 rm=97 late=0 miss=1 | plant_strokes=476
+25b lag=2 seed=277 eu[done] mean=2.495 sd=0.171 over=+0.20 max=3.15 str=149 rm=229 late=0 miss=0 | eb[stop] mean=8.002 sd=0.294 over=+0.43 max=8.90 str=322 rm=97 late=0 miss=0 | plant_strokes=471
+25b lag=2 seed=278 eu[done] mean=2.498 sd=0.172 over=+0.36 max=3.08 str=149 rm=226 late=0 miss=0 | eb[stop] mean=7.996 sd=0.289 over=+0.74 max=8.99 str=318 rm=104 late=0 miss=0 | plant_strokes=468
+25b lag=2 seed=279 eu[done] mean=2.499 sd=0.169 over=+0.23 max=3.03 str=149 rm=229 late=0 miss=0 | eb[stop] mean=8.001 sd=0.257 over=+0.57 max=8.98 str=321 rm=98 late=0 miss=0 | plant_strokes=471
+26b lag=0 seed=260 eu[done] mean=2.532 sd=0.191 over=+0.41 max=3.04 str=109 rm=278 late=0 miss=2 | eb[stop] mean=8.002 sd=0.191 over=+0.28 max=8.53 str=137 rm=273 late=0 miss=0 | plant_strokes=247
+26b lag=0 seed=261 eu[done] mean=2.553 sd=0.202 over=+0.38 max=3.08 str=107 rm=277 late=0 miss=0 | eb[stop] mean=8.002 sd=0.178 over=+0.25 max=8.49 str=138 rm=276 late=0 miss=1 | plant_strokes=247
+26b lag=0 seed=262 eu[done] mean=2.535 sd=0.177 over=+0.38 max=3.06 str=110 rm=275 late=0 miss=0 | eb[stop] mean=8.000 sd=0.188 over=+0.26 max=8.52 str=136 rm=277 late=0 miss=0 | plant_strokes=246
+26b lag=0 seed=263 eu[done] mean=2.547 sd=0.182 over=+0.42 max=3.16 str=110 rm=275 late=0 miss=0 | eb[stop] mean=8.002 sd=0.181 over=+0.26 max=8.62 str=138 rm=275 late=0 miss=0 | plant_strokes=248
+26b lag=0 seed=264 eu[done] mean=2.537 sd=0.207 over=+0.42 max=3.22 str=110 rm=276 late=0 miss=0 | eb[stop] mean=8.002 sd=0.170 over=+0.14 max=8.44 str=137 rm=275 late=0 miss=0 | plant_strokes=248
+26b lag=0 seed=265 eu[done] mean=2.541 sd=0.204 over=+0.53 max=3.14 str=109 rm=278 late=0 miss=0 | eb[stop] mean=8.004 sd=0.187 over=+0.28 max=8.53 str=137 rm=273 late=0 miss=0 | plant_strokes=247
+26b lag=0 seed=266 eu[done] mean=2.543 sd=0.185 over=+0.46 max=3.17 str=106 rm=275 late=0 miss=0 | eb[stop] mean=7.998 sd=0.174 over=+0.17 max=8.47 str=139 rm=277 late=0 miss=0 | plant_strokes=248
+26b lag=0 seed=267 eu[done] mean=2.523 sd=0.179 over=+0.39 max=3.08 str=108 rm=280 late=0 miss=0 | eb[stop] mean=8.003 sd=0.176 over=+0.24 max=8.58 str=136 rm=273 late=0 miss=0 | plant_strokes=246
+26b lag=0 seed=268 eu[done] mean=2.529 sd=0.195 over=+0.36 max=3.11 str=105 rm=286 late=0 miss=0 | eb[stop] mean=7.999 sd=0.180 over=+0.20 max=8.62 str=136 rm=271 late=0 miss=0 | plant_strokes=247
+26b lag=0 seed=269 eu[done] mean=2.521 sd=0.196 over=+0.43 max=3.23 str=108 rm=279 late=0 miss=0 | eb[stop] mean=8.005 sd=0.190 over=+0.28 max=8.80 str=137 rm=274 late=0 miss=0 | plant_strokes=247
+26b lag=0 seed=270 eu[done] mean=2.543 sd=0.191 over=+0.47 max=3.01 str=110 rm=276 late=0 miss=0 | eb[stop] mean=8.002 sd=0.178 over=+0.21 max=8.39 str=139 rm=273 late=0 miss=1 | plant_strokes=249
+26b lag=0 seed=271 eu[done] mean=2.540 sd=0.168 over=+0.48 max=3.05 str=108 rm=274 late=0 miss=1 | eb[stop] mean=8.002 sd=0.175 over=+0.25 max=8.56 str=138 rm=277 late=0 miss=0 | plant_strokes=247
+26b lag=0 seed=272 eu[done] mean=2.528 sd=0.177 over=+0.26 max=3.14 str=106 rm=279 late=0 miss=0 | eb[stop] mean=8.000 sd=0.179 over=+0.14 max=8.48 str=137 rm=274 late=0 miss=0 | plant_strokes=247
+26b lag=0 seed=273 eu[done] mean=2.544 sd=0.198 over=+0.41 max=3.12 str=108 rm=278 late=0 miss=0 | eb[stop] mean=7.998 sd=0.173 over=+0.15 max=8.60 str=136 rm=275 late=0 miss=0 | plant_strokes=246
+26b lag=0 seed=274 eu[done] mean=2.521 sd=0.189 over=+0.45 max=3.15 str=108 rm=279 late=0 miss=0 | eb[stop] mean=8.000 sd=0.193 over=+0.26 max=8.50 str=136 rm=274 late=0 miss=1 | plant_strokes=247
+26b lag=0 seed=275 eu[done] mean=2.539 sd=0.186 over=+0.34 max=3.07 str=108 rm=278 late=0 miss=0 | eb[stop] mean=8.000 sd=0.184 over=+0.23 max=8.50 str=137 rm=275 late=0 miss=1 | plant_strokes=247
+26b lag=0 seed=276 eu[done] mean=2.535 sd=0.196 over=+0.43 max=3.09 str=110 rm=276 late=0 miss=0 | eb[stop] mean=8.000 sd=0.170 over=+0.28 max=8.59 str=138 rm=274 late=0 miss=0 | plant_strokes=248
+26b lag=0 seed=277 eu[done] mean=2.529 sd=0.186 over=+0.38 max=3.04 str=110 rm=277 late=0 miss=0 | eb[stop] mean=8.003 sd=0.182 over=+0.17 max=8.51 str=137 rm=273 late=0 miss=0 | plant_strokes=247
+26b lag=0 seed=278 eu[done] mean=2.520 sd=0.176 over=+0.42 max=3.13 str=109 rm=278 late=0 miss=0 | eb[stop] mean=8.005 sd=0.176 over=+0.30 max=8.50 str=134 rm=276 late=0 miss=1 | plant_strokes=245
+26b lag=0 seed=279 eu[done] mean=2.543 sd=0.201 over=+0.46 max=3.03 str=109 rm=276 late=0 miss=0 | eb[stop] mean=8.001 sd=0.176 over=+0.16 max=8.46 str=137 rm=275 late=0 miss=0 | plant_strokes=247
+26b lag=1 seed=260 eu[done] mean=2.539 sd=0.184 over=+0.38 max=3.13 str=109 rm=277 late=0 miss=0 | eb[stop] mean=8.005 sd=0.178 over=+0.31 max=8.44 str=137 rm=274 late=0 miss=0 | plant_strokes=247
+26b lag=1 seed=261 eu[done] mean=2.546 sd=0.217 over=+0.43 max=3.20 str=108 rm=280 late=0 miss=0 | eb[stop] mean=8.002 sd=0.172 over=+0.17 max=8.55 str=137 rm=273 late=0 miss=0 | plant_strokes=247
+26b lag=1 seed=262 eu[done] mean=2.511 sd=0.197 over=+0.39 max=3.12 str=108 rm=282 late=0 miss=0 | eb[stop] mean=8.001 sd=0.192 over=+0.26 max=8.53 str=137 rm=271 late=0 miss=0 | plant_strokes=247
+26b lag=1 seed=263 eu[done] mean=2.540 sd=0.196 over=+0.44 max=3.15 str=109 rm=279 late=0 miss=0 | eb[stop] mean=8.000 sd=0.190 over=+0.22 max=8.53 str=136 rm=274 late=0 miss=0 | plant_strokes=246
+26b lag=1 seed=264 eu[done] mean=2.529 sd=0.175 over=+0.41 max=3.04 str=110 rm=275 late=0 miss=0 | eb[stop] mean=8.001 sd=0.178 over=+0.27 max=8.54 str=138 rm=274 late=0 miss=0 | plant_strokes=248
+26b lag=1 seed=265 eu[done] mean=2.507 sd=0.211 over=+0.38 max=3.13 str=110 rm=280 late=0 miss=0 | eb[stop] mean=8.000 sd=0.203 over=+0.42 max=8.74 str=129 rm=278 late=0 miss=0 | plant_strokes=247
+26b lag=1 seed=266 eu[done] mean=2.537 sd=0.219 over=+0.65 max=3.32 str=108 rm=275 late=0 miss=0 | eb[stop] mean=7.997 sd=0.183 over=+0.14 max=8.42 str=137 rm=277 late=0 miss=0 | plant_strokes=248
+26b lag=1 seed=267 eu[done] mean=2.543 sd=0.206 over=+0.52 max=3.17 str=109 rm=278 late=0 miss=0 | eb[stop] mean=7.999 sd=0.205 over=+0.48 max=8.57 str=138 rm=272 late=0 miss=0 | plant_strokes=248
+26b lag=1 seed=268 eu[done] mean=2.522 sd=0.205 over=+0.38 max=3.17 str=109 rm=283 late=0 miss=0 | eb[stop] mean=7.994 sd=0.188 over=+0.52 max=8.78 str=131 rm=275 late=0 miss=0 | plant_strokes=246
+26b lag=1 seed=269 eu[done] mean=2.530 sd=0.205 over=+0.51 max=3.12 str=109 rm=280 late=0 miss=0 | eb[stop] mean=8.002 sd=0.176 over=+0.19 max=8.47 str=136 rm=273 late=0 miss=0 | plant_strokes=246
+26b lag=1 seed=270 eu[done] mean=2.548 sd=0.204 over=+0.58 max=3.34 str=111 rm=278 late=0 miss=0 | eb[stop] mean=7.998 sd=0.198 over=+0.21 max=8.58 str=136 rm=273 late=0 miss=0 | plant_strokes=247
+26b lag=1 seed=271 eu[done] mean=2.525 sd=0.181 over=+0.50 max=3.22 str=110 rm=275 late=0 miss=0 | eb[stop] mean=8.007 sd=0.183 over=+0.22 max=8.42 str=137 rm=275 late=0 miss=0 | plant_strokes=248
+26b lag=1 seed=272 eu[done] mean=2.518 sd=0.195 over=+0.43 max=3.12 str=109 rm=283 late=0 miss=0 | eb[stop] mean=7.998 sd=0.201 over=+0.32 max=8.53 str=136 rm=269 late=0 miss=0 | plant_strokes=247
+26b lag=1 seed=273 eu[done] mean=2.540 sd=0.211 over=+0.64 max=3.33 str=109 rm=280 late=0 miss=0 | eb[stop] mean=7.998 sd=0.181 over=+0.18 max=8.53 str=135 rm=273 late=0 miss=0 | plant_strokes=245
+26b lag=1 seed=274 eu[done] mean=2.526 sd=0.205 over=+0.41 max=3.12 str=110 rm=281 late=0 miss=0 | eb[stop] mean=8.009 sd=0.183 over=+0.31 max=8.54 str=135 rm=272 late=0 miss=0 | plant_strokes=246
+26b lag=1 seed=275 eu[done] mean=2.533 sd=0.190 over=+0.38 max=3.06 str=109 rm=278 late=0 miss=0 | eb[stop] mean=8.003 sd=0.194 over=+0.30 max=8.43 str=137 rm=274 late=0 miss=0 | plant_strokes=247
+26b lag=1 seed=276 eu[done] mean=2.531 sd=0.220 over=+0.52 max=3.22 str=109 rm=280 late=0 miss=0 | eb[stop] mean=8.002 sd=0.192 over=+0.17 max=8.59 str=136 rm=273 late=0 miss=0 | plant_strokes=246
+26b lag=1 seed=277 eu[done] mean=2.529 sd=0.185 over=+0.34 max=3.11 str=110 rm=280 late=0 miss=0 | eb[stop] mean=8.003 sd=0.175 over=+0.27 max=8.54 str=134 rm=273 late=0 miss=0 | plant_strokes=244
+26b lag=1 seed=278 eu[done] mean=2.521 sd=0.185 over=+0.29 max=3.03 str=109 rm=278 late=0 miss=0 | eb[stop] mean=8.007 sd=0.201 over=+0.33 max=8.45 str=137 rm=273 late=0 miss=1 | plant_strokes=247
+26b lag=1 seed=279 eu[done] mean=2.538 sd=0.182 over=+0.37 max=3.23 str=108 rm=277 late=0 miss=0 | eb[stop] mean=8.004 sd=0.183 over=+0.23 max=8.49 str=137 rm=275 late=0 miss=0 | plant_strokes=247
+26b lag=2 seed=260 eu[done] mean=2.521 sd=0.196 over=+0.42 max=3.09 str=109 rm=284 late=0 miss=1 | eb[stop] mean=8.007 sd=0.194 over=+0.33 max=8.60 str=135 rm=269 late=0 miss=0 | plant_strokes=246
+26b lag=2 seed=261 eu[done] mean=2.492 sd=0.163 over=+0.40 max=3.07 str=113 rm=323 late=0 miss=0 | eb[stop] mean=7.995 sd=0.173 over=+0.26 max=8.52 str=122 rm=240 late=0 miss=0 | plant_strokes=237
+26b lag=2 seed=262 eu[done] mean=2.528 sd=0.178 over=+0.35 max=3.13 str=109 rm=277 late=0 miss=0 | eb[stop] mean=8.005 sd=0.183 over=+0.29 max=8.65 str=137 rm=275 late=0 miss=0 | plant_strokes=247
+26b lag=2 seed=263 eu[done] mean=2.544 sd=0.202 over=+0.50 max=3.13 str=108 rm=274 late=0 miss=0 | eb[stop] mean=8.006 sd=0.177 over=+0.22 max=8.58 str=137 rm=279 late=0 miss=0 | plant_strokes=247
+26b lag=2 seed=264 eu[done] mean=2.528 sd=0.208 over=+0.38 max=3.07 str=109 rm=284 late=0 miss=0 | eb[stop] mean=8.002 sd=0.190 over=+0.27 max=8.67 str=134 rm=270 late=0 miss=0 | plant_strokes=245
+26b lag=2 seed=265 eu[done] mean=2.534 sd=0.192 over=+0.52 max=3.26 str=110 rm=283 late=0 miss=0 | eb[stop] mean=8.010 sd=0.183 over=+0.26 max=8.64 str=133 rm=271 late=0 miss=0 | plant_strokes=244
+26b lag=2 seed=266 eu[done] mean=2.544 sd=0.201 over=+0.52 max=3.19 str=108 rm=278 late=0 miss=0 | eb[stop] mean=8.000 sd=0.198 over=+0.19 max=8.64 str=137 rm=274 late=0 miss=0 | plant_strokes=247
+26b lag=2 seed=267 eu[done] mean=2.534 sd=0.201 over=+0.41 max=3.19 str=108 rm=280 late=0 miss=0 | eb[stop] mean=8.003 sd=0.180 over=+0.24 max=8.57 str=135 rm=274 late=0 miss=0 | plant_strokes=245
+26b lag=2 seed=268 eu[done] mean=2.519 sd=0.190 over=+0.41 max=3.06 str=109 rm=284 late=0 miss=0 | eb[stop] mean=8.005 sd=0.190 over=+0.26 max=8.52 str=136 rm=269 late=0 miss=0 | plant_strokes=246
+26b lag=2 seed=269 eu[done] mean=2.518 sd=0.232 over=+0.58 max=3.19 str=108 rm=280 late=0 miss=0 | eb[stop] mean=7.998 sd=0.200 over=+0.54 max=8.93 str=136 rm=274 late=0 miss=0 | plant_strokes=246
+26b lag=2 seed=270 eu[done] mean=2.514 sd=0.202 over=+0.40 max=3.24 str=109 rm=282 late=0 miss=0 | eb[stop] mean=8.004 sd=0.191 over=+0.17 max=8.47 str=135 rm=271 late=0 miss=0 | plant_strokes=246
+26b lag=2 seed=271 eu[done] mean=2.490 sd=0.165 over=+0.74 max=3.35 str=115 rm=325 late=0 miss=0 | eb[stop] mean=8.002 sd=0.186 over=+0.27 max=8.50 str=122 rm=235 late=0 miss=0 | plant_strokes=238
+26b lag=2 seed=272 eu[done] mean=2.526 sd=0.180 over=+0.36 max=3.02 str=108 rm=281 late=0 miss=1 | eb[stop] mean=7.998 sd=0.181 over=+0.18 max=8.44 str=136 rm=272 late=0 miss=0 | plant_strokes=246
+26b lag=2 seed=273 eu[done] mean=2.521 sd=0.181 over=+0.32 max=3.07 str=109 rm=279 late=0 miss=0 | eb[stop] mean=8.002 sd=0.244 over=+0.83 max=9.11 str=126 rm=283 late=0 miss=0 | plant_strokes=246
+26b lag=2 seed=274 eu[done] mean=2.531 sd=0.180 over=+0.40 max=3.20 str=109 rm=282 late=0 miss=0 | eb[stop] mean=7.998 sd=0.182 over=+0.27 max=8.65 str=134 rm=272 late=0 miss=0 | plant_strokes=244
+26b lag=2 seed=275 eu[done] mean=2.532 sd=0.169 over=+0.39 max=3.08 str=109 rm=283 late=0 miss=0 | eb[stop] mean=8.003 sd=0.186 over=+0.20 max=8.49 str=135 rm=271 late=0 miss=0 | plant_strokes=245
+26b lag=2 seed=276 eu[done] mean=2.532 sd=0.179 over=+0.37 max=3.15 str=110 rm=280 late=0 miss=0 | eb[stop] mean=8.003 sd=0.182 over=+0.17 max=8.48 str=137 rm=271 late=0 miss=0 | plant_strokes=247
+26b lag=2 seed=277 eu[done] mean=2.534 sd=0.187 over=+0.37 max=3.16 str=109 rm=281 late=0 miss=0 | eb[stop] mean=8.001 sd=0.186 over=+0.41 max=8.58 str=135 rm=272 late=0 miss=0 | plant_strokes=245
+26b lag=2 seed=278 eu[done] mean=2.517 sd=0.198 over=+0.46 max=3.10 str=110 rm=279 late=0 miss=0 | eb[stop] mean=8.007 sd=0.187 over=+0.27 max=8.50 str=133 rm=275 late=0 miss=0 | plant_strokes=244
+26b lag=2 seed=279 eu[done] mean=2.542 sd=0.192 over=+0.40 max=3.03 str=110 rm=278 late=0 miss=0 | eb[stop] mean=8.009 sd=0.177 over=+0.36 max=8.57 str=134 rm=275 late=0 miss=1 | plant_strokes=245
+
+SUMMARY (ka / min..max seeds yli)
+25b lag=0 n=20
+   eu_hold_mean  ka +2.490  min +2.478  max +2.501  sd_seed 0.007
+   eu_hold_sd    ka +0.167  min +0.156  max +0.180  sd_seed 0.007
+   eu_over       ka +0.159  min +0.030  max +0.400  sd_seed 0.083
+   eu_max        ka +2.966  min +2.870  max +3.100  sd_seed 0.057
+   eb_hold_mean  ka +8.001  min +7.995  max +8.008  sd_seed 0.004
+   eb_hold_sd    ka +0.235  min +0.206  max +0.265  sd_seed 0.012
+   eb_over       ka +0.293  min +0.150  max +0.450  sd_seed 0.076
+   eb_max        ka +8.689  min +8.570  max +8.880  sd_seed 0.083
+   eu_late       ka +0.000  min +0.000  max +0.000  sd_seed 0.000
+   eb_late       ka +0.000  min +0.000  max +0.000  sd_seed 0.000
+   eu_miss       ka +0.000  min +0.000  max +0.000  sd_seed 0.000
+   eb_miss       ka +0.150  min +0.000  max +1.000  sd_seed 0.357
+   str_diff      ka -0.700  min -1.000  max +0.000  sd_seed 0.458
+25b lag=1 n=20
+   eu_hold_mean  ka +2.491  min +2.477  max +2.509  sd_seed 0.007
+   eu_hold_sd    ka +0.181  min +0.171  max +0.194  sd_seed 0.006
+   eu_over       ka +0.235  min +0.080  max +0.480  sd_seed 0.110
+   eu_max        ka +2.994  min +2.880  max +3.130  sd_seed 0.066
+   eb_hold_mean  ka +8.002  min +7.992  max +8.014  sd_seed 0.005
+   eb_hold_sd    ka +0.249  min +0.232  max +0.291  sd_seed 0.014
+   eb_over       ka +0.406  min +0.240  max +0.650  sd_seed 0.097
+   eb_max        ka +8.727  min +8.600  max +8.920  sd_seed 0.088
+   eu_late       ka +0.000  min +0.000  max +0.000  sd_seed 0.000
+   eb_late       ka +0.000  min +0.000  max +0.000  sd_seed 0.000
+   eu_miss       ka +0.050  min +0.000  max +1.000  sd_seed 0.218
+   eb_miss       ka +0.150  min +0.000  max +1.000  sd_seed 0.357
+   str_diff      ka -0.900  min -2.000  max +0.000  sd_seed 0.539
+25b lag=2 n=20
+   eu_hold_mean  ka +2.494  min +2.484  max +2.499  sd_seed 0.004
+   eu_hold_sd    ka +0.170  min +0.156  max +0.189  sd_seed 0.007
+   eu_over       ka +0.268  min +0.120  max +0.450  sd_seed 0.089
+   eu_max        ka +3.022  min +2.910  max +3.150  sd_seed 0.067
+   eb_hold_mean  ka +8.000  min +7.987  max +8.012  sd_seed 0.005
+   eb_hold_sd    ka +0.265  min +0.223  max +0.324  sd_seed 0.024
+   eb_over       ka +0.434  min +0.260  max +0.740  sd_seed 0.137
+   eb_max        ka +8.789  min +8.570  max +9.110  sd_seed 0.144
+   eu_late       ka +0.000  min +0.000  max +0.000  sd_seed 0.000
+   eb_late       ka +0.000  min +0.000  max +0.000  sd_seed 0.000
+   eu_miss       ka +0.100  min +0.000  max +1.000  sd_seed 0.300
+   eb_miss       ka +0.150  min +0.000  max +1.000  sd_seed 0.357
+   str_diff      ka -0.850  min -2.000  max +0.000  sd_seed 0.477
+26b lag=0 n=20
+   eu_hold_mean  ka +2.535  min +2.520  max +2.553  sd_seed 0.009
+   eu_hold_sd    ka +0.189  min +0.168  max +0.207  sd_seed 0.010
+   eu_over       ka +0.414  min +0.260  max +0.530  sd_seed 0.056
+   eu_max        ka +3.106  min +3.010  max +3.230  sd_seed 0.060
+   eb_hold_mean  ka +8.001  min +7.998  max +8.005  sd_seed 0.002
+   eb_hold_sd    ka +0.180  min +0.170  max +0.193  sd_seed 0.007
+   eb_over       ka +0.225  min +0.140  max +0.300  sd_seed 0.052
+   eb_max        ka +8.534  min +8.390  max +8.800  sd_seed 0.085
+   eu_late       ka +0.000  min +0.000  max +0.000  sd_seed 0.000
+   eb_late       ka +0.000  min +0.000  max +0.000  sd_seed 0.000
+   eu_miss       ka +0.150  min +0.000  max +2.000  sd_seed 0.477
+   eb_miss       ka +0.250  min +0.000  max +1.000  sd_seed 0.433
+   str_diff      ka -1.650  min -6.000  max +0.000  sd_seed 1.492
+26b lag=1 n=20
+   eu_hold_mean  ka +2.531  min +2.507  max +2.548  sd_seed 0.011
+   eu_hold_sd    ka +0.199  min +0.175  max +0.220  sd_seed 0.013
+   eu_over       ka +0.447  min +0.290  max +0.650  sd_seed 0.095
+   eu_max        ka +3.167  min +3.030  max +3.340  sd_seed 0.087
+   eb_hold_mean  ka +8.002  min +7.994  max +8.009  sd_seed 0.004
+   eb_hold_sd    ka +0.188  min +0.172  max +0.205  sd_seed 0.010
+   eb_over       ka +0.276  min +0.140  max +0.520  sd_seed 0.100
+   eb_max        ka +8.534  min +8.420  max +8.780  sd_seed 0.092
+   eu_late       ka +0.000  min +0.000  max +0.000  sd_seed 0.000
+   eb_late       ka +0.000  min +0.000  max +0.000  sd_seed 0.000
+   eu_miss       ka +0.000  min +0.000  max +0.000  sd_seed 0.000
+   eb_miss       ka +0.050  min +0.000  max +1.000  sd_seed 0.218
+   str_diff      ka -1.750  min -8.000  max +0.000  sd_seed 1.920
+26b lag=2 n=20
+   eu_hold_mean  ka +2.525  min +2.490  max +2.544  sd_seed 0.014
+   eu_hold_sd    ka +0.190  min +0.163  max +0.232  sd_seed 0.016
+   eu_over       ka +0.435  min +0.320  max +0.740  sd_seed 0.095
+   eu_max        ka +3.139  min +3.020  max +3.350  sd_seed 0.082
+   eb_hold_mean  ka +8.003  min +7.995  max +8.010  sd_seed 0.004
+   eb_hold_sd    ka +0.189  min +0.173  max +0.244  sd_seed 0.014
+   eb_over       ka +0.299  min +0.170  max +0.830  sd_seed 0.149
+   eb_max        ka +8.606  min +8.440  max +9.110  sd_seed 0.156
+   eu_late       ka +0.000  min +0.000  max +0.000  sd_seed 0.000
+   eb_late       ka +0.000  min +0.000  max +0.000  sd_seed 0.000
+   eu_miss       ka +0.100  min +0.000  max +1.000  sd_seed 0.300
+   eb_miss       ka +0.050  min +0.000  max +1.000  sd_seed 0.218
+   str_diff      ka -1.900  min -11.000  max +0.000  sd_seed 2.166

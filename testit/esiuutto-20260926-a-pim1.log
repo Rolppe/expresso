@@ -1,0 +1,162 @@
+CMD_OK tshot:10
+TS_START 10.0 s pre=True 2.5 bar 6.0 s brew=8.0 bar limits=wmax:720 wrise:250 fmode=off pim=1
+EU_START target=2.50 hold_s=6.0 coast_s=0.300 ff=0.30 off_us=13600
+EU 93 -0.54 2.50 1 1.00 1 p5=-0.52 sd_us=10002 rm=0 sk10=0 sk20=0 late=0 w=336.4 f=0.05
+VKELLO w=1 t_ms=160 z_us=-5543.3 T_us=20000.000 d=0.00000 sd_us=10006.5 amp=1.320 lock=0 p_bar=-0.49 gate=-1
+EU 193 -0.66 2.50 1 1.00 1 p5=-0.47 sd_us=10009 rm=0 sk10=0 sk20=0 late=0 w=336.6 f=-0.75
+EU 293 -0.88 2.50 1 1.00 1 p5=-0.62 sd_us=10022 rm=0 sk10=0 sk20=0 late=0 w=336.8 f=0.27
+VKELLO w=2 t_ms=320 z_us=-3457.4 T_us=20000.000 d=0.00000 sd_us=10026.0 amp=1.763 lock=0 p_bar=-0.60 gate=-1
+EU 413 -0.62 2.50 1 1.00 1 p5=-0.34 sd_us=10043 rm=0 sk10=0 sk20=0 late=0 w=338.1 f=4.21
+VKELLO w=3 t_ms=481 z_us=-2162.7 T_us=20000.000 d=0.00000 sd_us=10058.6 amp=2.027 lock=0 p_bar=-0.67 gate=-1
+EU 513 -0.87 2.50 1 1.00 1 p5=-0.71 sd_us=10067 rm=0 sk10=0 sk20=0 late=0 w=339.6 f=7.05
+EU 613 -0.83 2.50 1 1.00 1 p5=-0.87 sd_us=10095 rm=0 sk10=0 sk20=0 late=0 w=340.9 f=11.15
+VKELLO w=4 t_ms=642 z_us=-1915.7 T_us=20000.000 d=0.00000 sd_us=10104.0 amp=1.864 lock=0 p_bar=-0.76 gate=-1
+EU 713 -0.74 2.50 1 1.00 1 p5=-0.82 sd_us=10128 rm=0 sk10=0 sk20=0 late=0 w=342.0 f=10.97
+VKELLO w=5 t_ms=803 z_us=-2182.6 T_us=20000.000 d=0.00000 sd_us=10162.2 amp=1.845 lock=0 p_bar=-0.74 gate=-1
+EU 813 0.12 2.50 1 1.00 1 p5=-0.59 sd_us=10166 rm=0 sk10=0 sk20=0 late=0 w=344.6 f=11.41
+EU 913 -0.67 2.50 1 1.00 1 p5=-0.62 sd_us=10209 rm=0 sk10=0 sk20=0 late=0 w=344.7 f=11.30
+VKELLO w=6 t_ms=963 z_us=-1588.1 T_us=20000.000 d=0.00000 sd_us=10232.5 amp=1.854 lock=0 p_bar=-0.65 gate=-1
+EU 1013 -0.45 2.50 1 1.00 1 p5=-0.67 sd_us=10257 rm=0 sk10=0 sk20=0 late=0 w=344.8 f=9.54
+EU 1113 -0.78 2.50 1 1.00 1 p5=-0.90 sd_us=10309 rm=0 sk10=0 sk20=0 late=0 w=344.6 f=8.08
+VKELLO w=7 t_ms=1135 z_us=-1870.1 T_us=20000.000 d=0.00000 sd_us=10321.2 amp=1.821 lock=0 p_bar=-0.77 gate=-1
+EU 1213 -0.88 2.50 1 1.00 1 p5=-0.24 sd_us=10366 rm=0 sk10=0 sk20=0 late=0 w=344.4 f=5.63
+VKELLO w=8 t_ms=1295 z_us=-2044.7 T_us=20000.000 d=0.00000 sd_us=10416.5 amp=1.846 lock=0 p_bar=-0.76 gate=-1
+EU 1313 1.40 2.50 1 1.00 1 p5=-0.32 sd_us=10428 rm=0 sk10=0 sk20=0 late=0 w=344.4 f=-0.62
+EU 1413 -0.76 2.50 1 1.00 1 p5=-0.80 sd_us=10494 rm=0 sk10=0 sk20=0 late=0 w=344.4 f=-0.62
+VKELLO w=9 t_ms=1455 z_us=-1932.7 T_us=20000.000 d=0.00000 sd_us=10523.4 amp=1.954 lock=0 p_bar=-0.75 gate=-1
+EU 1513 -0.41 2.50 1 1.00 1 p5=-0.77 sd_us=10565 rm=0 sk10=0 sk20=0 late=0 w=344.5 f=-0.51
+EU 1613 -0.70 2.50 1 1.00 1 p5=-0.71 sd_us=10639 rm=0 sk10=0 sk20=0 late=0 w=344.4 f=0.09
+VKELLO w=10 t_ms=1618 z_us=-1911.2 T_us=20000.000 d=0.00000 sd_us=10643.4 amp=2.141 lock=0 p_bar=-0.61 gate=-1
+EU 1713 -0.32 2.50 1 1.00 1 p5=-0.70 sd_us=10719 rm=0 sk10=0 sk20=0 late=0 w=344.3 f=-0.10
+VKELLO w=11 t_ms=1778 z_us=-2156.7 T_us=20000.000 d=0.00000 sd_us=10772.4 amp=2.198 lock=0 p_bar=-0.52 gate=-1
+EU 1813 -0.48 2.50 1 1.00 1 p5=-0.54 sd_us=10802 rm=0 sk10=0 sk20=0 late=0 w=344.3 f=-0.24
+EU 1933 -0.50 2.50 1 1.00 1 p5=-0.65 sd_us=10907 rm=0 sk10=0 sk20=0 late=0 w=344.6 f=0.09
+VKELLO w=12 t_ms=1940 z_us=-2360.3 T_us=20000.000 d=0.00000 sd_us=10913.7 amp=2.198 lock=0 p_bar=-0.64 gate=-1
+EU 2033 -0.14 2.50 1 1.00 1 p5=-0.24 sd_us=10999 rm=0 sk10=0 sk20=0 late=0 w=344.7 f=0.32
+VKELLO w=13 t_ms=2101 z_us=-2882.8 T_us=20000.000 d=0.00000 sd_us=11063.5 amp=2.144 lock=0 p_bar=-0.41 gate=-1
+EU 2133 -0.48 2.50 1 1.00 1 p5=-0.53 sd_us=11095 rm=0 sk10=0 sk20=0 late=0 w=344.6 f=0.48
+EU 2233 -0.20 2.50 1 1.00 1 p5=-0.39 sd_us=11195 rm=0 sk10=0 sk20=0 late=0 w=344.6 f=0.62
+VKELLO w=14 t_ms=2261 z_us=-2392.2 T_us=20000.000 d=0.00000 sd_us=11223.1 amp=2.279 lock=0 p_bar=-0.46 gate=-1
+EU 2333 -0.48 2.50 1 1.00 1 p5=-0.57 sd_us=11298 rm=0 sk10=0 sk20=0 late=0 w=344.8 f=0.60
+VKELLO w=15 t_ms=2421 z_us=-2735.6 T_us=20000.000 d=0.00000 sd_us=11391.8 amp=1.880 lock=0 p_bar=-0.62 gate=-1
+EU 2433 -0.06 2.50 1 1.00 1 p5=-0.70 sd_us=11405 rm=0 sk10=0 sk20=0 late=0 w=345.3 f=1.43
+EU 2533 -0.44 2.50 1 1.00 1 p5=-0.50 sd_us=11515 rm=0 sk10=0 sk20=0 late=0 w=345.4 f=1.70
+VKELLO w=16 t_ms=2582 z_us=-2635.5 T_us=20000.000 d=0.00000 sd_us=11570.7 amp=2.213 lock=0 p_bar=-0.46 gate=-1
+EU 2633 -0.17 2.50 1 1.00 1 p5=-0.41 sd_us=11629 rm=0 sk10=0 sk20=0 late=0 w=345.3 f=2.22
+EU 2733 -0.54 2.50 1 1.00 1 p5=-0.57 sd_us=11746 rm=0 sk10=0 sk20=0 late=0 w=345.5 f=1.82
+VKELLO w=17 t_ms=2743 z_us=-3346.3 T_us=20000.000 d=0.00000 sd_us=11757.3 amp=2.017 lock=0 p_bar=-0.56 gate=-1
+EU 2833 -0.78 2.50 1 1.00 1 p5=-0.32 sd_us=11866 rm=0 sk10=0 sk20=0 late=0 w=345.9 f=1.33
+VKELLO w=18 t_ms=2903 z_us=-3115.6 T_us=20000.000 d=0.00000 sd_us=11952.5 amp=2.184 lock=0 p_bar=-0.42 gate=-1
+EU 2933 -0.02 2.50 1 1.00 1 p5=-0.38 sd_us=11990 rm=0 sk10=0 sk20=0 late=0 w=346.0 f=1.30
+EU 3033 0.69 2.50 1 1.00 1 p5=-0.44 sd_us=12116 rm=0 sk10=0 sk20=0 late=0 w=346.1 f=1.44
+VKELLO w=19 t_ms=3063 z_us=-3001.5 T_us=20000.000 d=0.00000 sd_us=12155.1 amp=2.077 lock=0 p_bar=-0.44 gate=-1
+EU 3133 -0.18 2.50 1 1.00 1 p5=-0.39 sd_us=12246 rm=0 sk10=0 sk20=0 late=0 w=346.0 f=1.43
+VKELLO w=20 t_ms=3224 z_us=-3350.7 T_us=20000.000 d=0.00000 sd_us=12365.9 amp=2.229 lock=0 p_bar=-0.46 gate=-1
+EU 3233 0.43 2.50 1 1.00 1 p5=-0.55 sd_us=12378 rm=0 sk10=0 sk20=0 late=0 w=346.1 f=1.27
+EU 3333 -0.32 2.50 1 1.00 1 p5=-0.31 sd_us=12513 rm=0 sk10=0 sk20=0 late=0 w=346.1 f=0.57
+VKELLO w=21 t_ms=3384 z_us=-3393.2 T_us=20000.000 d=0.00000 sd_us=12583.0 amp=2.035 lock=0 p_bar=-0.35 gate=-1
+EU 3433 -0.30 2.50 1 1.00 1 p5=-0.49 sd_us=12651 rm=0 sk10=0 sk20=0 late=0 w=346.0 f=0.34
+EU 3533 -0.66 2.50 1 1.00 1 p5=0.10 sd_us=12791 rm=0 sk10=0 sk20=0 late=0 w=346.2 f=0.33
+VKELLO w=22 t_ms=3545 z_us=-3958.9 T_us=20000.000 d=0.00000 sd_us=12807.5 amp=1.902 lock=0 p_bar=-0.47 gate=-1
+EU 3633 -0.17 2.50 1 1.00 1 p5=-0.45 sd_us=12934 rm=0 sk10=0 sk20=0 late=0 w=346.2 f=0.54
+VKELLO w=23 t_ms=3705 z_us=-4546.2 T_us=20000.000 d=0.00000 sd_us=13038.8 amp=1.924 lock=0 p_bar=-0.23 gate=-1
+EU 3733 -0.25 2.50 1 1.00 1 p5=-0.28 sd_us=13079 rm=0 sk10=0 sk20=0 late=0 w=346.2 f=0.57
+EU 3833 -0.23 2.50 1 1.00 1 p5=-0.21 sd_us=13227 rm=0 sk10=0 sk20=0 late=0 w=346.1 f=0.28
+VKELLO w=24 t_ms=3866 z_us=-5828.4 T_us=20000.000 d=0.00000 sd_us=13276.5 amp=1.275 lock=0 p_bar=-0.27 gate=-1
+EU 3933 -0.14 2.50 1 1.00 1 p5=-0.38 sd_us=13377 rm=0 sk10=0 sk20=0 late=0 w=346.3 f=0.30
+VKELLO w=25 t_ms=4027 z_us=-6161.7 T_us=20000.000 d=0.00000 sd_us=13520.5 amp=1.310 lock=0 p_bar=-0.19 gate=-1
+EU 4037 -0.41 2.50 1 1.00 1 p5=-0.15 sd_us=13536 rm=0 sk10=0 sk20=0 late=0 w=346.8 f=1.01
+EU 4133 0.08 2.50 1 1.00 1 p5=-0.02 sd_us=13684 rm=0 sk10=0 sk20=0 late=0 w=346.8 f=1.01
+VKELLO w=26 t_ms=4187 z_us=-5938.0 T_us=20000.000 d=0.00000 sd_us=13768.6 amp=1.286 lock=0 p_bar=-0.04 gate=-1
+EU 4253 0.11 2.50 1 1.00 1 p5=-0.14 sd_us=13872 rm=0 sk10=0 sk20=0 late=0 w=346.8 f=1.52
+VKELLO w=27 t_ms=4348 z_us=-6319.1 T_us=20000.000 d=0.00000 sd_us=14023.1 amp=1.179 lock=0 p_bar=-0.01 gate=-1
+EU 4357 -0.38 2.50 1 1.00 1 p5=0.02 sd_us=14037 rm=0 sk10=0 sk20=0 late=0 w=346.6 f=1.03
+EU 4453 0.14 2.50 1 1.00 1 p5=0.10 sd_us=14192 rm=0 sk10=0 sk20=0 late=0 w=346.4 f=0.37
+VKELLO w=28 t_ms=4508 z_us=-5931.3 T_us=20000.000 d=0.00000 sd_us=14281.9 amp=1.186 lock=0 p_bar=0.03 gate=-1
+EU 4553 0.27 2.50 1 1.00 1 p5=-0.02 sd_us=14355 rm=0 sk10=0 sk20=0 late=0 w=346.4 f=-0.61
+EU 4653 0.28 2.50 1 1.00 1 p5=0.13 sd_us=14520 rm=0 sk10=0 sk20=0 late=0 w=346.0 f=-1.67
+VKELLO w=29 t_ms=4670 z_us=-6329.1 T_us=20000.000 d=0.00000 sd_us=14549.1 amp=1.232 lock=0 p_bar=0.11 gate=-1
+EU 4753 0.26 2.50 1 1.00 1 p5=0.09 sd_us=14687 rm=0 sk10=0 sk20=0 late=0 w=345.3 f=-2.59
+VKELLO w=30 t_ms=4831 z_us=-6126.9 T_us=20000.000 d=0.00000 sd_us=14818.8 amp=1.055 lock=0 p_bar=0.27 gate=-1
+EU 4853 -0.02 2.50 1 1.00 1 p5=0.31 sd_us=14856 rm=0 sk10=0 sk20=0 late=0 w=345.1 f=-2.86
+EU 4953 0.21 2.50 1 1.00 1 p5=0.29 sd_us=15026 rm=0 sk10=0 sk20=0 late=0 w=344.8 f=-3.11
+VKELLO w=31 t_ms=4991 z_us=-6593.0 T_us=20000.000 d=0.00000 sd_us=15091.6 amp=1.306 lock=0 p_bar=0.25 gate=-1
+EU 5073 0.41 2.50 1 1.00 1 p5=0.27 sd_us=15232 rm=0 sk10=0 sk20=0 late=0 w=344.7 f=-2.92
+VKELLO w=32 t_ms=5152 z_us=-5908.7 T_us=20000.000 d=0.00000 sd_us=15369.1 amp=1.076 lock=0 p_bar=0.30 gate=-1
+EU 5176 0.05 2.50 1 1.00 1 p5=0.25 sd_us=15411 rm=0 sk10=0 sk20=0 late=0 w=344.7 f=-2.65
+EU 5273 0.52 2.50 1 1.00 1 p5=0.45 sd_us=15582 rm=0 sk10=0 sk20=0 late=0 w=344.8 f=-1.00
+VKELLO w=33 t_ms=5312 z_us=-6430.3 T_us=20000.000 d=0.00000 sd_us=15650.4 amp=1.219 lock=0 p_bar=0.40 gate=-1
+EU 5373 0.51 2.50 1 1.00 1 p5=0.44 sd_us=15759 rm=0 sk10=0 sk20=0 late=0 w=344.8 f=-0.49
+VKELLO w=34 t_ms=5472 z_us=-6567.2 T_us=20000.000 d=0.00000 sd_us=15935.2 amp=1.011 lock=0 p_bar=0.60 gate=-1
+EU 5479 0.31 2.50 1 1.00 1 p5=0.62 sd_us=15947 rm=0 sk10=0 sk20=0 late=0 w=344.8 f=0.13
+EU 5573 0.61 2.50 1 1.00 1 p5=0.75 sd_us=16117 rm=0 sk10=0 sk20=0 late=0 w=344.9 f=0.63
+VKELLO w=35 t_ms=5632 z_us=-6665.8 T_us=20000.000 d=0.00000 sd_us=16223.9 amp=1.009 lock=0 p_bar=0.69 gate=-1
+EU 5673 0.72 2.50 1 1.00 1 p5=0.62 sd_us=16299 rm=0 sk10=0 sk20=0 late=0 w=345.3 f=0.94
+EU 5773 0.96 2.50 1 1.00 1 p5=0.88 sd_us=16481 rm=0 sk10=0 sk20=0 late=0 w=345.4 f=1.00
+VKELLO w=36 t_ms=5794 z_us=-6279.9 T_us=20000.000 d=0.00000 sd_us=16519.7 amp=1.156 lock=0 p_bar=0.85 gate=-1
+EU 5873 1.09 2.50 1 1.00 1 p5=1.20 sd_us=16665 rm=0 sk10=0 sk20=0 late=0 w=345.4 f=1.30
+VKELLO w=37 t_ms=5955 z_us=-5902.7 T_us=20000.000 d=0.00000 sd_us=16816.9 amp=0.997 lock=0 p_bar=1.06 gate=-1
+EU 5973 1.61 2.50 1 1.00 1 p5=1.12 sd_us=16851 rm=0 sk10=0 sk20=0 late=0 w=345.4 f=0.96
+EU 6073 1.12 2.50 1 1.00 1 p5=1.13 sd_us=17038 rm=0 sk10=0 sk20=0 late=0 w=345.4 f=0.65
+VKELLO w=38 t_ms=6115 z_us=-6975.2 T_us=20000.000 d=0.00000 sd_us=17116.3 amp=0.920 lock=0 p_bar=1.19 gate=-1
+EU 6173 1.54 2.50 1 1.00 1 p5=1.26 sd_us=17226 rm=0 sk10=0 sk20=0 late=0 w=345.2 f=0.02
+EU 6273 1.36 2.50 1 1.00 1 p5=1.31 sd_us=17415 rm=0 sk10=0 sk20=0 late=0 w=345.1 f=-0.45
+VKELLO w=39 t_ms=6278 z_us=-6103.9 T_us=20000.000 d=0.00000 sd_us=17424.5 amp=0.797 lock=0 p_bar=1.35 gate=-1
+EU_CUT t_ms=6373 p=1.55 rate=2.39 coast_s=0.300 pred=2.27 g=3.26 ff=0.43
+EU 6373 1.37 1.55 1 0.30 2 p5=1.55 sd_us=17605 rm=0 sk10=0 sk20=0 late=0 w=345.0 f=-1.11
+VKELLO w=40 t_ms=6438 z_us=-6703.3 T_us=19985.470 d=-0.00187 sd_us=731.5 amp=0.628 lock=0 p_bar=1.46 gate=0
+EU 6466 1.93 1.74 1 0.76 2 p5=1.62 sd_us=741 rm=2 sk10=1 sk20=1 late=0 w=344.9 f=-1.10
+EU_COAST peak=1.67 rise=0.12 rate=2.39 coast_s=0.175 learn=1
+EU 6566 1.80 1.94 1 0.86 2 p5=1.59 sd_us=788 rm=3 sk10=2 sk20=1 late=0 w=344.9 f=-0.79
+VKELLO w=41 t_ms=6599 z_us=1627.3 T_us=19996.042 d=0.00288 sd_us=559.3 amp=0.614 lock=0 p_bar=1.68 gate=0
+EU 6667 1.93 2.14 1 0.92 2 p5=1.85 sd_us=604 rm=3 sk10=2 sk20=1 late=0 w=345.2 f=0.16
+VKELLO w=42 t_ms=6759 z_us=840.1 T_us=20004.636 d=0.00716 sd_us=520.6 amp=0.889 lock=0 p_bar=1.94 gate=0
+EU 6773 2.38 2.35 1 0.91 2 p5=2.02 sd_us=531 rm=3 sk10=2 sk20=1 late=1 w=345.7 f=2.08
+EU 6868 2.08 2.50 1 1.00 2 p5=2.06 sd_us=612 rm=4 sk10=3 sk20=1 late=1 w=346.0 f=3.27
+VKELLO w=43 t_ms=6920 z_us=-231.3 T_us=20001.916 d=0.00570 sd_us=515.8 amp=0.614 lock=0 p_bar=2.13 gate=0
+EU 6967 2.30 2.50 1 1.00 2 p5=2.23 sd_us=556 rm=4 sk10=3 sk20=1 late=1 w=346.5 f=3.38
+EU_HOLD t_ms=7007 p=2.41
+EU 7067 2.45 2.50 1 0.45 2 p5=2.53 sd_us=646 rm=6 sk10=4 sk20=1 late=1 w=347.0 f=4.41
+VKELLO w=44 t_ms=7080 z_us=-230.1 T_us=19999.190 d=0.00418 sd_us=512.8 amp=0.577 lock=0 p_bar=2.44 gate=0
+EU 7167 2.50 2.50 0 0.41 2 p5=2.66 sd_us=582 rm=9 sk10=5 sk20=1 late=2 w=347.8 f=4.45
+VKELLO w=45 t_ms=7240 z_us=569.7 T_us=20005.524 d=0.00779 sd_us=503.6 amp=0.552 lock=0 p_bar=2.52 gate=0
+EU 7268 2.49 2.50 0 0.42 2 p5=2.48 sd_us=523 rm=12 sk10=7 sk20=1 late=2 w=348.0 f=4.19
+EU 7368 2.62 2.50 0 0.36 2 p5=2.53 sd_us=594 rm=15 sk10=9 sk20=1 late=2 w=348.0 f=3.45
+VKELLO w=46 t_ms=7401 z_us=-297.2 T_us=20002.700 d=0.00604 sd_us=489.8 amp=0.211 lock=0 p_bar=2.53 gate=0
+EU 7468 2.67 2.50 0 0.34 2 p5=2.58 sd_us=531 rm=18 sk10=11 sk20=1 late=2 w=347.9 f=2.16
+VKELLO w=47 t_ms=7561 z_us=380.7 T_us=20005.936 d=0.00811 sd_us=473.5 amp=0.226 lock=0 p_bar=2.62 gate=0
+EU 7573 2.80 2.50 1 0.27 2 p5=2.63 sd_us=479 rm=21 sk10=12 sk20=1 late=2 w=348.1 f=1.63
+EU 7668 2.43 2.50 0 0.41 2 p5=2.64 sd_us=531 rm=24 sk10=14 sk20=1 late=3 w=348.1 f=0.83
+VKELLO w=48 t_ms=7722 z_us=149.1 T_us=20007.072 d=0.00887 sd_us=456.4 amp=0.224 lock=0 p_bar=2.73 gate=0
+EU 7768 2.72 2.50 1 0.26 2 p5=2.78 sd_us=478 rm=28 sk10=14 sk20=1 late=3 w=347.9 f=0.12
+EU 7868 2.76 2.50 0 0.22 2 p5=2.76 sd_us=526 rm=32 sk10=16 sk20=1 late=3 w=347.8 f=0.03
+VKELLO w=49 t_ms=7882 z_us=201.1 T_us=20008.386 d=0.00983 sd_us=439.6 amp=0.166 lock=0 p_bar=2.78 gate=0
+EU 7968 2.72 2.50 1 0.21 2 p5=2.83 sd_us=475 rm=36 sk10=16 sk20=1 late=3 w=347.8 f=-0.45
+VKELLO w=50 t_ms=8043 z_us=956.4 T_us=20013.588 d=0.01431 sd_us=424.0 amp=0.234 lock=0 p_bar=2.79 gate=0
+EU 8068 2.73 2.50 1 0.24 2 p5=2.81 sd_us=433 rm=40 sk10=17 sk20=1 late=3 w=347.7 f=-0.54
+EU 8168 2.80 2.50 0 0.22 2 p5=2.79 sd_us=471 rm=44 sk10=19 sk20=1 late=3 w=347.8 f=-0.59
+VKELLO w=51 t_ms=8203 z_us=181.7 T_us=20014.552 d=0.01516 sd_us=409.6 amp=0.216 lock=0 p_bar=2.79 gate=0
+EU 8268 2.96 2.50 0 0.18 2 p5=2.83 sd_us=431 rm=48 sk10=20 sk20=1 late=3 w=347.7 f=-0.40
+VKELLO w=52 t_ms=8365 z_us=-291.7 T_us=20013.470 d=0.01378 sd_us=396.7 amp=0.106 lock=1 p_bar=2.85 gate=0
+EU 8376 2.83 2.50 1 0.19 2 p5=2.84 sd_us=400 rm=51 sk10=20 sk20=1 late=4 w=347.8 f=0.11
+EU 8469 2.92 2.50 0 0.16 2 p5=2.94 sd_us=428 rm=56 sk10=21 sk20=1 late=4 w=348.0 f=0.48
+VKELLO w=53 t_ms=8526 z_us=-375.4 T_us=20012.198 d=0.01191 sd_us=383.5 amp=0.177 lock=1 p_bar=2.94 gate=0
+EU 8569 2.83 2.50 1 0.17 2 p5=2.85 sd_us=395 rm=60 sk10=21 sk20=1 late=4 w=348.2 f=0.80
+EU 8669 2.90 2.50 0 0.14 2 p5=2.96 sd_us=423 rm=64 sk10=22 sk20=1 late=5 w=348.4 f=1.51
+VKELLO w=54 t_ms=8686 z_us=-1350.1 T_us=20007.794 d=0.00497 sd_us=371.8 amp=0.179 lock=1 p_bar=2.94 gate=0
+EU 8788 2.83 2.50 0 0.14 2 p5=2.87 sd_us=398 rm=70 sk10=22 sk20=1 late=5 w=349.0 f=2.37
+EU 8888 2.78 2.50 1 0.14 2 p5=2.80 sd_us=424 rm=74 sk10=22 sk20=1 late=5 w=349.2 f=2.53
+EU 8988 2.82 2.50 0 0.12 2 p5=2.84 sd_us=451 rm=79 sk10=23 sk20=1 late=5 w=349.3 f=2.43
+VKELLO w=55 t_ms=9007 z_us=1099.9 T_us=20011.546 d=0.01224 sd_us=389.3 amp=0.134 lock=1 p_bar=2.83 gate=0
+EU 9089 2.96 2.50 0 0.09 2 p5=2.81 sd_us=409 rm=82 sk10=24 sk20=1 late=6 w=349.5 f=2.36
+VKELLO w=56 t_ms=9167 z_us=-796.9 T_us=20009.308 d=0.00705 sd_us=371.6 amp=0.108 lock=1 p_bar=2.84 gate=0
+EU 9209 2.81 2.50 0 0.10 2 p5=2.85 sd_us=381 rm=88 sk10=24 sk20=1 late=6 w=349.5 f=1.70
+EU 9309 2.74 2.50 0 0.11 2 p5=2.77 sd_us=403 rm=93 sk10=24 sk20=1 late=6 w=349.5 f=1.70
+EU 9409 2.69 2.50 0 0.11 2 p5=2.71 sd_us=426 rm=98 sk10=24 sk20=1 late=6 w=349.9 f=1.13
+VKELLO w=57 t_ms=9494 z_us=987.3 T_us=20012.310 d=0.01492 sd_us=383.6 amp=0.113 lock=1 p_bar=2.72 gate=0
+EU 9509 2.79 2.50 0 0.08 2 p5=2.73 sd_us=387 rm=102 sk10=25 sk20=1 late=6 w=350.2 f=1.44
+EU 9609 2.65 2.50 0 0.11 2 p5=2.69 sd_us=408 rm=107 sk10=25 sk20=1 late=6 w=350.5 f=2.19
+EU 9709 2.68 2.50 0 0.09 2 p5=2.70 sd_us=431 rm=111 sk10=26 sk20=1 late=6 w=350.8 f=2.78
+EU_END reason=stop max=3.59 over=0.34 hold_n=135 hold_mean=2.750 hold_sd=0.171 strokes=375 rm=113 sk10=26 sk20=1 late=6 miss=6 windows=57 win_low=3 learned=18 T_us=20012.310 hz=49.9692 sd_us=445 learned_ff_pre=0.33 coast_s=0.175 tau_obs=2.55
+TS_END loops=0 max_loop_ms=0 reason=stopped learned_ff_brew=0.50
+0

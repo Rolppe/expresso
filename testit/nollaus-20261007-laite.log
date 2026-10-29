@@ -1,0 +1,33 @@
+e "classes.py", line 1562, in read_temperature
+  File "/lib/adafruit_max31865.py", line 249, in temperature
+  File "/lib/adafruit_max31865.py", line 187, in read_rtd
+KeyboardInterrupt: 
+MicroPython v1.28.0 on 2026-04-06; Raspberry Pi Pico 2 W with RP2350
+Type "help()" for more information.
+>>>
+DEVSAFE relays=[0, 0, 0] ok=True watchdog=True
+SAFE_OK
+ROUND 1 10:28:47 WL 720.0 250.0
+RESET 10:28:47
+e "classes.py", line 1562, in read_temperature
+  File "/lib/adafruit_max31865.py", line 249, in temperature
+  File "/lib/adafruit_max31865.py", line 187, in read_rtd
+KeyboardInterrupt: 
+MicroPython v1.28.0 on 2026-04-06; Raspberry Pi Pico 2 W with RP2350
+Type "help()" for more information.
+>>>
+DEVSAFE relays=[0, 0, 0] ok=True watchdog=True
+SAFE_OK
+ROUND 2 10:29:07 WL 720.0 250.0
+RESET 10:29:07
+e "classes.py", line 1562, in read_temperature
+  File "/lib/adafruit_max31865.py", line 249, in temperature
+  File "/lib/adafruit_max31865.py", line 187, in read_rtd
+KeyboardInterrupt: 
+MicroPython v1.28.0 on 2026-04-06; Raspberry Pi Pico 2 W with RP2350
+Type "help()" for more information.
+>>>
+DEVSAFE relays=[0, 0, 0] ok=True watchdog=True
+SAFE_OK
+ROUND 3 10:29:28 WL 720.0 250.0
+RESET 10:29:28

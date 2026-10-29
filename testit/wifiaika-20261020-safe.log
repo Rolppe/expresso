@@ -1,0 +1,19 @@
+Traceback (most recent call last):
+  File "~/palvelin/Infra/iot/expresso/pico_dev.py", line 777, in <module>
+    main(op)
+    ~~~~^^^^
+  File "~/palvelin/Infra/iot/expresso/pico_dev.py", line 715, in main
+    safe()
+    ~~~~^^
+  File "~/palvelin/Infra/iot/expresso/pico_dev.py", line 687, in safe
+    link.enter_devsafe()
+    ~~~~~~~~~~~~~~~~~~^^
+  File "~/palvelin/Infra/iot/expresso/pico_dev.py", line 286, in enter_devsafe
+    out = enter_raw()
+  File "~/palvelin/Infra/iot/expresso/pico_dev.py", line 281, in enter_raw
+    self.send(b'\x01')
+    ~~~~~~~~~^^^^^^^^^
+  File "~/palvelin/Infra/iot/expresso/pico_dev.py", line 272, in send
+    self.s.sendall(data)
+    ~~~~~~~~~~~~~~^^^^^^
+BrokenPipeError: [Errno 32] Broken pipe

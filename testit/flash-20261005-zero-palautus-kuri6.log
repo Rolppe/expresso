@@ -1,0 +1,34 @@
+>>> 
+>>> 
+>>>
+DEVSAFE relays=[0, 0, 0] ok=True watchdog=False
+SAFE_OK
+FLASH_PLAN 7/19 changed: /bluetooth_handler.py /classes.py /commands.py /functions.py /lib/adafruit_max31865.py /main.py /scale.py
+WROTE /bluetooth_handler.py              9277 B 1.5 s
+WROTE /classes.py                       57032 B 8.1 s
+WROTE /commands.py                      18129 B 2.6 s
+WROTE /functions.py                    185721 B 26.9 s
+WROTE /lib/adafruit_max31865.py          9570 B 1.5 s
+WROTE /main.py                          19379 B 2.8 s
+WROTE /scale.py                          9944 B 2.0 s
+/api_functions.py                OK
+/backflush.py                    OK
+/bluetooth_handler.py            OK
+/boot.py                         OK
+/boot_bluetooth_test.py          OK
+/classes.py                      OK
+/commands.py                     OK
+/devsafe.py                      OK
+/functions.py                    OK
+/lib/adafruit_max31865.py        OK
+/lib/spi_device.py               OK
+/main.py                         OK
+/preset.py                       OK
+/relayguard.py                   OK
+/scale.py                        OK
+/scale_cal.json                  OK
+/secrets.py                      OK
+/ugit.py                         OK
+/verkkokello.py                  OK
+VERIFIED 19/19
+FLASH_OK

@@ -1,0 +1,56 @@
+CMD_OK pgap:7.0:50:300:5:10:7485:14970
+PGAP_START rate=1000 target=7.00 n=50 spacing_ms=300 gap_us=5000 period_us=19960 phases=10 gain=1.0000 offset=-0.990
+PGAP_END gaps=0 pmax=5.01 reason=noreach
+CMD_OK pgap:4.0:50:300:5:10:7485:14970
+PGAP_START rate=1000 target=4.00 n=50 spacing_ms=300 gap_us=5000 period_us=19960 phases=10 gain=1.0000 offset=-0.990
+PGAP k=0 phase_us=7485 len_ms=5 start=50 base_bar=3.999 slope=-0.0357 depth_bar=0.000 trough_ms=0
+PGAP k=1 phase_us=8316 len_ms=5 start=350 base_bar=3.975 slope=-0.0509 depth_bar=0.000 trough_ms=0
+PGAP k=2 phase_us=9148 len_ms=5 start=650 base_bar=4.098 slope=-0.0567 depth_bar=0.000 trough_ms=0
+PGAP k=3 phase_us=9980 len_ms=5 start=950 base_bar=4.438 slope=-0.0472 depth_bar=0.000 trough_ms=0
+PGAP k=4 phase_us=10811 len_ms=5 start=1251 base_bar=4.230 slope=-0.0749 depth_bar=0.000 trough_ms=0
+PGAP k=5 phase_us=11643 len_ms=5 start=1551 base_bar=4.749 slope=-0.0334 depth_bar=0.000 trough_ms=0
+PGAP k=6 phase_us=12475 len_ms=5 start=1851 base_bar=4.957 slope=-0.0344 depth_bar=0.000 trough_ms=0
+PGAP k=7 phase_us=13306 len_ms=5 start=2151 base_bar=4.617 slope=-0.0727 depth_bar=0.000 trough_ms=0
+PGAP k=8 phase_us=14138 len_ms=5 start=2452 base_bar=4.633 slope=-0.0672 depth_bar=0.000 trough_ms=0
+PGAP k=9 phase_us=14970 len_ms=5 start=2752 base_bar=4.812 slope=-0.0476 depth_bar=0.000 trough_ms=0
+PGAP k=10 phase_us=7485 len_ms=5 start=3064 base_bar=5.594 slope=0.0353 depth_bar=7.522 trough_ms=183
+PGAP k=11 phase_us=8316 len_ms=5 start=3364 base_bar=5.917 slope=0.0515 depth_bar=10.927 trough_ms=200
+PGAP k=12 phase_us=9148 len_ms=5 start=3664 base_bar=6.092 slope=0.0541 depth_bar=11.815 trough_ms=200
+PGAP k=13 phase_us=9980 len_ms=5 start=3964 base_bar=5.981 slope=0.0504 depth_bar=10.483 trough_ms=184
+PGAP k=14 phase_us=10811 len_ms=5 start=4265 base_bar=5.310 slope=-0.0057 depth_bar=0.475 trough_ms=20
+PGAP k=15 phase_us=11643 len_ms=5 start=4565 base_bar=5.827 slope=0.0324 depth_bar=7.330 trough_ms=200
+PGAP k=16 phase_us=12475 len_ms=5 start=4865 base_bar=5.590 slope=0.0273 depth_bar=6.319 trough_ms=200
+PGAP k=17 phase_us=13306 len_ms=5 start=5165 base_bar=5.501 slope=0.0115 depth_bar=2.779 trough_ms=183
+PGAP k=18 phase_us=14138 len_ms=5 start=5466 base_bar=5.762 slope=0.0206 depth_bar=4.759 trough_ms=181
+PGAP k=19 phase_us=14970 len_ms=5 start=5766 base_bar=5.710 slope=0.0148 depth_bar=3.948 trough_ms=200
+PGAP k=20 phase_us=7485 len_ms=5 start=6078 base_bar=5.794 slope=0.0367 depth_bar=8.147 trough_ms=187
+PGAP k=21 phase_us=8316 len_ms=5 start=6378 base_bar=5.833 slope=0.0527 depth_bar=10.929 trough_ms=196
+PGAP k=22 phase_us=9148 len_ms=5 start=6678 base_bar=5.633 slope=0.0216 depth_bar=5.083 trough_ms=188
+PGAP k=23 phase_us=9980 len_ms=5 start=6978 base_bar=5.508 slope=0.0032 depth_bar=1.436 trough_ms=186
+PGAP k=24 phase_us=10811 len_ms=5 start=7279 base_bar=6.080 slope=0.0594 depth_bar=12.410 trough_ms=195
+PGAP k=25 phase_us=11643 len_ms=5 start=7579 base_bar=6.131 slope=0.0743 depth_bar=15.302 trough_ms=200
+PGAP k=26 phase_us=12475 len_ms=5 start=7879 base_bar=5.766 slope=0.0315 depth_bar=6.882 trough_ms=187
+PGAP k=27 phase_us=13306 len_ms=5 start=8179 base_bar=6.117 slope=0.0615 depth_bar=12.837 trough_ms=186
+PGAP k=28 phase_us=14138 len_ms=5 start=8480 base_bar=6.222 slope=0.0777 depth_bar=15.939 trough_ms=194
+PGAP k=29 phase_us=14970 len_ms=5 start=8780 base_bar=5.863 slope=0.0477 depth_bar=9.805 trough_ms=193
+PGAP k=30 phase_us=7485 len_ms=5 start=9092 base_bar=5.024 slope=-0.0322 depth_bar=0.000 trough_ms=0
+PGAP k=31 phase_us=8316 len_ms=5 start=9392 base_bar=4.922 slope=-0.0426 depth_bar=0.000 trough_ms=0
+PGAP k=32 phase_us=9148 len_ms=5 start=9692 base_bar=4.892 slope=-0.0471 depth_bar=0.000 trough_ms=0
+PGAP k=33 phase_us=9980 len_ms=5 start=9992 base_bar=5.101 slope=-0.0193 depth_bar=0.427 trough_ms=12
+PGAP k=34 phase_us=10811 len_ms=5 start=10293 base_bar=5.047 slope=-0.0030 depth_bar=0.670 trough_ms=51
+PGAP k=35 phase_us=11643 len_ms=5 start=10593 base_bar=5.170 slope=0.0101 depth_bar=2.710 trough_ms=170
+PGAP k=36 phase_us=12475 len_ms=5 start=10893 base_bar=5.051 slope=-0.0094 depth_bar=0.528 trough_ms=49
+PGAP k=37 phase_us=13306 len_ms=5 start=11193 base_bar=5.277 slope=0.0310 depth_bar=6.933 trough_ms=188
+PGAP k=38 phase_us=14138 len_ms=5 start=11493 base_bar=5.129 slope=0.0150 depth_bar=3.395 trough_ms=187
+PGAP k=39 phase_us=14970 len_ms=5 start=11794 base_bar=5.378 slope=0.0240 depth_bar=5.300 trough_ms=190
+PGAP k=40 phase_us=7485 len_ms=5 start=12106 base_bar=4.855 slope=-0.0291 depth_bar=0.000 trough_ms=0
+PGAP k=41 phase_us=8316 len_ms=5 start=12406 base_bar=4.605 slope=-0.0723 depth_bar=0.000 trough_ms=0
+PGAP k=42 phase_us=9148 len_ms=5 start=12706 base_bar=4.614 slope=-0.0813 depth_bar=0.000 trough_ms=0
+PGAP k=43 phase_us=9980 len_ms=5 start=13006 base_bar=4.709 slope=-0.0623 depth_bar=0.000 trough_ms=0
+PGAP k=44 phase_us=10811 len_ms=5 start=13307 base_bar=4.871 slope=-0.0399 depth_bar=0.000 trough_ms=0
+PGAP k=45 phase_us=11643 len_ms=5 start=13607 base_bar=4.808 slope=-0.0529 depth_bar=0.000 trough_ms=0
+PGAP k=46 phase_us=12475 len_ms=5 start=13907 base_bar=4.717 slope=-0.0795 depth_bar=0.000 trough_ms=0
+PGAP k=47 phase_us=13306 len_ms=5 start=14207 base_bar=5.004 slope=-0.0533 depth_bar=0.000 trough_ms=0
+PGAP k=48 phase_us=14138 len_ms=5 start=14507 base_bar=4.926 slope=-0.0352 depth_bar=0.000 trough_ms=0
+PGAP k=49 phase_us=14970 len_ms=5 start=14808 base_bar=4.836 slope=-0.0456 depth_bar=0.000 trough_ms=0
+PGAP_END gaps=50 pmax=6.66 reason=ok

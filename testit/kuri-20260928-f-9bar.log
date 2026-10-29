@@ -1,0 +1,35 @@
+KURI_START rate=25 T_us=19976.9 wmax=720 w=333.3
+
+KURI t=404 bar=-0.66 filt=0.21 w=335.4 n=10
+KURI t=605 bar=-1.04 filt=0.02 w=336.9 n=15
+
+KURI t=1006 bar=-0.88 filt=-0.28 w=340.2 n=25
+KURI t=1209 bar=-0.58 filt=-0.37 w=340.3 n=30
+KURI t=1409 bar=-0.86 filt=-0.44 w=340.3 n=35
+KURI t=1609 bar=-0.85 filt=-0.50 w=340.4 n=40
+KURI t=1811 bar=-0.66 filt=-0.54 w=340.5 n=45
+KURI t=2014 bar=-0.29 filt=-0.59 w=340.9 n=50
+KURI t=2216 bar=-0.11 filt=-0.57 w=341.4 n=55
+KURI t=2419 bar=-0.46 filt=-0.53 w=341.7 n=60
+KURI t=2621 bar=-0.65 filt=-0.50 w=341.5 n=66
+KURI t=2823 bar=-0.07 filt=-0.44 w=341.2 n=71
+KURI t=3025 bar=0.08 filt=-0.35 w=341.4 n=76
+KURI t=3228 bar=0.14 filt=-0.22 w=342.0 n=81
+KURI t=3430 bar=0.44 filt=-0.08 w=342.5 n=86
+KURI t=3630 bar=1.10 filt=0.12 w=342.7 n=91
+KURI t=3833 bar=1.48 filt=0.36 w=342.7 n=96
+KURI t=4035 bar=2.14 filt=0.65 w=342.8 n=101
+KURI t=4235 bar=2.78 filt=1.01 w=342.7 n=106
+KURI t=4438 bar=3.84 filt=1.47 w=342.8 n=111
+KURI t=4640 bar=4.89 filt=2.02 w=343.3 n=116
+KURI t=4840 bar=5.97 filt=2.67 w=344.0 n=121
+KURI t=5043 bar=6.88 filt=3.39 w=344.1 n=126
+KURI t=5243 bar=7.74 filt=4.14 w=344.0 n=131
+KURI t=5443 bar=7.92 filt=4.81 w=344.2 n=136
+KURI t=5643 bar=8.61 filt=5.49 w=344.4 n=141
+KURI t=5844 bar=8.99 filt=6.14 w=345.8 n=146
+KURI t=6046 bar=9.39 filt=6.73 w=346.3 n=151
+KURI t=6246 bar=9.68 filt=7.24 w=346.7 n=156
+KURI t=6447 bar=10.30 filt=7.75 w=346.8 n=161
+KURI_END reason=overpressure filt=7.85 filt_max=7.85 raw_max=11.08 n=162 ms=6486
+Received: 'brew_log?'

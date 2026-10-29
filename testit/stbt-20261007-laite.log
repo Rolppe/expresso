@@ -1,0 +1,15 @@
+Connected - sending initial settings
+Received: 'sync'
+Received: 'sync'
+Received: 'stbt:70'
+STBT temp=70 standby=0 target=102.0
+Received: 'brew_log?'
+BREW_LOG resend none pending
+Received: 'stby:15'
+STBY timeout_min=15 standby=0 target=102.0
+Received: 'brew_log?'
+BREW_LOG resend none pending
+Received: 'brew_log?'
+BREW_LOG resend none pending
+Received: 'brew_log?'
+BREW_LOG resend none pending

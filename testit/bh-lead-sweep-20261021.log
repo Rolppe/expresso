@@ -1,0 +1,12 @@
+lag 20 lead 0.0  over-k: min 97.85 97.87 97.83  oikea-k: min 97.98 97.98 97.98
+lag 20 lead 0.3  over-k: min 97.88 97.88 97.88  oikea-k: min 97.98 97.98 97.98
+lag 20 lead 0.5  over-k: min 97.89 97.88 97.87  oikea-k: min 97.98 97.98 97.98
+lag 20 lead 0.8  over-k: min 97.84 97.82 97.81  oikea-k: min 97.98 97.98 97.98
+lag 40 lead 0.0  over-k: min 97.52 97.56 97.57  oikea-k: min 97.94 97.95 97.95
+lag 40 lead 0.3  over-k: min 97.61 97.66 97.62  oikea-k: min 97.94 97.95 97.95
+lag 40 lead 0.5  over-k: min 97.72 97.66 97.66  oikea-k: min 97.94 97.95 97.95
+lag 40 lead 0.8  over-k: min 97.70 97.71 97.69  oikea-k: min 97.94 97.95 97.95
+lag 60 lead 0.0  over-k: min 97.39 97.41 97.36  oikea-k: min 97.90 97.84 97.76
+lag 60 lead 0.3  over-k: min 97.54 97.52 97.50  oikea-k: min 97.90 97.84 97.76
+lag 60 lead 0.5  over-k: min 97.61 97.61 97.59  oikea-k: min 97.90 97.84 97.76
+lag 60 lead 0.8  over-k: min 97.55 97.54 97.53  oikea-k: min 97.90 97.84 97.76

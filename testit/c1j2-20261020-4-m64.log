@@ -1,0 +1,8 @@
+CMD_OK ystall:30:64
+YSTALL_START s=30 mode=64 free=119680
+YSTALL t_ms=4632 us=24048 task=scale:23277
+YSTALL t_ms=14540 us=24062 task=scale:23280
+YSTALL t_ms=24546 us=24697 task=scale:23348
+C1J done=1 n=30000 gmax_us=1042 g15=0 g2=0 g5=0 adc=1
+YSTALL_END s=30 mode=64 n=19782 y10=3 y50=0 y_max_us=24697 gc_n=0 gc_max_us=0 free=121040 guard_off=0 radio_off=0 c1=0
+

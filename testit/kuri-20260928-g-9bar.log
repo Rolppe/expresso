@@ -1,0 +1,2 @@
+KURI_START rate=25 T_us=19976.9 wmax=720 w=389.7
+KURI_END reason=overpressure filt=12.82 filt_max=0.00 raw_max=12.72 n=0 ms=2

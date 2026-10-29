@@ -1,0 +1,7 @@
+CMD_OK ystall:30:64
+YSTALL_START s=30 mode=64 free=123104
+YSTALL t_ms=4639 us=19006 task=wifi:18311
+YSTALL t_ms=14947 us=21434 task=scale:20740
+YSTALL t_ms=25122 us=20609 task=scale:19944
+YSTALL_END s=30 mode=64 n=20664 y10=3 y50=0 y_max_us=21434 gc_n=0 gc_max_us=0 free=144944 guard_off=0 radio_off=0 c1=0
+

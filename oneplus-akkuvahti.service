@@ -1,0 +1,6 @@
+[Unit]
+Description=OnePlus (eXpresso-kehityspuhelin) akku- ja tavoitettavuusvahti
+
+[Service]
+Type=oneshot
+ExecStart=/srv/work/Infra/iot/expresso/oneplus-akkuvahti.sh

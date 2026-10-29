@@ -1,0 +1,14 @@
+CMD_OK pvent
+save_settings
+MAINSCAL_VENT cycles=5 bar=-0.84
+PVENT_END cycles=5 bar=-0.84 reason=ok
+WIFI sub 192.0.2.15
+WIFI cmd sync
+WIFI cmd sync
+WIFI cmd sync
+WIFI cmd stby:0
+STBY timeout_min=0 standby=0 target=100.0
+WIFI cmd stbt:80
+STBT temp=80 standby=0 target=100.0
+WIFI unsub 192.0.2.15
+

@@ -1,0 +1,41 @@
+# Mallilaitoksen sovitus huuhteluun 21.10.2026 11.07 (testit/vapaa-20261021-b*): Thermostat (pico/classes.py) CPythonilla,
+# lämmittimen kuollut aika + 1. kertaluvun viive, kylmä vesi 3 s:n aikana, maksettu 10,3 s, arm 2.
+# Laite: kuoppa -5,31, huippu +0,91, T(87 s) +0,82, luovutus PI:lle 138 s, alitus luovutuksen jälkeen -0,86.
+# Ilman kuollutta aikaa (lag 10-80 s, tarve 7-9 s) alitus enintään -0,53 -> edellinen malli ei toistanut laitetta.
+## sovitus (HEAD-koodi), ote: dead lag need -> kuoppa huippu T90 luovutus alitus
+dead 15 lag 10 need 8: dip -4.67 peak +1.03 T90 +0.55 hand 117.31 min-after -0.60
+dead 15 lag 20 need 8: dip -4.73 peak +0.82 T90 +0.82 hand 137.31 min-after -0.70
+dead 25 lag 10 need 8: dip -4.70 peak +1.23 T90 +1.13 hand 137.31 min-after -0.85   <- paras (IDLE-PI vakaa, luovutus 137/138 s)
+dead 25 lag 20 need 8: dip -5.08 peak +0.86 T90 +0.73 hand 157.31 min-after -0.96   (IDLE-PI heiluu ±0,4-0,6, ei laite)
+dead 25 lag 40 need 8: dip -5.24 peak +5.40 T90 +1.59 hand 27.31 min-after -5.24    (luovutus kuopassa -> ylitys)
+## BH_HOLD_LEAD_S (OLD = HEAD ilman pitoa ennen tavoitetta)
+OLD lead  0 dead 25 lag 10 need 8: hand 137.31 min-after -0.85 max +1.23 6-8min -0.11..+0.11
+OLD lead  0 dead 25 lag 10 need 7: hand 157.31 min-after -0.86 max +1.75 6-8min -0.11..+0.08
+OLD lead  0 dead 25 lag 20 need 8: hand 157.31 min-after -0.96 max +0.93 6-8min -0.39..+0.63
+OLD lead  0 dead 15 lag 10 need 8: hand 117.31 min-after -0.60 max +1.03 6-8min +0.02..+0.05
+OLD lead  0 dead 25 lag 40 need 8: hand  27.31 min-after -5.24 max +7.06 6-8min -0.45..+2.83
+OLD lead  0 dead 35 lag 20 need 8: hand  27.31 min-after -5.86 max +6.18 6-8min -1.47..+0.54
+NEW lead 40 dead 25 lag 10 need 8: hand 137.31 min-after -0.25 max +1.23 6-8min -0.02..+0.04
+NEW lead 40 dead 25 lag 10 need 7: hand 157.31 min-after -0.10 max +1.75 6-8min -0.01..+0.03
+NEW lead 40 dead 25 lag 20 need 8: hand 157.31 min-after -0.40 max +0.86 6-8min -0.17..+0.21
+NEW lead 40 dead 15 lag 10 need 8: hand 117.31 min-after -0.10 max +1.03 6-8min +0.00..+0.02
+NEW lead 40 dead 25 lag 40 need 8: hand 137.31 min-after -1.02 max +0.71 6-8min -0.66..+0.57
+NEW lead 40 dead 35 lag 20 need 8: hand 117.31 min-after -0.62 max +0.39 6-8min -0.41..+0.10
+NEW lead 50 dead 25 lag 10 need 8: hand 147.31 min-after -0.01 max +1.23 6-8min -0.01..+0.03
+NEW lead 50 dead 25 lag 10 need 7: hand 157.31 min-after -0.07 max +1.75 6-8min -0.00..+0.04
+NEW lead 50 dead 25 lag 20 need 8: hand 157.31 min-after -0.40 max +0.86 6-8min -0.17..+0.21
+NEW lead 50 dead 15 lag 10 need 8: hand 127.31 min-after -0.03 max +1.03 6-8min -0.01..+0.01
+NEW lead 50 dead 25 lag 40 need 8: hand 137.31 min-after -1.02 max +0.71 6-8min -0.66..+0.57
+NEW lead 50 dead 35 lag 20 need 8: hand 117.31 min-after -0.62 max +0.39 6-8min -0.41..+0.10
+NEW lead 60 dead 25 lag 10 need 8: hand 147.31 min-after -0.01 max +1.23 6-8min -0.01..+0.03
+NEW lead 60 dead 25 lag 10 need 7: hand 157.31 min-after -0.07 max +1.75 6-8min -0.00..+0.04
+NEW lead 60 dead 25 lag 20 need 8: hand 157.31 min-after -0.40 max +0.86 6-8min -0.17..+0.21
+NEW lead 60 dead 15 lag 10 need 8: hand 127.31 min-after -0.03 max +1.03 6-8min -0.01..+0.01
+NEW lead 60 dead 25 lag 40 need 8: hand 137.31 min-after -1.02 max +0.71 6-8min -0.66..+0.57
+NEW lead 60 dead 35 lag 20 need 8: hand 117.31 min-after -0.62 max +0.39 6-8min -0.41..+0.10
+NEW lead 75 dead 25 lag 10 need 8: hand 147.31 min-after -0.01 max +1.23 6-8min -0.01..+0.03
+NEW lead 75 dead 25 lag 10 need 7: hand 147.31 min-after -0.24 max +1.75 6-8min -0.04..+0.06
+NEW lead 75 dead 25 lag 20 need 8: hand 157.31 min-after -0.40 max +0.86 6-8min -0.17..+0.21
+NEW lead 75 dead 15 lag 10 need 8: hand 127.31 min-after -0.03 max +1.03 6-8min -0.01..+0.01
+NEW lead 75 dead 25 lag 40 need 8: hand 137.31 min-after -1.02 max +0.71 6-8min -0.66..+0.57
+NEW lead 75 dead 35 lag 20 need 8: hand 117.31 min-after -0.62 max +0.39 6-8min -0.41..+0.10

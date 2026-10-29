@@ -1,0 +1,37 @@
+CMD_OK klamp:60
+KLAMP_START s=60
+KLAMP t=503 bar=-0.96 filt=-0.57 target=0.00 duty=1.00 duty_avg=0.00
+KLAMP t=1009 bar=0.03 filt=-0.53 target=0.00 duty=1.00 duty_avg=0.00
+KLAMP t=1514 bar=-0.98 filt=-0.56 target=0.00 duty=1.00 duty_avg=0.00
+KLAMP t=2020 bar=-0.02 filt=-0.50 target=0.00 duty=1.00 duty_avg=0.00
+KLAMP t=2525 bar=-0.20 filt=-0.40 target=0.00 duty=1.00 duty_avg=0.00
+KLAMP t=3025 bar=-0.04 filt=-0.32 target=0.00 duty=1.00 duty_avg=0.00
+KLAMP t=3528 bar=-0.42 filt=-0.14 target=0.00 duty=1.00 duty_avg=0.00
+KLAMP t=4031 bar=0.17 filt=0.05 target=0.00 duty=1.00 duty_avg=0.00
+KLAMP t=4536 bar=0.00 filt=0.33 target=0.00 duty=1.00 duty_avg=0.00
+KLAMP t=5038 bar=0.45 filt=0.49 target=0.00 duty=1.00 duty_avg=0.00
+KLAMP t=5541 bar=1.57 filt=0.77 target=0.00 duty=1.00 duty_avg=0.00
+KLAMP t=6048 bar=1.91 filt=1.40 target=0.00 duty=1.00 duty_avg=0.00
+KLAMP t=6552 bar=2.62 filt=2.11 target=0.00 duty=1.00 duty_avg=0.00
+KLAMP t=7053 bar=3.59 filt=3.16 target=0.00 duty=1.00 duty_avg=0.00
+KLAMP t=7558 bar=5.51 filt=4.47 target=0.00 duty=1.00 duty_avg=0.00
+KLAMP t=8061 bar=6.42 filt=5.84 target=0.00 duty=1.00 duty_avg=0.00
+KLAMP t=8561 bar=7.42 filt=6.94 target=0.00 duty=1.00 duty_avg=0.00
+KLAMP t=9066 bar=7.84 filt=7.52 target=0.00 duty=1.00 duty_avg=0.00
+KLAMP t=9567 bar=7.84 filt=7.80 target=0.00 duty=1.00 duty_avg=0.00
+KLAMP t=10070 bar=7.79 filt=7.90 target=0.00 duty=1.00 duty_avg=0.00
+KLAMP t=10575 bar=8.08 filt=7.98 target=0.00 duty=1.00 duty_avg=0.00
+KLAMP t=11078 bar=7.83 filt=8.06 target=0.00 duty=1.00 duty_avg=0.00
+KLAMP t=11582 bar=9.04 filt=8.66 target=0.00 duty=1.00 duty_avg=0.00
+KLAMP t=12082 bar=9.13 filt=9.08 target=0.00 duty=1.00 duty_avg=0.00
+KLAMP t=12585 bar=9.23 filt=9.10 target=0.00 duty=1.00 duty_avg=0.00
+KLAMP t=13090 bar=9.06 filt=9.22 target=0.00 duty=1.00 duty_avg=0.00
+KLAMP t=13593 bar=9.21 filt=9.28 target=0.00 duty=1.00 duty_avg=0.00
+KLAMP_RISE bar=9.28 reach_ms=13746 reason=plateau
+KLAMP t=14094 bar=9.23 filt=9.09 target=9.28 duty=1.00 duty_avg=1.00
+KLAMP t=14597 bar=9.26 filt=9.20 target=9.28 duty=1.00 duty_avg=1.00
+KLAMP t=15100 bar=9.02 filt=9.17 target=9.28 duty=1.00 duty_avg=1.00
+KLAMP t=15605 bar=9.20 filt=9.16 target=9.28 duty=1.00 duty_avg=1.00
+KLAMP t=16106 bar=9.01 filt=9.12 target=9.28 duty=1.00 duty_avg=1.00
+KLAMP t=16610 bar=9.01 filt=9.14 target=9.28 duty=1.00 duty_avg=1.00
+KLAMP_END reason=done target=9.28 duty_avg=1.00 ms=16759

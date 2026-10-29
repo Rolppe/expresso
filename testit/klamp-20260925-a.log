@@ -1,0 +1,31 @@
+CMD_OK klamp:60
+KLAMP_START s=60
+KLAMP t=500 bar=-0.62 filt=-0.46 target=0.00 duty=1.00 duty_avg=0.00
+KLAMP t=1002 bar=-0.88 filt=-0.53 target=0.00 duty=1.00 duty_avg=0.00
+KLAMP t=1503 bar=-0.33 filt=-0.43 target=0.00 duty=1.00 duty_avg=0.00
+KLAMP t=2005 bar=-0.31 filt=-0.36 target=0.00 duty=1.00 duty_avg=0.00
+KLAMP t=2509 bar=0.06 filt=-0.31 target=0.00 duty=1.00 duty_avg=0.00
+KLAMP t=3012 bar=0.08 filt=-0.12 target=0.00 duty=1.00 duty_avg=0.00
+KLAMP t=3516 bar=0.54 filt=0.00 target=0.00 duty=1.00 duty_avg=0.00
+KLAMP t=4019 bar=0.32 filt=0.16 target=0.00 duty=1.00 duty_avg=0.00
+KLAMP t=4521 bar=0.86 filt=0.31 target=0.00 duty=1.00 duty_avg=0.00
+KLAMP t=5025 bar=-0.15 filt=0.58 target=0.00 duty=1.00 duty_avg=0.00
+KLAMP t=5526 bar=1.02 filt=0.86 target=0.00 duty=1.00 duty_avg=0.00
+KLAMP t=6028 bar=1.35 filt=1.22 target=0.00 duty=1.00 duty_avg=0.00
+KLAMP t=6530 bar=2.12 filt=1.80 target=0.00 duty=1.00 duty_avg=0.00
+KLAMP t=7035 bar=3.30 filt=2.57 target=0.00 duty=1.00 duty_avg=0.00
+KLAMP t=7536 bar=3.91 filt=3.57 target=0.00 duty=1.00 duty_avg=0.00
+KLAMP t=8039 bar=5.47 filt=4.82 target=0.00 duty=1.00 duty_avg=0.00
+KLAMP t=8540 bar=6.69 filt=6.09 target=0.00 duty=1.00 duty_avg=0.00
+KLAMP t=9045 bar=7.32 filt=7.06 target=0.00 duty=1.00 duty_avg=0.00
+KLAMP t=9546 bar=7.98 filt=7.62 target=0.00 duty=1.00 duty_avg=0.00
+KLAMP t=10051 bar=7.86 filt=7.86 target=0.00 duty=1.00 duty_avg=0.00
+KLAMP t=10554 bar=7.89 filt=7.85 target=0.00 duty=1.00 duty_avg=0.00
+KLAMP_RISE bar=7.77 reach_ms=10729 reason=plateau
+KLAMP t=11055 bar=7.66 filt=7.56 target=7.77 duty=1.00 duty_avg=1.00
+KLAMP t=11556 bar=7.49 filt=7.40 target=7.77 duty=1.00 duty_avg=1.00
+KLAMP t=12062 bar=7.67 filt=7.47 target=7.77 duty=1.00 duty_avg=1.00
+KLAMP t=12564 bar=7.91 filt=7.80 target=7.77 duty=0.95 duty_avg=0.99
+KLAMP t=13064 bar=7.96 filt=7.76 target=7.77 duty=0.93 duty_avg=0.97
+KLAMP t=13566 bar=7.87 filt=7.76 target=7.77 duty=0.93 duty_avg=0.96
+KLAMP_END reason=done target=7.77 duty_avg=0.95 ms=13736

@@ -1,0 +1,30 @@
+2026-10-20T18:35:19.363+03:00 bc53c270 TEMP_C1 ready
+2026-10-20T18:35:19.363+03:00 bc53c270 TEMP_C1 rest
+2026-10-20T18:35:19.364+03:00 bc53c270 DIAG_HB up_s=3 free=137216 alloc=319680 drop=0 txp=0 txerr=0 smax_us=0 tmax_us=640 rssi=0 brew=0 pend=0 err=0 wtx=0 wtxerr=0 wsmax_us=0 lmax_us=0 l100=0
+2026-10-20T18:35:37.668+03:00 bc53c270 DIAG_HB up_s=24 free=-1 alloc=-1 drop=0 txp=2 txerr=0 smax_us=426 tmax_us=1899 rssi=0 brew=0 pend=0 err=0 wtx=0 wtxerr=0 wsmax_us=0 lmax_us=420264 l100=2
+2026-10-20T18:35:42.713+03:00 bc53c270 DIAG_HB up_s=29 free=-1 alloc=-1 drop=0 txp=12 txerr=0 smax_us=444 tmax_us=715 rssi=0 brew=0 pend=0 err=0 wtx=0 wtxerr=0 wsmax_us=0 lmax_us=15701 l100=0
+2026-10-20T18:35:47.754+03:00 bc53c270 DIAG_HB up_s=34 free=-1 alloc=-1 drop=0 txp=22 txerr=0 smax_us=458 tmax_us=675 rssi=0 brew=0 pend=0 err=0 wtx=0 wtxerr=0 wsmax_us=0 lmax_us=15644 l100=0
+2026-10-20T18:35:52.819+03:00 bc53c270 DIAG_HB up_s=39 free=-1 alloc=-1 drop=0 txp=32 txerr=0 smax_us=440 tmax_us=649 rssi=0 brew=0 pend=0 err=0 wtx=0 wtxerr=0 wsmax_us=0 lmax_us=18018 l100=0
+2026-10-20T18:35:57.864+03:00 bc53c270 DIAG_HB up_s=44 free=-1 alloc=-1 drop=0 txp=42 txerr=0 smax_us=454 tmax_us=615 rssi=0 brew=0 pend=0 err=0 wtx=0 wtxerr=0 wsmax_us=0 lmax_us=13841 l100=0
+2026-10-20T18:36:02.926+03:00 bc53c270 DIAG_HB up_s=49 free=-1 alloc=-1 drop=0 txp=52 txerr=0 smax_us=441 tmax_us=629 rssi=0 brew=0 pend=0 err=0 wtx=0 wtxerr=0 wsmax_us=0 lmax_us=17905 l100=0
+2026-10-20T18:36:16.693+03:00 bc53c270 DIAG_MIN win_ms=60000 heat_ms=2901 pump_ms=0 p_n=601 p_avg=-1.38 p_min=-1.45 p_max=-1.31 T=98.10 target=98.00
+2026-10-20T18:37:02.962+03:00 bc53c270 DIAG_HB up_s=109 free=247040 alloc=209856 drop=0 txp=159 txerr=0 smax_us=524 tmax_us=1528 rssi=-69 brew=0 pend=0 err=0 wtx=0 wtxerr=0 wsmax_us=0 lmax_us=43470 l100=0
+2026-10-20T18:37:16.681+03:00 bc53c270 DIAG_MIN win_ms=60000 heat_ms=3094 pump_ms=0 p_n=600 p_avg=-1.41 p_min=-1.48 p_max=-1.33 T=96.97 target=98.00
+2026-10-20T18:38:02.987+03:00 bc53c270 DIAG_HB up_s=169 free=86656 alloc=370240 drop=0 txp=161 txerr=0 smax_us=399 tmax_us=0 rssi=-69 brew=0 pend=0 err=0 wtx=0 wtxerr=0 wsmax_us=0 lmax_us=43313 l100=0
+2026-10-20T18:38:16.763+03:00 bc53c270 DIAG_MIN win_ms=60100 heat_ms=2200 pump_ms=0 p_n=601 p_avg=-1.36 p_min=-1.43 p_max=-1.26 T=98.92 target=98.00
+2026-10-20T18:39:02.998+03:00 bc53c270 DIAG_HB up_s=229 free=4848 alloc=452048 drop=0 txp=163 txerr=0 smax_us=412 tmax_us=0 rssi=-70 brew=0 pend=0 err=0 wtx=0 wtxerr=0 wsmax_us=0 lmax_us=39040 l100=0
+2026-10-20T18:39:16.866+03:00 bc53c270 DIAG_MIN win_ms=60100 heat_ms=1399 pump_ms=0 p_n=601 p_avg=-1.37 p_min=-1.45 p_max=-1.29 T=97.62 target=98.00
+2026-10-20T18:40:03.004+03:00 bc53c270 DIAG_HB up_s=289 free=21040 alloc=435856 drop=0 txp=170 txerr=0 smax_us=424 tmax_us=667 rssi=-69 brew=0 pend=0 err=0 wtx=82 wtxerr=0 wsmax_us=500 lmax_us=42298 l100=0
+2026-10-20T18:40:16.928+03:00 bc53c270 DIAG_MIN win_ms=60000 heat_ms=4116 pump_ms=0 p_n=600 p_avg=-1.38 p_min=-1.46 p_max=-1.29 T=98.57 target=98.00
+2026-10-20T18:41:03.080+03:00 bc53c270 DIAG_HB up_s=349 free=245408 alloc=211488 drop=0 txp=173 txerr=0 smax_us=415 tmax_us=616 rssi=-69 brew=0 pend=0 err=0 wtx=424 wtxerr=0 wsmax_us=564 lmax_us=46584 l100=0
+2026-10-20T18:41:17.022+03:00 bc53c270 DIAG_MIN win_ms=60100 heat_ms=1200 pump_ms=0 p_n=601 p_avg=-1.38 p_min=-1.46 p_max=-1.31 T=97.57 target=98.00
+2026-10-20T18:42:03.159+03:00 bc53c270 DIAG_HB up_s=409 free=154544 alloc=302352 drop=0 txp=175 txerr=0 smax_us=405 tmax_us=0 rssi=-68 brew=0 pend=0 err=0 wtx=424 wtxerr=0 wsmax_us=0 lmax_us=46299 l100=0
+2026-10-20T18:42:17.083+03:00 bc53c270 DIAG_MIN win_ms=60100 heat_ms=3100 pump_ms=0 p_n=601 p_avg=-1.38 p_min=-1.45 p_max=-1.30 T=98.48 target=98.00
+2026-10-20T18:43:03.229+03:00 bc53c270 DIAG_HB up_s=469 free=161696 alloc=295200 drop=0 txp=177 txerr=0 smax_us=418 tmax_us=0 rssi=-67 brew=0 pend=0 err=0 wtx=424 wtxerr=0 wsmax_us=0 lmax_us=43820 l100=0
+2026-10-20T18:43:17.125+03:00 bc53c270 DIAG_MIN win_ms=60000 heat_ms=2600 pump_ms=0 p_n=600 p_avg=-1.38 p_min=-1.46 p_max=-1.30 T=97.55 target=98.00
+2026-10-20T18:44:03.307+03:00 bc53c270 DIAG_HB up_s=529 free=106080 alloc=350816 drop=0 txp=179 txerr=0 smax_us=420 tmax_us=0 rssi=-68 brew=0 pend=0 err=0 wtx=424 wtxerr=0 wsmax_us=0 lmax_us=46471 l100=0
+2026-10-20T18:44:17.199+03:00 bc53c270 DIAG_MIN win_ms=60100 heat_ms=2065 pump_ms=0 p_n=601 p_avg=-1.37 p_min=-1.45 p_max=-1.29 T=98.35 target=98.00
+2026-10-20T18:45:03.395+03:00 bc53c270 DIAG_HB up_s=589 free=129280 alloc=327616 drop=0 txp=186 txerr=0 smax_us=420 tmax_us=555 rssi=-67 brew=0 pend=0 err=0 wtx=636 wtxerr=0 wsmax_us=563 lmax_us=43170 l100=0
+2026-10-20T18:45:17.275+03:00 bc53c270 DIAG_MIN win_ms=60100 heat_ms=3903 pump_ms=0 p_n=601 p_avg=-1.39 p_min=-1.46 p_max=-1.32 T=97.74 target=98.00
+2026-10-20T18:46:03.465+03:00 bc53c270 DIAG_HB up_s=650 free=17040 alloc=439856 drop=0 txp=189 txerr=0 smax_us=395 tmax_us=471 rssi=-68 brew=0 pend=0 err=0 wtx=703 wtxerr=0 wsmax_us=459 lmax_us=44257 l100=0
+2026-10-20T18:46:17.296+03:00 bc53c270 DIAG_MIN win_ms=60000 heat_ms=602 pump_ms=0 p_n=600 p_avg=-1.35 p_min=-1.41 p_max=-1.29 T=98.22 target=98.00

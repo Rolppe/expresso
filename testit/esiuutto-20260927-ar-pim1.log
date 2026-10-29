@@ -1,0 +1,119 @@
+CMD_OK pvent
+MAINSCAL_VENT cycles=4 bar=-0.82
+PVENT_END cycles=4 bar=-0.82 reason=ok
+CMD_OK tshot:40
+TS_START 40.0 s pre=True 2.5 bar 6.0 s brew=8.0 bar limits=wmax:720 wrise:250 fmode=off pim=1
+EU_START target=2.50 hold_s=6.0 coast_s=0.401 coast_f=0.136 ff=0.05 off_us=13600 vv=1 fr0=307
+EU 93 -0.97 2.50 1 1.00 1 p5=-0.86 sd_us=10002 rm=0 sk10=0 sk20=0 late=0 w=382.9 f=1.21
+VKELLO w=1 t_ms=161 z_us=-6551.2 T_us=20000.000 d=0.00000 sd_us=10006.6 amp=1.335 lock=0 p_bar=-0.89 gate=-1
+EU 193 -0.80 2.50 1 1.00 1 p5=-0.78 sd_us=10009 rm=0 sk10=0 sk20=0 late=0 w=383.3 f=0.75
+EU 293 -0.74 2.50 1 1.00 1 p5=-0.63 sd_us=10022 rm=0 sk10=0 sk20=0 late=0 w=383.5 f=0.83
+EU_GC t_ms=315 us=14591 rel=1
+VKELLO w=2 t_ms=329 z_us=-7113.8 T_us=20000.000 d=0.00000 sd_us=10027.5 amp=2.010 lock=0 p_bar=-0.62 gate=-1
+EU 393 -0.56 2.50 1 1.00 1 p5=0.14 sd_us=10039 rm=0 sk10=0 sk20=0 late=0 w=383.6 f=1.16
+VKELLO w=3 t_ms=490 z_us=-9353.0 T_us=20000.000 d=0.00000 sd_us=10060.8 amp=1.529 lock=0 p_bar=-0.27 gate=-1
+EU 497 -0.23 2.50 1 1.00 1 p5=-0.19 sd_us=10063 rm=0 sk10=0 sk20=0 late=0 w=383.7 f=1.48
+EU 593 0.50 2.50 1 1.00 1 p5=0.32 sd_us=10089 rm=0 sk10=0 sk20=0 late=0 w=383.7 f=1.18
+VKELLO w=4 t_ms=651 z_us=9531.7 T_us=20000.000 d=0.00000 sd_us=10106.9 amp=0.769 lock=0 p_bar=0.44 gate=-1
+EU 693 1.69 2.50 1 1.00 1 p5=1.00 sd_us=10121 rm=0 sk10=0 sk20=0 late=0 w=383.9 f=0.94
+EU_CUT t_ms=713 p=1.28 rate=9.03 coast_s=0.136 pred=2.51 g=9.74 ff=0.05 ffr=0.14 ffc=0.05 tau=5.12
+EU_GC t_ms=737 us=14777 rel=0
+EU 793 2.82 1.44 0 0.00 2 p5=2.68 sd_us=10158 rm=4 sk10=0 sk20=1 late=0 w=383.8 f=0.80
+VKELLO w=5 t_ms=812 z_us=-8585.3 T_us=19993.770 d=-0.00009 sd_us=738.6 amp=0.468 lock=0 p_bar=2.22 gate=0
+EU_STALL t_ms=827 sec=s us=14880 rel=0
+EU_STALL t_ms=827 sec=l us=13878 rel=0
+EU 905 2.47 1.67 0 0.00 2 p5=2.56 sd_us=816 rm=10 sk10=0 sk20=1 late=0 w=383.7 f=-0.08
+EU 1004 2.36 1.87 0 0.05 2 p5=2.40 sd_us=943 rm=15 sk10=0 sk20=1 late=0 w=383.6 f=-0.41
+EU_COAST peak=2.86 rise=1.58 rate=9.03 coast_s=0.155 fast=1 learn=1
+EU_GC t_ms=1068 us=15296 rel=0
+EU 1104 2.29 2.07 0 0.08 2 p5=2.31 sd_us=1101 rm=20 sk10=0 sk20=1 late=0 w=383.8 f=-0.01
+EU 1204 2.23 2.27 0 0.34 2 p5=2.24 sd_us=1279 rm=25 sk10=0 sk20=1 late=0 w=384.1 f=0.52
+EU 1304 2.69 2.47 0 0.26 2 p5=2.28 sd_us=1468 rm=29 sk10=1 sk20=1 late=0 w=384.3 f=1.05
+EU_HOLD t_ms=1324 p=2.41
+EU_GC t_ms=1388 us=15118 rel=0
+EU 1404 3.14 2.50 0 0.00 2 p5=2.99 sd_us=1666 rm=33 sk10=2 sk20=1 late=0 w=384.4 f=1.64
+VKELLO w=6 t_ms=1453 z_us=-1521.4 T_us=19962.230 d=-0.00145 sd_us=726.8 amp=0.105 lock=0 p_bar=2.95 gate=0
+EU_STALL t_ms=1467 sec=s us=13909 rel=0
+EU 1503 3.03 2.50 0 0.00 2 p5=3.07 sd_us=774 rm=38 sk10=2 sk20=1 late=0 w=384.7 f=1.49
+EU 1603 2.90 2.50 0 0.00 2 p5=2.94 sd_us=875 rm=43 sk10=2 sk20=1 late=0 w=384.7 f=1.84
+EU 1702 2.80 2.50 0 0.00 2 p5=2.83 sd_us=983 rm=48 sk10=2 sk20=1 late=0 w=384.5 f=1.06
+EU_GC t_ms=1726 us=15393 rel=0
+EU 1802 2.73 2.50 0 0.00 2 p5=2.73 sd_us=1095 rm=53 sk10=2 sk20=1 late=0 w=384.4 f=0.71
+EU_STALL t_ms=1802 sec=k us=10297 rel=0
+EU 1902 2.62 2.50 0 0.00 2 p5=2.66 sd_us=1211 rm=58 sk10=2 sk20=1 late=0 w=384.4 f=0.71
+EU 2002 2.58 2.50 0 0.00 2 p5=2.60 sd_us=1329 rm=63 sk10=2 sk20=1 late=0 w=384.3 f=-0.60
+EU_GC t_ms=2046 us=15305 rel=0
+EU 2102 2.51 2.50 0 0.00 2 p5=2.52 sd_us=1449 rm=68 sk10=2 sk20=1 late=0 w=384.4 f=-0.37
+EU 2202 2.44 2.50 0 0.04 2 p5=2.45 sd_us=1570 rm=73 sk10=2 sk20=1 late=0 w=384.3 f=-0.51
+EU 2301 2.35 2.50 0 0.08 2 p5=2.40 sd_us=1693 rm=78 sk10=2 sk20=1 late=0 w=384.6 f=0.19
+EU_GC t_ms=2365 us=15054 rel=0
+EU 2401 2.35 2.50 0 0.06 2 p5=2.34 sd_us=1816 rm=83 sk10=2 sk20=1 late=0 w=384.7 f=0.66
+EU 2501 2.28 2.50 0 0.07 2 p5=2.30 sd_us=1941 rm=88 sk10=2 sk20=1 late=0 w=384.7 f=0.66
+EU 2601 2.23 2.50 0 0.09 2 p5=2.24 sd_us=2066 rm=93 sk10=2 sk20=1 late=0 w=384.8 f=1.17
+EU_GC t_ms=2684 us=15054 rel=0
+EU 2701 2.10 2.50 0 0.13 2 p5=2.18 sd_us=2192 rm=98 sk10=2 sk20=1 late=0 w=384.9 f=1.30
+EU 2800 2.70 2.50 0 0.00 2 p5=2.46 sd_us=2318 rm=102 sk10=2 sk20=2 late=0 w=385.0 f=1.25
+EU 2900 2.58 2.50 0 0.01 2 p5=2.62 sd_us=2445 rm=107 sk10=2 sk20=2 late=0 w=385.1 f=1.05
+VKELLO w=7 t_ms=2908 z_us=1403.6 T_us=19975.964 d=0.00064 sd_us=715.1 amp=0.139 lock=0 p_bar=2.64 gate=0
+EU_STALL t_ms=2920 sec=s us=11363 rel=0
+EU 3001 2.48 2.50 0 0.05 2 p5=2.53 sd_us=751 rm=112 sk10=2 sk20=2 late=0 w=385.0 f=0.43
+EU_GC t_ms=3009 us=15352 rel=0
+EU 3101 2.41 2.50 0 0.07 2 p5=2.45 sd_us=790 rm=117 sk10=2 sk20=2 late=0 w=384.8 f=-0.27
+EU 3201 2.37 2.50 1 0.08 2 p5=2.37 sd_us=831 rm=121 sk10=2 sk20=2 late=0 w=384.8 f=-0.27
+EU 3301 2.84 2.50 0 0.00 2 p5=2.79 sd_us=872 rm=126 sk10=3 sk20=2 late=0 w=384.5 f=-0.96
+EU_GC t_ms=3345 us=15174 rel=0
+EU 3401 2.73 2.50 0 0.00 2 p5=2.77 sd_us=914 rm=131 sk10=3 sk20=2 late=0 w=384.2 f=-1.53
+EU 3501 2.65 2.50 0 0.00 2 p5=2.67 sd_us=957 rm=136 sk10=3 sk20=2 late=0 w=384.0 f=-2.32
+EU 3601 2.59 2.50 0 0.01 2 p5=2.60 sd_us=1001 rm=141 sk10=3 sk20=2 late=0 w=383.7 f=-2.10
+EU_GC t_ms=3665 us=15048 rel=0
+EU 3701 2.49 2.50 0 0.03 2 p5=2.53 sd_us=1045 rm=146 sk10=3 sk20=2 late=0 w=383.7 f=-2.10
+EU 3800 2.44 2.50 0 0.04 2 p5=2.46 sd_us=1090 rm=151 sk10=3 sk20=2 late=0 w=383.8 f=-1.09
+EU 3900 2.39 2.50 0 0.05 2 p5=2.40 sd_us=1135 rm=156 sk10=3 sk20=2 late=0 w=383.9 f=-0.20
+EU_GC t_ms=3984 us=15050 rel=0
+EU 4000 2.34 2.50 0 0.07 2 p5=2.35 sd_us=1182 rm=161 sk10=3 sk20=2 late=0 w=384.1 f=0.63
+EU 4100 2.23 2.50 0 0.10 2 p5=2.27 sd_us=1228 rm=166 sk10=3 sk20=2 late=0 w=384.4 f=1.50
+VKELLO w=8 t_ms=4192 z_us=1250.9 T_us=19983.158 d=0.00690 sd_us=639.4 amp=0.195 lock=0 p_bar=2.44 gate=0
+EU_STALL t_ms=4203 sec=s us=10545 rel=0
+EU 4203 2.86 2.50 0 0.00 2 p5=2.60 sd_us=642 rm=170 sk10=4 sk20=2 late=0 w=384.5 f=1.82
+EU 4301 2.70 2.50 0 0.00 2 p5=2.71 sd_us=667 rm=175 sk10=4 sk20=2 late=0 w=384.6 f=1.78
+EU_GC t_ms=4309 us=15350 rel=0
+EU 4401 2.59 2.50 0 0.01 2 p5=2.64 sd_us=692 rm=180 sk10=4 sk20=2 late=0 w=384.7 f=1.57
+EU 4501 2.52 2.50 0 0.02 2 p5=2.56 sd_us=719 rm=185 sk10=4 sk20=2 late=0 w=384.7 f=1.31
+EU 4601 2.46 2.50 0 0.04 2 p5=2.49 sd_us=746 rm=190 sk10=4 sk20=2 late=0 w=384.7 f=0.96
+EU_GC t_ms=4644 us=15190 rel=0
+EU 4701 2.39 2.50 0 0.05 2 p5=2.40 sd_us=775 rm=195 sk10=4 sk20=2 late=0 w=384.6 f=0.51
+EU 4800 2.33 2.50 0 0.07 2 p5=2.35 sd_us=804 rm=200 sk10=4 sk20=2 late=0 w=384.4 f=-0.42
+EU 4900 2.26 2.50 0 0.09 2 p5=2.30 sd_us=834 rm=205 sk10=4 sk20=2 late=0 w=384.3 f=-1.04
+EU_GC t_ms=4964 us=15076 rel=0
+VKELLO w=9 t_ms=4995 z_us=510.7 T_us=19985.586 d=0.01102 sd_us=561.7 amp=0.133 lock=0 p_bar=2.39 gate=0
+EU_STALL t_ms=5006 sec=s us=10743 rel=0
+EU 5006 2.81 2.50 0 0.00 2 p5=2.55 sd_us=564 rm=209 sk10=5 sk20=2 late=0 w=384.2 f=-1.32
+EU 5101 2.65 2.50 0 0.00 2 p5=2.68 sd_us=584 rm=214 sk10=5 sk20=2 late=0 w=384.0 f=-1.42
+EU 5200 2.58 2.50 0 0.01 2 p5=2.60 sd_us=607 rm=219 sk10=5 sk20=2 late=0 w=383.9 f=-1.27
+EU_GC t_ms=5284 us=15195 rel=0
+EU 5300 2.46 2.50 0 0.04 2 p5=2.52 sd_us=630 rm=224 sk10=5 sk20=2 late=0 w=384.0 f=-1.02
+EU 5400 2.42 2.50 0 0.05 2 p5=2.46 sd_us=655 rm=229 sk10=5 sk20=2 late=0 w=384.0 f=-0.52
+EU 5500 2.37 2.50 0 0.06 2 p5=2.40 sd_us=680 rm=234 sk10=5 sk20=2 late=0 w=384.0 f=0.04
+EU 5600 2.33 2.50 0 0.07 2 p5=2.34 sd_us=707 rm=239 sk10=5 sk20=2 late=0 w=384.0 f=0.22
+EU_GC t_ms=5608 us=15207 rel=0
+EU 5700 2.93 2.50 0 0.00 2 p5=2.55 sd_us=735 rm=243 sk10=6 sk20=2 late=0 w=384.1 f=0.15
+EU_STALL t_ms=5700 sec=k us=11022 rel=0
+EU 5800 2.74 2.50 0 0.00 2 p5=2.78 sd_us=764 rm=248 sk10=6 sk20=2 late=0 w=384.0 f=-0.02
+VKELLO w=10 t_ms=5808 z_us=1233.4 T_us=19990.960 d=0.02578 sd_us=531.9 amp=0.128 lock=0 p_bar=2.76 gate=0
+EU_STALL t_ms=5819 sec=s us=11100 rel=0
+EU 5901 2.64 2.50 0 0.00 2 p5=2.70 sd_us=552 rm=253 sk10=6 sk20=2 late=0 w=383.9 f=-0.44
+EU_GC t_ms=5944 us=15255 rel=0
+EU 6001 2.55 2.50 0 0.01 2 p5=2.59 sd_us=574 rm=258 sk10=6 sk20=2 late=0 w=383.8 f=-0.75
+EU 6101 2.50 2.50 0 0.02 2 p5=2.51 sd_us=598 rm=263 sk10=6 sk20=2 late=0 w=383.7 f=-0.96
+EU 6200 2.40 2.50 0 0.04 2 p5=2.44 sd_us=623 rm=268 sk10=6 sk20=2 late=0 w=383.7 f=-0.79
+EU_GC t_ms=6264 us=15195 rel=0
+EU 6300 2.37 2.50 0 0.05 2 p5=2.41 sd_us=649 rm=273 sk10=6 sk20=2 late=0 w=383.8 f=-0.53
+EU 6400 2.31 2.50 0 0.07 2 p5=2.31 sd_us=677 rm=278 sk10=6 sk20=2 late=0 w=383.9 f=0.05
+CMD_OK tshot:stop
+brew_data.set_setting_changed()
+EU_END reason=stop max=3.35 over=0.65 hold_n=255 hold_mean=2.536 hold_sd=0.214 strokes=43 rm=279 sk10=6 sk20=2 late=0 miss=1
+EU_END2 windows=10 win_low=29 learned=6 T_us=19990.960 hz=50.0226 sd_us=689 learned_ff_pre=0.05 coast_s=0.401 coast_f=0.155 tau_obs=14.17 u_mean=0.02 kd=0.031
+EU_VV vv=1 stall=9 gc_n=19 gc_max_us=15393 fr0=307 fr_end=192 k_max_us=11022 s_max_us=14880 y_max_us=7690 late_max_us=13878
+TS_END loops=0 max_loop_ms=0 reason=stopped learned_ff_brew=0.50
+0
+save_settings

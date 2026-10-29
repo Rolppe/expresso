@@ -1,0 +1,42 @@
+e "classes.py", line 1562, in read_temperature
+  File "/lib/adafruit_max31865.py", line 249, in temperature
+  File "/lib/adafruit_max31865.py", line 187, in read_rtd
+KeyboardInterrupt: 
+MicroPython v1.28.0 on 2026-04-06; Raspberry Pi Pico 2 W with RP2350
+Type "help()" for more information.
+>>>
+DEVSAFE relays=[0, 0, 0] ok=True watchdog=True
+SAFE_OK
+FLASH_PLAN 5/21 changed: /brew_logger.py /diagnet.py /functions.py /main.py /preset.py
+WROTE /brew_logger.py                    9196 B 1.5 s
+WROTE /diagnet.py                       10849 B 1.8 s
+FLASH_FAIL timeout waiting for b'\x04>', tail b'OK'
+Traceback (most recent call last):
+  File "~/palvelin/Infra/iot/expresso/pico_dev.py", line 636, in flash
+    link.exec("_f.write(ubinascii.a2b_base64(%r))" % base64.b64encode(data[i:i + FLASH_CHUNK]).decode())
+    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "~/palvelin/Infra/iot/expresso/pico_dev.py", line 308, in exec
+    r = self.until(b'\x04>', seconds)
+  File "~/palvelin/Infra/iot/expresso/pico_dev.py", line 269, in until
+    raise LinkTimeout('timeout waiting for %r, tail %r' % (marker, buf[-200:]), buf)
+LinkTimeout: timeout waiting for b'\x04>', tail b'OK'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "~/palvelin/Infra/iot/expresso/pico_dev.py", line 777, in <module>
+    main(op)
+    ~~~~^^^^
+  File "~/palvelin/Infra/iot/expresso/pico_dev.py", line 745, in main
+    sys.exit(0 if flash(sys.argv[2]) else 1)
+                  ~~~~~^^^^^^^^^^^^^
+  File "~/palvelin/Infra/iot/expresso/pico_dev.py", line 652, in flash
+    link.reset()
+    ~~~~~~~~~~^^
+  File "~/palvelin/Infra/iot/expresso/pico_dev.py", line 317, in reset
+    self.send(b'import machine\nmachine.reset()\x04')
+    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "~/palvelin/Infra/iot/expresso/pico_dev.py", line 272, in send
+    self.s.sendall(data)
+    ~~~~~~~~~~~~~~^^^^^^
+BrokenPipeError: [Errno 32] Broken pipe

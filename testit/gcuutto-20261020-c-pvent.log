@@ -1,0 +1,5 @@
+CMD_OK pvent
+save_settings
+MAINSCAL_VENT cycles=6 bar=-0.35
+PVENT_END cycles=6 bar=-0.35 reason=ok
+
