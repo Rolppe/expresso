@@ -15,7 +15,7 @@ Alla oleva Mac/OnePlus-ketju ja luku "Aloitus uudessa keskustelussa" ovat histor
   termostaatti, pikalämmitys, esi-infuusio, vaaka, 10 Hz keittoloki). AMK-opinnäytetyö 2023,
   julkiset repot `github.com/Rolppe/silvia_pico`, `silvia_pico_ui`, `silvia_pico_flutter_ui`
   (`workspace/cv/cv-2026-09-09.md:267-272`).
-- **Käytössä oleva versio (Mac):** `~/Documents/Koodi/Silvia pico/eXpresso_Grok/legacy/latest/`
+- **Käytössä oleva versio (Mac):** `~/src/eXpresso_Grok/legacy/latest/`
   — `pico/` (firmware), `silvia_pico_flutter_UI/` (Android-sovellus), `tools/` ja
   `tools/dev_station/` (yhteystyökalut), `logs/`. Dokumentaatio on repojuuren `docs/`-hakemistossa
   (ei `legacy/latest/docs`). Rinnalla keskeneräinen C-portti `pico-c/`.
@@ -168,7 +168,7 @@ Sarjasilta käsin: `mpremote connect rfc2217://192.0.2.11:2217 exec "print(1)"`,
   (774 035 B, loki, ei firmwarea). `secrets.py` sisältää salaisuuksia — älä tulosta.
 - **Sijainnit:** puhelin (sovelluksen yksityinen tallennus, `run-as com.example.silvia_pico_ui`)
   `files/firmware_backup/20260917-pico2w/` + `MANIFEST.json`; Mac
-  `~/Documents/Koodi/Silvia pico/eXpresso_Grok/legacy/pico-backup-20260917/` + `MANIFEST.json` +
+  `~/src/eXpresso_Grok/legacy/pico-backup-20260917/` + `MANIFEST.json` +
   `pico_backup.py`.
 - **Todennus:** jokaisen tiedoston SHA-256 laskettu Picolla (`uhashlib`) ja luetusta datasta —
   16/16 täsmää; puhelimen kopion `sha256sum` täsmää manifestiin 16/16.
@@ -1065,7 +1065,7 @@ Zero-ketju (oletus 5.10.2026): `python3 Infra/iot/expresso/pico_dev.py cmd pcal:
 Mykkä vastaus Picon uudelleenenumeroinnin jälkeen: PICO-HALLINTA.md luku 1, "Ansa". Puhelinketju (historia):
 
 ```bash
-ssh dev-host 'cd "$HOME/Documents/Koodi/Silvia pico/eXpresso_Grok/legacy/latest" && PATH=/opt/homebrew/bin:$PATH ./tools/dev_station/oneplus_wireless_adb.sh status'
+ssh dev-host 'cd "$HOME/src/eXpresso_Grok/legacy/latest" && PATH=/opt/homebrew/bin:$PATH ./tools/dev_station/oneplus_wireless_adb.sh status'
 ```
 
 Odotettu: `192.0.2.11:5555 device`. Tyhjä lista → `connect`; `Connection refused` → käyttäjä
