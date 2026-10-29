@@ -1,5 +1,7 @@
 # eXpresso
 
+[![CI](https://github.com/Rolppe/expresso/actions/workflows/ci.yml/badge.svg)](https://github.com/Rolppe/expresso/actions/workflows/ci.yml)
+
 MicroPython firmware that replaces the control electronics of a Rancilio Silvia espresso machine with a Raspberry Pi Pico 2 W, for someone who wants a pressure-profiled,
 scale-aware machine they can read, test and extend.
 
@@ -19,6 +21,10 @@ The repository also holds the host tools, the test suite, device logs, and the w
 - Switches the heater and pump off whenever a safety limit is crossed, and on every boot, crash or tool operation.
 
 ## Visual
+
+![Pressure, target pressure, weight gained and flow during one logged test shot: 2.5 bar pre-infusion, then 8 bar brew](docs/images/shot-pressure-weight.png)
+
+*One 20 s test shot (water only, no coffee puck) measured on the real Pico: 2.5 bar pre-infusion, then an 8 bar brew. The figure is drawn by [docs/images/plot_shot.py](docs/images/plot_shot.py) from the unprocessed samples (every 100 ms) in the device log [testit/c1x-20261020-shot1.log](testit/c1x-20261020-shot1.log), captured over USB serial on 20.10.2026. The log has no temperature channel.*
 
 ```mermaid
 flowchart LR
@@ -131,6 +137,8 @@ Result of running every smoke test once, 60 s timeout each, on macOS with Python
 - `esiuutto_smoke.py`: does not finish in 60 s. A rerun with a 600 s limit took 299 s and ended with 168 OK and 3 FAIL lines (statistical pressure and clock-lock checks).
 - `diagnet_keraaja_smoke.py`: two timing checks failed in the sweep and passed on a rerun by itself.
 - `termostaatti_smoke.py`: hit the 60 s limit in the sweep and passed in 20 s by itself.
+
+CI (GitHub Actions, `.github/workflows/ci.yml`) runs the 36 smoke tests that are reliable on a shared Linux runner. It skips the four above that do not pass and also `ystall_smoke.py`: that test checks a real sensor thread right after fixed sleeps. It passes on a desktop, 6 of 6 runs, but on the 2-core CI runner its reading count and hand-back checks race the thread.
 
 Hardware-dependent scripts (`pcap`, `shot_*`, `tray_calib`, `*_probe`, `scale/testit/`) need the machine and a configured `local.env`.
 
