@@ -87,7 +87,7 @@ async def pre_infusion(brew_data, utime, asyncio, pump_ratio_calculator, keep_ru
                     scale_obj = getattr(brew_data, 'tray_scale', None)
                     if scale_obj is not None:
                         th = getattr(brew_data, 'get_pre_infusion_trigger_threshold', lambda: None)()
-                        scale_obj.arm_drop_detector(w=brew_data.get_weight(), threshold=th, blanking_ms=0)
+                        scale_obj.arm_drop_detector(w=brew_data.get_weight(), threshold=th, blanking_ms=DROP_ARM_BLANK_MS)
                 target = ramped
         else:
             target = pre_infusion_pressure
@@ -342,6 +342,9 @@ BH_STEAM_NOLEARN_MS = 1200000   # hoyrysta alle 20 min: ei oppia (kattila vajaa,
 BH_START_US = 200000  # ensimmainen lampotilalukema valmis (ydin 1: 80 ms c1_on:sta); kertyma siirtyy
 BH_K0_MS = 70.0      # kun brew_dataa ei ole luotu classes.BrewDatana (testit); sama kuin classes.BH_K0_MS
 BH_COLD_C = 15.0     # kattila nain paljon alle tavoitteen: kylma (alkulammitys), ei uuton jalkeista tilaa
+# Pisaratunnistuksen viritys pidon alussa: pumpun siirtyminen pulssitukseen liikuttaa vaakaa +-0,3-1 g noin sekunnin
+# (uutot 20.-24.10.2026), joten perustaso seuraa lukemaa tama aika ennen tunnistusta. 12 naytteen ikkuna ~1 s.
+DROP_ARM_BLANK_MS = 1200
 EB_RATIO_MS = 1000           # set_pump_ratio 1 s valein kuten vanhassa uuttosilmukassa
 
 
@@ -603,6 +606,9 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                         q.append('EU_TRIGGER t_ms=%d w=%s' % (
                             utime.ticks_diff(t, t0) // 1000,
                             '%.2f' % brew_data.get_weight() if brew_data.get_weight() is not None else '-'))
+                    det = getattr(scale_obj, 'drop_detector', None)
+                    if det is not None:
+                        q.append('EU_DROPSTAT reason=%s %s' % (reason, det.stats_line()))
                     stage_b, phase, tag, ramp_r, reason = True, 3, 'EB', EB_RAMP_BAR_PER_S, 'stop'
                     kp_n, ki_n, kp_t, ki_t = EB_KP, EB_KI_X, max(EB_KP, EU_KP_TAIL), max(EB_KI_X, EU_KI_TAIL_X)
                     if c1x: kp_t = EB_C1X_KP_TAIL
@@ -724,7 +730,7 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                                     brew_data.set_mode('pre-infusion main')
                                     if scale_obj is not None:
                                         th = getattr(brew_data, 'get_pre_infusion_trigger_threshold', lambda: None)()
-                                        scale_obj.arm_drop_detector(w=brew_data.get_weight(), threshold=th, blanking_ms=0)
+                                        scale_obj.arm_drop_detector(w=brew_data.get_weight(), threshold=th, blanking_ms=DROP_ARM_BLANK_MS)
                                 out.append('%s_HOLD t_ms=%d p=%.2f wait_ms=%d' % (
                                     tag, utime.ticks_diff(t, t0) // 1000, p5, utime.ticks_diff(t, sp_t) // 1000))
                     else:
@@ -1228,6 +1234,7 @@ async def run_shot(brew_data, utime, asyncio, pump_ratio_calculator, keep_runnin
     if arm_drop is not None:
         th = getattr(brew_data, 'get_pre_infusion_trigger_threshold', lambda: None)()
         arm_drop(threshold=th, blanking_ms=1800)
+        getattr(scale, 'seed_on_pump_start', lambda: None)()
     # Uuttoloki (EXPRESSO-UUTTOLOKI): vain kytkimen uutto (PB), ei testiuutto. Naytteet ottaa BLE-tehtava
     # (brew_logger.brew_log_service), joten uuttosilmukoiden ajoitus ei muutu.
     brew_log = getattr(brew_data, 'brew_logger', None) if label == 'PB' else None
