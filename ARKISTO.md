@@ -952,3 +952,26 @@ SEURAAVA PAKETTI: ei mitään, odottaa käyttäjää
 |---|---|---|
 | V-154 Keittimen kylmäkäynnistys ja norise-lukko Zero kiinni | todennettu aamutestissä 7.10.2026 (Zero-linkki, dead=0) | — |
 | V-163 pico_dev.py siltaosoite Zeron kautta (192.0.2.10:2217) | todennettu 1.10.2026 | — |
+
+## 30.10.2026 — infra expresso
+
+### (alku) — poistettu tai muutettu
+
+SEURAAVA PAKETTI: ei mitään — odottaa käyttäjää: laitetodennukset (PEQ, höyrytys, lepotila, uutto)
+
+### Avoimet asiat — poistettu tai muutettu
+
+| Asia | Tila | Seuraava askel |
+|---|---|---|
+| Verkkovirta ei tullut kuormille aamun 1. kytkennässä (käyttäjä 30.10.2026: "keitin ei alkanut lämmetä"; katkaisi verkkovirran, irrotti Zeron, kytki verkkovirran → lämpeni) | todettu 30.10.2026 DIAGNET-lokista (`~/.local/state/expresso-diag/2026-10-30.log`): Pico ei kaatunut yöllä (boot f32ce17b 28.10. 6.15 → 30.10. 8.02, up_s 179204); 8.02.10 huuhtelussa pumppu 71 iskua, paine −0,09 bar koko ajan (muut aamut 0,76–1,23 bar), T 21,2 °C ei noussut 30 s:n lämmitysjaksoissa → kuormat ilman verkkovirtaa; 8.02.38 nollaus rc=1 (virtakatko: Zero irti + verkkovirta pois), sen jälkeen paine 1,23 bar ja lämpeneminen heti; syy (pistoke, jatkojohto, pääkytkin) auki | käyttäjä kertoo, toistuuko; tunnistus mahdollinen firmwareen (pumppu käy, paine ei nouse → NO_MAINS), ei pyydetty |
+| `smart_tray.py` tallentaa flashille kesken uuton → uutto voi katketa `reason=starve` | todettu 30.10.2026 10.17 sokkokorin pilottiajossa: `EU_STALL sec=y us=137874 task=scale`, `EU_STARVE starve=2`, EU_END reason=starve 5,3 s:ssa. `SmartTrayTracker.update` kutsuu `save_state()` 30 s:n välein (`smart_tray.py:330`), myös uuton aikana scale_poll_once-tehtävässä; flash-kirjoitus pysäyttää ytimen 1. Ei johdu pisarakorjauksesta (y_max 8–22 ms muissa ajoissa). Koskee myös oikeaa uuttoa | korjaus: ei tallennusta kun `is_idle` on epätosi; flash käyttäjän kuittauksella |
+
+### Viat — valmis
+
+| Vika | Tila |
+|---|---|
+| Oma virhe 30.10.2026: esitin suunnitelmassa vaa'an siemenyksen poistoa selvittämättä sen tarkoitusta, vaikka käyttäjä oli pyytänyt huolellisen taustaselvityksen, ja väitin sen palauttavan 24.10. asti toimineen suodatuksen (ikkuna oli silloin 8, ei 12). Poisto yksin olisi voinut rikkoa liukumasuojan (P7a). Lisäksi väitin todisteetta 1,1 g:n pudotusta pumpun katkaisussa pelkäksi siemenyksen aiheuttamaksi, ja simulaatio oletti tasaisen painon. Käyttäjä pysäytti: "Mitenkä olet huomioinut että alkuperäinen tarkoitus ei rikkoudu" | korjattu suunnitelmassa ja koodissa (kertasiemenys + katve, P7a–c); käytäntö: koodin poistoa ei esitetä ennen kuin sen tarkoitus on selvitetty ja mitattu |
+
+| Vika | Tila |
+|---|---|
+| Oma virhe 30.10.2026: 10 ajon sokkosarja suunniteltiin ja 5 ajoa ajettiin ilman TILAUS-H-purkua (`pvent`), vaikka vaatimus oli purun VAATIMUKSET-listalla; käyttäjä huomautti. Lisäksi väitin pisarakynnyksen rajaksi 0,25 g, vaikka laitteella se on 0,50 g | korjattu 30.10.2026 (sarja pysäytetty, ptrig palautettu, kynnys korjattu viestissä ja riviltä Pisaratunnistus laukesi ilman tippaa); jatko EXPRESSO-SOKKO-NOLLA |
