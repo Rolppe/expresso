@@ -44,7 +44,7 @@ class Scale:
         self._buf = []
         self._hist = []
         self.drop_detector = FirstDropDetector()
-        self._pump_on = False
+        self._seed_pending = False
         # Raw (unfiltered) samples for the flow fit, and the same series cleaned with a median of
         # three. Measured 18.9.2026: one sample every 86 ms (11.6 Hz), single-sample sd 0.25 g, and
         # the difference of consecutive samples has sd = sd*sqrt(2) -> the noise is white, so a
@@ -186,21 +186,15 @@ class Scale:
         now = time.ticks_ms()
         g_raw = c / self.scale
 
-        # Pumpputilan siirtymä: nopea siemenys poistaa suodattimen keinotekoisen 1 s liukuman
-        if pump_on is not None:
-            if not self._pump_on and pump_on:
-                self._buf = [c] * self.window
-                self._raw = [(now, g_raw)]
-                self._flow_raw = [(now, g_raw)]
-                if getattr(self, 'drop_detector', None) is not None:
-                    self.drop_detector.on_pump_start(g_raw)
-            elif self._pump_on and not pump_on:
-                self._buf = [c] * self.window
-                self._raw = [(now, g_raw)]
-                self._flow_raw = [(now, g_raw)]
-                if getattr(self, 'drop_detector', None) is not None:
-                    self.drop_detector.on_pump_stop()
-            self._pump_on = pump_on
+        # Uuton pumpun kaynnistys: kertasiemenys poistaa suodattimen keinotekoisen 1 s liukuman. Vain kerran
+        # (seed_on_pump_start), ei releen jokaisella vaihdolla: pulssitus kopioi yhden kohinaisen raakanaytteen koko
+        # puskuriin, trimmattu keskiarvo pitaa sen, ja virtauksen data tyhjenee joka pulssilla (30.10.2026: 1,1 g:n
+        # piikki laukaisi pisaratunnistuksen 2,6 s:n kohdalla ilman yhtaan tippaa, f=0 puolet uutosta).
+        if self._seed_pending and pump_on:
+            self._seed_pending = False
+            self._buf = [c] * self.window
+            self._raw = [(now, g_raw)]
+            self._flow_raw = [(now, g_raw)]
 
         self._raw.append((now, g_raw))
         if len(self._raw) > self._flow_n:
@@ -227,7 +221,7 @@ class Scale:
         if len(self._hist) > 16:
             self._hist.pop(0)
         if getattr(self, 'drop_detector', None) is not None:
-            self.drop_detector.feed(g, now, pressure=pressure)
+            self.drop_detector.feed(g, now, pressure=pressure, raw=g_raw)
         return g
 
     @staticmethod
@@ -338,6 +332,10 @@ class Scale:
         if getattr(self, 'drop_detector', None) is not None:
             self.drop_detector.reset()
 
+    def seed_on_pump_start(self):
+        """run_shot: seuraava nayte pumpun kaydessa siementaa suodattimen kerran."""
+        self._seed_pending = True
+
     def arm_drop_detector(self, w=None, threshold=None, blanking_ms=None):
         if getattr(self, 'drop_detector', None) is not None:
             if threshold is not None:
@@ -396,6 +394,23 @@ class FirstDropDetector:
         self.triggered = False
         self.trigger_time = None
         self.trigger_weight = None
+        self._st_reset()
+
+    def _st_reset(self):
+        # Kohinamittaus viritetylta jaksolta (pisaratunnistus 30.10.2026): pumpun aikaista kohinaa ei ole mitattu,
+        # kynnys saadetaan vasta naista luvuista. Erotus perustasosta: pelkka paino ei mahdu floatin tarkkuuteen.
+        self.st_n = 0
+        self.st_s = 0.0
+        self.st_ss = 0.0
+        self.st_rise = 0.0
+
+    def stats_line(self):
+        """Lokiin: tunnistimen perustaso, suurin nousu, raakanaytteiden hajonta ja naytemaara."""
+        n = self.st_n
+        v = self.st_ss / n - (self.st_s / n) ** 2 if n else 0.0
+        return 'n=%d rise_max=%.2f raw_sd=%.2f base=%.2f th=%.2f' % (
+            n, self.st_rise, v ** 0.5 if v > 0.0 else 0.0,
+            self.armed_baseline if self.armed_baseline is not None else 0.0, self.threshold)
 
     def set_threshold(self, th):
         self.threshold = float(th)
@@ -410,6 +425,7 @@ class FirstDropDetector:
         self.triggered = False
         self.trigger_time = None
         self.trigger_weight = None
+        self._st_reset()
 
     def arm(self, current_weight=None, now_ms=None, blanking_ms=None):
         """Lukitsee perustason esiuuton alkaessa."""
@@ -422,22 +438,14 @@ class FirstDropDetector:
         self.s = 0.0
         self.streak = 0
         self.triggered = False
-
-    def on_pump_start(self, current_weight):
-        """Re-ankkuroi perustason suoraan pumpun kayntitasolle."""
-        self.armed_baseline = current_weight
-        self.s = 0.0
-        self.streak = 0
-
-    def on_pump_stop(self):
-        pass
+        self._st_reset()
 
     def disarm(self):
         self.armed_baseline = None
         self.arm_time = None
         self.triggered = False
 
-    def feed(self, g, now_ms=None, pressure=None):
+    def feed(self, g, now_ms=None, pressure=None, raw=None):
         if g is None:
             return False
         if self.baseline is None:
@@ -473,6 +481,12 @@ class FirstDropDetector:
         # Vaatii 2 (tai 3 jos < 0.15g) perakkaista naytetta, jotta yksittainen
         # kohinapiikki ei laukaise ennenaikaisesti.
         rise = g - self.armed_baseline
+        d = (raw if raw is not None else g) - self.armed_baseline
+        self.st_n += 1
+        self.st_s += d
+        self.st_ss += d * d
+        if rise > self.st_rise:
+            self.st_rise = rise
         req_streak = 3 if self.threshold < 0.15 else 2
         if rise >= self.threshold:
             self.streak += 1
