@@ -272,19 +272,73 @@ def main():
     # -------------------------------------------------------------------------
     # M9: Thermostat.run -integraatio
     # -------------------------------------------------------------------------
-    sensor = FakeSensor(98.0)
+    sensor = FakeSensor(25.0)          # kylmä kattila: cold_boot
     relay = FakeRelay()
     th = classes.Thermostat(bd_real, {}, relay, sensor, utime)
-    th.thermal_stability = -9.0
     wt.status = 'ready'
     th.run()
-    check('M9a Thermostat.run aloittaa mittauksen TS=-9.0 kylmässä IDLE:ssä', wt.status == 'measuring')
+    check('M9z kylmä kattila merkitsee cold_boot, paikkamerkki-TS ei aloita mittausta',
+          wt.cold_boot and wt.status == 'ready' and not th.ts_measured, (wt.cold_boot, wt.status))
+    sensor.t = 98.0
+    th.thermal_stability = -9.0
+    th.ts_measured = True
+    th.run()
+    check('M9a Thermostat.run aloittaa mittauksen TS=-9.0 kylmästä käynnistyksestä', wt.status == 'measuring')
 
     utime.advance(800 * 1000)
     th.thermal_stability = -1.5 # ylittää targetin -2.0
     th.run()
     check('M9b Thermostat.run päättää mittauksen kun TS=-1.5', wt.status == 'estimated' and not wt._measuring)
     check('M9c vesimäärä arvioitu oikein Thermostat.runin kautta', wt.tank_water_l > 0.0, wt.tank_water_l)
+
+    # -------------------------------------------------------------------------
+    # B: lämmin käynnistys 30.10.2026 (boot 3308fb01): TS-paikkamerkki -10 aloitti mittauksen, ensimmäinen
+    # PI-jakso antoi -1.25 -> reach 0 s -> 0.00 L low_water
+    # -------------------------------------------------------------------------
+    st_b = '/tmp/test_water_tank_b.json'
+    for f in (st_b, st_b + '.tmp'):
+        if os.path.exists(f):
+            os.remove(f)
+    wt_b = water_tank.WaterTankTracker(utime, state_file=st_b)
+    bd_real.water_tank = wt_b
+    th_b = classes.Thermostat(bd_real, {}, FakeRelay(), FakeSensor(97.5), utime)
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        th_b.run()
+        utime.advance(5000)
+        th_b.run()
+    check('B1a lämmin boot: paikkamerkki -10 ei aloita mittausta', 'TANK_MEASURE_START' not in buf.getvalue(), buf.getvalue())
+    check('B1b lämmin boot: ensimmäinen mitattu TS -> warm_start, taso säilyy 2.0 L',
+          th_b.ts_measured and wt_b.status == 'warm_start' and wt_b.tank_water_l == 2.0,
+          (th_b.thermal_stability, wt_b.status, wt_b.tank_water_l))
+
+    wt_c = water_tank.WaterTankTracker(utime, state_file='/tmp/test_nonexistent_tank.json')
+    wt_c.update(ts=-9.0, now_ms=utime.ticks_ms(), mode='IDLE', cold=False, measured=True)
+    check('B2 mitattu TS -9 kuumalla kattilalla (ei kylmää bootia) ei aloita mittausta',
+          not wt_c._measuring and wt_c.status == 'init', wt_c.status)
+
+    wt_c.update(ts=-9.0, now_ms=utime.ticks_ms(), mode='IDLE', cold=True, measured=True)
+    utime.advance(30 * 1000)
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        wt_c.update(ts=-1.0, now_ms=utime.ticks_ms(), mode='IDLE', cold=False, measured=True)
+    check('B3 alle REACH_MIN_S saavutus hylätään, taso ja tila ennallaan',
+          'TANK_REJECT' in buf.getvalue() and wt_c.tank_water_l == 2.0 and wt_c.status == 'init'
+          and wt_c.last_reach_time_s is None, (buf.getvalue(), wt_c.status, wt_c.tank_water_l))
+
+    with open(st_b, 'w') as f:
+        json.dump({'tank_water_l': 0.0, 'status': 'low_water', 'last_reach_time_s': 0.0,
+                   'capacity_l': 2.0, 'low_water_l': 0.3, 'model_a': 0.002, 'model_b': -0.4}, f)
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        wt_d = water_tank.WaterTankTracker(utime, state_file=st_b)
+    saved = json.load(open(st_b))
+    check('B4 laitteen virheellinen tila (low_water, reach 0) nollautuu latauksessa ja tallentuu',
+          'TANK_RESET_BOGUS' in buf.getvalue() and wt_d.status == 'init' and wt_d.tank_water_l == 2.0
+          and saved['status'] == 'init', (wt_d.status, wt_d.tank_water_l, saved))
+    for f in (st_b, st_b + '.tmp'):
+        if os.path.exists(f):
+            os.remove(f)
 
     # Siivous
     for f in (tmp_state, tmp_state + '.tmp'):

@@ -1856,6 +1856,7 @@ class Thermostat:
         self.ts_candidate_p = self.pi_i
         self.ts_candidate_start = None
         self.thermal_stability = -10.0
+        self.ts_measured = False      # -10.0 above is a placeholder until the first PI period computes it
         self._ts_load()
         brew_data.thermostat = self
         brew_data.thermal_stability = self.thermal_stability
@@ -1908,6 +1909,7 @@ class Thermostat:
     def _update_ts(self):
         raw_ts = (self.ts_p0 - self.pi_i) / self.ts_span * 10.0
         self.thermal_stability = -10.0 if raw_ts < -10.0 else (10.0 if raw_ts > 10.0 else round(raw_ts, 1))
+        self.ts_measured = True
         self.brew_data.thermal_stability = self.thermal_stability
 
     def _bh_learn(self, t_s, target, why):
@@ -2102,7 +2104,8 @@ class Thermostat:
         # Water tank tracker update from thermal stability (TILAUS-Q)
         wt = getattr(self.brew_data, 'water_tank', None)
         if wt is not None:
-            wt.update(self.thermal_stability, now, mode)
+            wt.update(self.thermal_stability, now, mode,
+                      cold=boiler_temperature < target_temperature - BH_COLD_C, measured=self.ts_measured)
 
         if self.bh_phase is not None and self._post_brew(now, boiler_temperature, target_temperature):
             self.pi_start = None

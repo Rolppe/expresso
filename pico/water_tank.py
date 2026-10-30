@@ -42,6 +42,9 @@ TS_START_MAX = -8.0
 TS_TARGET = -2.0
 DEFAULT_MODEL_A = 0.0020
 DEFAULT_MODEL_B = -0.40
+# Kylmästä tasaantuminen ei kestä alle 2 min; lyhyempi saavutusaika on lämmin käynnistys, jonka TS-paikkamerkki
+# (-10) näytti kylmältä (30.10.2026: reach 0 s -> 0,00 L low_water lämpimässä bootissa)
+REACH_MIN_S = 120
 STATE_FILE = 'water_tank.json'
 
 
@@ -64,8 +67,18 @@ class WaterTankTracker:
         self._measuring = False
         self._measure_start_ms = None
         self._measure_start_ts = None
+        self._status_before = None
+        self.cold_boot = False           # kattila oli tässä käynnistyksessä kylmä (Thermostat: T < tavoite - BH_COLD_C)
 
         self.load_state()
+        if self.status == 'low_water' and self.last_reach_time_s is not None \
+                and self.last_reach_time_s < REACH_MIN_S:
+            # Aiempi virheellinen arvio (lämmin käynnistys): taso ei ole mitattu, palataan oletukseen
+            print('TANK_RESET_BOGUS reach_s=%d' % int(self.last_reach_time_s))
+            self.tank_water_l = self.capacity_l
+            self.status = 'init'
+            self.last_reach_time_s = None
+            self.save_state()
 
     def _ticks_diff(self, a, b):
         if self.utime is not None and hasattr(self.utime, 'ticks_diff'):
@@ -120,19 +133,29 @@ class WaterTankTracker:
             return 0.0
         return round((self.tank_water_l / self.capacity_l) * 100.0, 1)
 
-    def update(self, ts, now_ms, mode='IDLE'):
-        """Päivittää vesimäärän tilan lämpöstabiiliuden (TS) ja ajan perusteella."""
-        if ts is None:
+    def update(self, ts, now_ms, mode='IDLE', cold=None, measured=True):
+        """Päivittää vesimäärän tilan lämpöstabiiliuden (TS) ja ajan perusteella.
+
+        cold: kattila nyt kylmä (None = ei tiedossa, ei rajata). measured: TS on PI-jaksosta laskettu eikä
+        käynnistyksen paikkamerkki -10; mittaus alkaa ja päättyy vain mitatusta arvosta.
+        """
+        if cold:
+            self.cold_boot = True
+        if ts is None or not measured:
             return
 
         if self._measuring:
             if ts >= self.ts_target:
                 dt_ms = self._ticks_diff(now_ms, self._measure_start_ms)
                 reach_s = dt_ms / 1000.0
+                self._measuring = False
+                if reach_s < REACH_MIN_S:
+                    self.status = self._status_before or 'init'
+                    print('TANK_REJECT reach_s=%d min_s=%d' % (int(reach_s), REACH_MIN_S))
+                    return
                 self.last_reach_time_s = round(reach_s, 1)
                 raw_vol = self.model_a * reach_s + self.model_b
                 self.tank_water_l = max(0.0, min(self.capacity_l, round(raw_vol, 2)))
-                self._measuring = False
                 self.status = 'estimated' if self.tank_water_l > self.low_water_l else 'low_water'
                 self.save_state()
                 print('TANK_ESTIMATED level=%.2fL reach_s=%d status=%s' % (
@@ -140,10 +163,12 @@ class WaterTankTracker:
         else:
             if self.status in ('init', 'ready', 'warm_start'):
                 # Aloita mittaus, jos kone on kylmä ja lähestyy tavoitetta IDLE-tilassa
-                if ts <= self.ts_start_max and (mode == 'IDLE' or mode in ('warming up', 'stabilizing', 'WARMING_UP')):
+                if ts <= self.ts_start_max and (cold is None or self.cold_boot) and \
+                        (mode == 'IDLE' or mode in ('warming up', 'stabilizing', 'WARMING_UP')):
                     self._measuring = True
                     self._measure_start_ms = now_ms
                     self._measure_start_ts = ts
+                    self._status_before = self.status
                     self.status = 'measuring'
                     print('TANK_MEASURE_START ts=%.1f' % ts)
                 elif ts > -6.0 and self.status == 'init':
