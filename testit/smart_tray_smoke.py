@@ -332,6 +332,24 @@ def main():
     check('12j. cmd tray:empty -> TRAY_EMPTY ok', 'TRAY_EMPTY ok' in out_empty, out_empty)
     check('12k. water_g nollautui', tracker_reboot.water_g == 0.0)
 
+    # 13. Ei flash-kirjoitusta kesken uuton (reason=starve 1.11.2026), tallennus lepotilaan palatessa
+    tracker_uutto = smart_tray.SmartTrayTracker(scale, utime=utime, state_file=tmp_state)
+    for _ in range(6):
+        tracker_uutto.update(454.5, now_ms=0, is_idle=True, pump_on=False)
+    tallennukset = []
+    alkup_save = tracker_uutto.save_state
+    tracker_uutto.save_state = lambda force=False: (tallennukset.append(force), alkup_save(force))[1]
+    tracker_uutto._dirty = False
+    tracker_uutto._last_saved_time = 0
+    # 60 s uuttoa: vesi kertyy ja ajasta on yli 30 s edellisesta tallennuksesta
+    for i in range(1, 61):
+        tracker_uutto.update(454.5 + i, now_ms=i * 1000, is_idle=False, pump_on=True)
+    check('13a. ei tallennusta kesken uuton', tallennukset == [], str(tallennukset))
+    check('13b. muutos jaa odottamaan', tracker_uutto._dirty)
+    tracker_uutto.update(454.5 + 60, now_ms=61000, is_idle=True, pump_on=False)
+    check('13c. tallennus lepotilaan palatessa', len(tallennukset) == 1, str(tallennukset))
+    check('13d. muutos tallennettu', not tracker_uutto._dirty)
+
     # Siivotaan tmp-tiedosto
     if os.path.exists(tmp_state):
         os.remove(tmp_state)

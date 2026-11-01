@@ -326,8 +326,10 @@ class SmartTrayTracker:
 
         self._update_status()
 
-        # Periodinen tallennus (30 s valein jos muutoksia)
-        if self._dirty and (now_ms - self._last_saved_time) > 30000:
+        # Periodinen tallennus (30 s valein jos muutoksia), vain lepotilassa: kirjoitus vei
+        # vaakatehtavalta 57-183 ms, ja yli 35 ms (CX_STARVE_US) katkaisi uuton reason=starve
+        # (1.11.2026 13,6 s:n kohdalla). Muutokset tallentuvat uuton jalkeen.
+        if self._dirty and is_idle and (now_ms - self._last_saved_time) > 30000:
             self.save_state()
 
     def _update_status(self):
