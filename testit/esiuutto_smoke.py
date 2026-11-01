@@ -1316,7 +1316,7 @@ def main():
     check('23 c1x: hold_sd ≤ vanha + siemenhajonta [N=%d]' % len(sd_old), m_new <= m_old + s_old,
           'c1x %.3f, vanha %.3f ± %.3f' % (m_new, m_old, s_old))
 
-    # Nalka: ydin 0 seisoo 90 ms nousussa (pumppu paalla, jono <= 40 ms + CX_STARVE_US 25 ms) -> ydin 1 kaantaa pumpun itse
+    # Nalka: ydin 0 seisoo 90 ms nousussa (pumppu paalla, jono <= 40 ms + CX_STARVE_US 35 ms) -> ydin 1 kaantaa pumpun itse
     # pois viimeisen tapahtuman jalkeen, uutto paattyy virheeseen
     bd = c1x_bd(phi_us=7300.0)
     aio = HookAsyncio(0.1, lambda: setattr(U, 'us', U.us + 90000))
@@ -1324,9 +1324,9 @@ def main():
     pl = bd.temperature_sensor.pin_log
     off_t = next((t for t, s in pl if s == 0 and t >= aio.t_fn), None) if aio.t_fn else None
     d_ms = None if off_t is None else (off_t - aio.t_fn) / 1000
-    check('23 c1x nälkä: reason=starve, EU_STARVE, pumppu pois ytimen 1 nälästä (25-70 ms pysähdyksestä)',
+    check('23 c1x nälkä: reason=starve, EU_STARVE, pumppu pois ytimen 1 nälästä (25-80 ms pysähdyksestä)',
           field(out, 'EU_END', 'reason') == 'starve' and 'EU_STARVE' in out and bd.pump.v == 0 and
-          d_ms is not None and 25 <= d_ms <= 70 and pl[-1][1] == 0 and bd.temperature_sensor.cx[CL.CX_STARVE] >= 1,
+          d_ms is not None and 25 <= d_ms <= 80 and pl[-1][1] == 0 and bd.temperature_sensor.cx[CL.CX_STARVE] >= 1,
           'reason=%s pois %s ms pysähdyksestä, viimeinen %s' % (field(out, 'EU_END', 'reason'), d_ms, pl[-1:]))
 
     # Vahti (K4): (a) ajoraja: allow joka jaksossa, kielto nollaa CX_OK:n; (b) poll laukaisee kesken pidon, myos kun
