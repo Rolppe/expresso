@@ -200,7 +200,10 @@ def test_shot_trigger_transition():
     # Feed at/above threshold (2 samples for streak)
     scale.drop_detector.feed(100.25, now_ms=1100)
     scale.drop_detector.feed(100.25, now_ms=1200)
-    check('X3 0.25g above 0.20g threshold -> True', scale.drop_detected() is True)
+    check('X3a 0.25g without 1.4 g/s -> False', scale.drop_detected() is False)
+    scale.drop_detector.feed(101.70, now_ms=2100)
+    scale.drop_detector.feed(101.80, now_ms=2200)
+    check('X3 1.4 g in 1 s above threshold -> True', scale.drop_detected() is True)
 
     # Blanking window test (X4): pump vibration / fill spike during first 1.8s does NOT trigger
     scale.arm_drop_detector(w=100.0, threshold=0.20, blanking_ms=1800)
@@ -209,9 +212,9 @@ def test_shot_trigger_transition():
     # After blanking window, baseline has tracked the pump state to 101.50g
     scale.drop_detector.feed(101.50, now_ms=3000)
     check('X5 settled at pump baseline', scale.drop_detected() is False)
-    # Actual coffee drip on top of settled pump state (+0.25g at t=3100)
-    scale.drop_detector.feed(101.75, now_ms=3100)
-    scale.drop_detector.feed(101.75, now_ms=3200)
+    # Actual coffee flow on top of settled pump state (+1.5 g in 1 s)
+    scale.drop_detector.feed(103.00, now_ms=4000)
+    scale.drop_detector.feed(103.10, now_ms=4100)
     check('X6 real drop after blanking triggers', scale.drop_detected() is True)
 
 if __name__ == '__main__':

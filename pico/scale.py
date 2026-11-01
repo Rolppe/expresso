@@ -376,12 +376,23 @@ class Scale:
                    self.calibrated))
 
 
+# Pisaran laukaisuun vaadittu nousu ikkunassa (kayttaja 1.11.2026): 15 sokkoajossa ilman vetta nousu oli
+# enintaan 1,1 g / 1 s, oikeissa uutoissa 1,6-2,6 g / 1 s. Pelkka 0,50 g:n kynnys laukesi sokkoajoissa.
+DROP_RATE_G = 1.4
+DROP_RATE_MS = 1000
+DROP_RATE_N = 16            # renkaan pituus: 1 s + marginaali vaa'an ~10 Hz:n naytevalilla
+
+
 class FirstDropDetector:
     """CUSUM- ja kynnyspohjainen ensimmaisen pisaran tunnistin (TILAUS-E).
     Seuraa suodatettua painoa ja tunnistaa kahvipisaroiden putoamisen
     erottaen sen pumpun tarinasta ja paineennoususta."""
 
     def __init__(self, threshold=0.25, k=0.04, alpha_drift=0.02, blanking_ms=1800):
+        self._rt = [0] * DROP_RATE_N
+        self._rg = [0.0] * DROP_RATE_N
+        self._ri = 0
+        self._rn = 0
         self.threshold = threshold
         self.k = k
         self.alpha_drift = alpha_drift
@@ -403,14 +414,32 @@ class FirstDropDetector:
         self.st_s = 0.0
         self.st_ss = 0.0
         self.st_rise = 0.0
+        self.st_rate = 0.0
+        self._rn = 0
 
     def stats_line(self):
         """Lokiin: tunnistimen perustaso, suurin nousu, raakanaytteiden hajonta ja naytemaara."""
         n = self.st_n
         v = self.st_ss / n - (self.st_s / n) ** 2 if n else 0.0
-        return 'n=%d rise_max=%.2f raw_sd=%.2f base=%.2f th=%.2f' % (
-            n, self.st_rise, v ** 0.5 if v > 0.0 else 0.0,
+        return 'n=%d rise_max=%.2f rate_max=%.2f raw_sd=%.2f base=%.2f th=%.2f' % (
+            n, self.st_rise, self.st_rate, v ** 0.5 if v > 0.0 else 0.0,
             self.armed_baseline if self.armed_baseline is not None else 0.0, self.threshold)
+
+    def _rate(self, g, now_ms):
+        """Nousu DROP_RATE_MS:n takaisesta naytteesta; None, kun ikkuna ei ole viela taynna."""
+        diff = getattr(time, 'ticks_diff', lambda a, b: a - b)
+        i, r = self._ri, None
+        for _ in range(self._rn):
+            i = (i - 1) % DROP_RATE_N
+            if diff(now_ms, self._rt[i]) >= DROP_RATE_MS:
+                r = g - self._rg[i]
+                break
+        self._rt[self._ri] = now_ms
+        self._rg[self._ri] = g
+        self._ri = (self._ri + 1) % DROP_RATE_N
+        if self._rn < DROP_RATE_N:
+            self._rn += 1
+        return r
 
     def set_threshold(self, th):
         self.threshold = float(th)
@@ -468,6 +497,7 @@ class FirstDropDetector:
                 self.armed_baseline = g
                 self.s = 0.0
                 self.streak = 0
+                self._rn = 0
                 return False
 
         # Mukautetaan perustasoa hitaasti tyhjan kammion tayttymisen aikana (p < 0.20 bar),
@@ -488,7 +518,14 @@ class FirstDropDetector:
         if rise > self.st_rise:
             self.st_rise = rise
         req_streak = 3 if self.threshold < 0.15 else 2
-        if rise >= self.threshold:
+        # Ilman kelloa (testit) ei ole ikkunaa: pelkka kynnys kuten ennen
+        rate_ok = True
+        if now_ms is not None:
+            rate = self._rate(g, now_ms)
+            rate_ok = rate is not None and rate >= DROP_RATE_G
+            if rate is not None and rate > self.st_rate:
+                self.st_rate = rate
+        if rise >= self.threshold and rate_ok:
             self.streak += 1
             if not self.triggered and self.streak >= req_streak:
                 self.triggered = True

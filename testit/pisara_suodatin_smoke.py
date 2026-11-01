@@ -126,14 +126,26 @@ def main():
     for i in range(70):
         if i * STEP_MS >= 2000:
             t_on = t_on if t_on is not None else i
-            g += 0.5 * STEP_MS / 1000.0
+            g += 2.0 * STEP_MS / 1000.0
         sample(s, g, i % 3 == 0)
         if s.drop_detected():
             t_hit = i
             break
-    check('P6 tippa 0,5 g/s laukaisee alle 2 s:ssa', t_hit is not None and (t_hit - t_on) * STEP_MS < 2000, t_hit)
+    check('P6 virtaus 2 g/s laukaisee alle 2 s:ssa', t_hit is not None and (t_hit - t_on) * STEP_MS < 2000, t_hit)
 
-    # P7: tarkoitus sailyy: siirtyma pulssitukseen (+0,8 g askel) valuu suodattimen lapi liukumana
+    # P6b: sokkoajon nousu (enintaan 1,1 g / 1 s, 1.11.2026) ei laukaise, ei myoskaan hidas 0,5 g/s
+    for rate in (1.1, 0.5):
+        s = make()
+        arm(s)
+        g = 1500.0
+        for i in range(70):
+            if i * STEP_MS >= 2000:
+                g += rate * STEP_MS / 1000.0
+            sample(s, g, i % 3 == 0)
+        check('P6b nousu %.1f g/s ei laukaise' % rate, not s.drop_detected())
+
+    # P7: tarkoitus sailyy: siirtyman askel valuu suodattimen lapi liukumana (+2 g, koska 1,4 g / 1 s -vaatimus
+    # jo estaa mitatun +0,8 g:n askeleen)
     for blank, want, name in ((0, True, 'P7a ilman katvetta askel nakyy tippana (siksi katve)'),
                               (BLANK, False, 'P7b katve estaa liukuman laukaisun')):
         s = make()
@@ -141,13 +153,13 @@ def main():
             sample(s, 1500.0, True)
         arm(s, blank)
         for i in range(60):
-            sample(s, 1500.8, i % 3 == 0)
+            sample(s, 1502.0, i % 3 == 0)
         check(name, s.drop_detected() is want)
-    g = 1500.8
+    g = 1502.0
     for i in range(30):
-        g += 0.5 * STEP_MS / 1000.0
+        g += 2.0 * STEP_MS / 1000.0
         sample(s, g, i % 3 == 0)
-    check('P7c katveen jalkeen oikea tippa laukaisee', s.drop_detected())
+    check('P7c katveen jalkeen oikea virtaus laukaisee', s.drop_detected())
 
     # P8: kertasiemenys kaynnistyksessa, ei pulsseissa
     s = make()
