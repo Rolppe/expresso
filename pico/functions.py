@@ -342,6 +342,7 @@ BH_STEAM_NOLEARN_MS = 1200000   # hoyrysta alle 20 min: ei oppia (kattila vajaa,
 BH_START_US = 200000  # ensimmainen lampotilalukema valmis (ydin 1: 80 ms c1_on:sta); kertyma siirtyy
 BH_K0_MS = 70.0      # kun brew_dataa ei ole luotu classes.BrewDatana (testit); sama kuin classes.BH_K0_MS
 BH_COLD_C = 15.0     # kattila nain paljon alle tavoitteen: kylma (alkulammitys), ei uuton jalkeista tilaa
+BH_HOT_C = 3.0       # kattila nain paljon yli tavoitteen: ei iskulammitysta (hoyryn jalkeen 125 C, 1.11.2026)
 # Pisaratunnistuksen viritys pidon alussa: pumpun siirtyminen pulssitukseen liikuttaa vaakaa +-0,3-1 g noin sekunnin
 # (uutot 20.-24.10.2026), joten perustaso seuraa lukemaa tama aika ennen tunnistusta. 12 naytteen ikkuna ~1 s.
 DROP_ARM_BLANK_MS = 1200
@@ -474,6 +475,7 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
     hk1 = hk0 / BH_PMAX
     hc, hsum, hc_t = 0.0, 0.0, None           # kertyma us, kertyma yhteensa, edellinen jakso
     bh_w0 = _bh_tray(brew_data, utime)
+    bh_t_max = (getattr(brew_data, 'get_target_temperature', lambda: 98.0)() or 98.0) + BH_HOT_C
     bh_fill = [0, False, False]               # tayton iskut, paine noussut, vapaa virtaus (kaukalo nousee)
 
     def _bh_add(p):
@@ -897,7 +899,8 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                 if hc_t is not None and heat:
                     hc -= utime.ticks_diff(t, hc_t)
                 hc_t = t
-                hv = 1 if hc > 0.0 and utime.ticks_diff(t, t0) >= BH_START_US else 0
+                hv = 1 if (hc > 0.0 and utime.ticks_diff(t, t0) >= BH_START_US and
+                           getattr(brew_data, 'boiler_temperature', 0.0) <= bh_t_max) else 0
                 if hv or hv != heat:       # paalla kirjoitetaan joka jaksolla: vahti tarkistaa lukeman ian
                     heat = hv
                     RELAY_HEATER.value(hv)

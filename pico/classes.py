@@ -687,6 +687,9 @@ class BrewData:
         self.last_brew_ms = now_ms
         self.last_activity_ms = now_ms
         print('STEAM_COMPLETE')
+        # Pois STEAMista heti: update_temperature_mode ei koske aktiiviseen tilaan, joten tila jai STEAMiin
+        # ja _steam_heat lammitti taydella teholla venttiilin auetessa (1.11.2026). Kuuma kattila -> cooling down.
+        self.set_mode('IDLE')
 
     def update_standby(self, now_ms):
         # Latch: once on it stays on until note_activity(); a negative ticks_diff (ticks_ms wrap,

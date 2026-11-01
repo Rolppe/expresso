@@ -308,6 +308,18 @@ finally:
     F.BH_FILL_MAX = old
 check('H2 katon ylitys: kertymä pienenee ja oppi pois (arm 2)', bd.bh_sum_us < s_norm and bd.bh_arm == 2,
       'sum %d -> %d ms, arm %d' % (s_norm // 1000, bd.bh_sum_us // 1000, bd.bh_arm))
+
+# Iskulämmityksen yläraja (1.11.2026: pumppu höyryn jälkeen, lämmitin päällä kattilan ollessa ~125 C, tavoite 98)
+bd = ES.brew_bd('25b', 220, False)
+bd.get_target_temperature = lambda: 98.0
+ES.run_brew(bd, 16.0, bim=1, seed=220)
+n_norm = len(bd.heat_age)
+bd = ES.brew_bd('25b', 220, False)
+bd.get_target_temperature = lambda: 98.0
+bd.boiler_temperature = 98.0 + F.BH_HOT_C + 27.0
+ES.run_brew(bd, 16.0, bim=1, seed=220)
+check('H2b normaali uutto lämmittää iskuista', n_norm > 0, 'kirjoituksia %d' % n_norm)
+check('H2c 125 C: ei iskulämmitystä uutossa', len(bd.heat_age) == 0, 'kirjoituksia %d' % len(bd.heat_age))
 bd = ES.brew_bd('25b', 220, False)
 bd.bh_steam_t = ES.U.us // 1000
 ES.run_brew(bd, 16.0, bim=1, seed=220)

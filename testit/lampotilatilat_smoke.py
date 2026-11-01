@@ -271,6 +271,19 @@ bd.mode = 'IDLE'
 live = bluetooth_handler.live_payload(bd)
 check('7f. live_payload mode: IDLE', live['mode'] == 'IDLE', live.get('mode'))
 
+# Hoyrykytkin pois (1.11.2026): STEAM ei saa jaada paalle, kuuma kattila -> cooling down, ei IDLE
+bd, sensor, calc = make_bd(t=134.8)
+bd.mode = 'STEAM'
+bd.record_steam_completed(clock[0])
+check('8a. kytkin pois 134,8 C: cooling down', bd.mode == 'cooling down', bd.mode)
+check('8b. tavoite ei ole enaa hoyryn', bd.get_target_temperature() == 98.0, bd.get_target_temperature())
+
+bd, sensor, calc = make_bd(t=98.0)
+bd.mode = 'STEAM'
+bd.record_steam_completed(clock[0])
+check('8c. kytkin pois tavoitteessa: ei STEAM eika cooling down',
+      bd.mode in ('IDLE', 'stabilizing'), bd.mode)
+
 print('RESULT: %d failed' % len(FAILED))
 if FAILED:
     sys.exit(1)
