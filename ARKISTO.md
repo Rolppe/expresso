@@ -975,3 +975,16 @@ SEURAAVA PAKETTI: ei mitään — odottaa käyttäjää: laitetodennukset (PEQ, 
 | Vika | Tila |
 |---|---|
 | Oma virhe 30.10.2026: 10 ajon sokkosarja suunniteltiin ja 5 ajoa ajettiin ilman TILAUS-H-purkua (`pvent`), vaikka vaatimus oli purun VAATIMUKSET-listalla; käyttäjä huomautti. Lisäksi väitin pisarakynnyksen rajaksi 0,25 g, vaikka laitteella se on 0,50 g | korjattu 30.10.2026 (sarja pysäytetty, ptrig palautettu, kynnys korjattu viestissä ja riviltä Pisaratunnistus laukesi ilman tippaa); jatko EXPRESSO-SOKKO-NOLLA |
+
+## 2.11.2026 — infra expresso
+
+### (alku) — poistettu tai muutettu
+
+SEURAAVA PAKETTI: EXPRESSO-SOKKO-NOLLA — sokkokorilla 10 peräkkäistä tshot-ajoa pvent-purulla ja nollamalli, joka huomioi solenoidin päästön — polut: Infra/iot/expresso/testit/sokko-20261030/, Infra/iot/expresso/pico/scale.py — aloitus: varmista käyttäjältä, että sokkokori on paikallaan, sitten ptrig:off, pvent + tshot 22 joka ajolle, ptrig:on lopuksi
+
+### Avoimet asiat — poistettu tai muutettu
+
+| Asia | Tila | Seuraava askel |
+|---|---|---|
+| EXPRESSO-SOKKO-NOLLA: sokkokorilla 10 peräkkäistä tshot-ajoa ja nollamalli (paino ei saa nousta; solenoidin päästöt laskelmiin; käyttäjä 30.10.2026) | kesken 30.10.2026 (10.11 kytkinajo + pilotti + 5 tshot-ajoa ptrig off ilman purkua 10.17–10.24: rise_max 0,52 / 0,58 / 0,32 / 0,00 / 0,29, raw_sd 0,27–0,30, base 393,93 → 408,36 eli ~3,5 g/ajo, ajossa 5 p 4,86 bar pidossa; ei yhtään kelvollista nollamittausta; ptrig palautettu CMD_OK; lokit `testit/sokko-20261030/`); odottaa käyttäjää (sokkokori paikallaan?) | ptrig:off, `pvent` ajojen välissä + tshot 22 ×10, ptrig:on lopuksi; ajoskriptiä ei ole muutettu; nollamalli huomioi solenoidin päästön; sitten kuristinkahva/oikea uutto vertailuksi (riviä Pisaratunnistus laukesi ilman tippaa) |
+| `smart_tray.py` tallentaa flashille kesken uuton → uutto voi katketa `reason=starve` | todettu 30.10.2026 10.17 sokkokorin pilottiajossa: `EU_STALL sec=y us=137874 task=scale`, `EU_STARVE starve=2`, EU_END reason=starve 5,3 s:ssa. `SmartTrayTracker.update` kutsuu `save_state()` 30 s:n välein (`smart_tray.py:330`), myös uuton aikana scale_poll_once-tehtävässä; flash-kirjoitus pysäyttää ytimen 1. Ei johdu pisarakorjauksesta (y_max 8–22 ms muissa ajoissa). Koskee myös oikeaa uuttoa; sokkoajon 2 EB reason=starve 10.20 tutkimatta, todennäköisesti sama | korjaus: ei tallennusta kun `is_idle` on epätosi; flash käyttäjän kuittauksella |
