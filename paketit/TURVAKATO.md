@@ -196,6 +196,10 @@ on samoin käyttäjän polku; sille ehdotetaan vain aika- ja lämpörajaa, ei pa
    itse. Todiste: `testit/turva_toimilaite_smoke.py` 34/34 ok, mutaatiossa 6 FAIL; vanhat 9 smokea
    0 failed. Laitteella tarkistettavaa: `Timer(-1)` käynnistyy, `GUARD_TRIP`-rivit, normaali uutto,
    kuumavesi ja backflush eivät laukaise vartiota.
+   **Tila 9.11.2026:** flashattu 23.9.2026 (setti `20260923-turva1`, `pico_dev.py verify` VERIFIED 18/18,
+   HISTORIA.md). Laitteella todettu: kaukalovahti `reason=tray` 23.9.2026 ja vartion `GUARD_TRIP`-rivit
+   (`testit/esiuutto-20260924-*.log`, `testit/uutto8-20260928-*.log`). Testi on sittemmin laajentunut
+   (D1–D23): `turva_toimilaite_smoke.py` 56/56 ok ja `turva_pika_smoke.py` 26/26 ok 9.11.2026.
 2. **EXPRESSO-KAUKALOVAHTI-KOKONAISPAINO** — **tehty koodissa 21.9.2026** (ei flashattu):
    `wmax` pakollinen, ajo ei ala täydellä kaukalolla, `mcal` ja `tshot` mukana. `pcal` jää ulkopuolelle
    (käyttäjän päätös 7.10.2026). Avoinna: `pstep`/`pgap`/`plen`:n tarkistus ajon aikana (kuuluu kohtaan 1).

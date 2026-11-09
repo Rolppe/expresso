@@ -49,7 +49,7 @@ flowchart LR
 
 - **Safety limits at the actuator.** A new test command once ran the pump without the tray limit and the tray began to overflow. Now `GuardedRelay` wraps the pump and heater,
   and a 100 ms timer enforces overpressure, run time, temperature, sensor plausibility and a no-rise heater latch even inside loops that never yield.
-  A source-level test checks that no code path touches the raw pins. [`pico/relayguard.py`](pico/relayguard.py), [`testit/turva_toimilaite_smoke.py`](testit/turva_toimilaite_smoke.py).
+  A source-level test checks that no code path touches the raw pins; the guard test passes 56/56 checks (9.11.2026). [`pico/relayguard.py`](pico/relayguard.py), [`testit/turva_toimilaite_smoke.py`](testit/turva_toimilaite_smoke.py).
 - **Relays off first, a watchdog behind them.** Relays are driven low as the first statement of `boot.py` and `main.py`, and again in a `finally`. An 8 s hardware watchdog catches hangs,
   and every host operation starts with a relay read-back. [`pico/devsafe.py`](pico/devsafe.py), [`pico/boot.py`](pico/boot.py).
 - **Mains-phase clock without a zero-cross detector.** The pump's pressure ripple is demodulated (I/Q) and fed to a three-state Kalman filter that tracks phase, period and drift of the grid,
