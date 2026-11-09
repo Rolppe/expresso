@@ -27,6 +27,10 @@ The repository also holds the host tools, the test suite, device logs, and the w
 
 *One 20 s test shot (water only, no coffee puck) measured on the real Pico: 2.5 bar pre-infusion, then an 8 bar brew. The figure is drawn by [docs/images/plot_shot.py](docs/images/plot_shot.py) from the unprocessed samples (every 100 ms) in the device log [testit/c1x-20261020-shot1.log](testit/c1x-20261020-shot1.log), captured over USB serial on 20.10.2026. The log has no temperature channel.*
 
+**Hold pressure at the 8 bar target** (water through a restrictor, not coffee; 28.9.2026): in the seven runs of at least 20 g with the current brew loop (`bim:1`), the mean hold pressure was 7.96–8.04 bar and the pressure stayed within 8 ± 0.5 bar 100 % of the time (0.5 s moving-average SD 0.07–0.13 bar).
+The run with the previous brew loop (`bim:0`, run c3) held 7.10–8.84 bar, SD 0.37 bar, 80 % within the band, so the current loop is about 3–5× steadier.
+Logs: `testit/uutto8-20260928-*.log`; per-run figures in [HISTORIA.md](HISTORIA.md) (28.9.2026 entry, "Vähintään 20 g ajot").
+
 ```mermaid
 flowchart LR
   subgraph Pico["Pico 2 W, MicroPython"]
