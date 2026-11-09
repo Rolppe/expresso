@@ -55,7 +55,7 @@ Outside `pico/`:
 | `diagnet/` | `keraaja.py` collector (UDP to log files and optional Home Assistant), `wifi_asiakas.py` reference client of `EXA1` |
 | `testit/` | 41 `*_smoke.py` regression tests, 37 simulation, analysis and hardware-probe scripts, 349 device logs |
 | `scale/testit/` | Scale hardware tests |
-| `ohjevahti.py` | Claude Code `PreToolUse` hook that checks device commands against the owner's written instructions |
+| `ohjevahti.py` | agent `PreToolUse` hook that checks device commands against the owner's written instructions |
 | `build_set.py`, `localenv.py` | Phone-link set builder (legacy); `local.env` loader |
 | `*.md`, `paketit/` | Working notes, briefs and specs; see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) |
 

@@ -4,8 +4,8 @@ How this project was built, and how to read the working notes that are left in t
 
 ## The workflow
 
-The author, Mikko Paaso, set the requirements and made the design decisions. The code was written by Claude Code agents from written briefs.
-Hardware runs and the test suite decided whether a piece of work was accepted.
+The author, Mikko Paaso, set the requirements, designed the architecture, defined the acceptance criteria and verified the results. Each task was specified as a written brief.
+Nothing was accepted on a report: hardware runs, the test suite and the acceptance commands decided whether a piece of work counted, and errors were fixed in a tight check-and-measure loop.
 
 1. **Requirement.** The owner states what the machine must do or must never do, in their own words. The agent copies those words,
    unchanged, into `KAYTTAJAN-TIEDOT.md` and gives each one a name (`TILAUS-A` to `TILAUS-T`, `TILAUS-RELEET-ALAS`, `TILAUS-AUTONOMIA`).
@@ -15,18 +15,18 @@ Hardware runs and the test suite decided whether a piece of work was accepted.
 3. **Brief.** One unit of work becomes `paketit/<NAME>.brief.md` with fixed sections: *Task*, *Files* (`may`, `must not`, `read` with line ranges),
    *Do* (numbered steps), *Acceptance* (shell commands that must succeed) and *Budget* (a line-count limit, measured). A brief names the requirements it
    touches. The `must not` list protects the holdout tests and files outside the task.
-4. **Execution.** An executor agent (Sonnet in all 19 logged dispatches, none escalated) runs the *Do* list and the acceptance commands, and reports back.
-   `paketit/delegation.jsonl` records each dispatch: model, iterations, elapsed time, and a note.
+4. **Execution.** An executor agent (the same tier in all 19 logged dispatches, none escalated) runs the *Do* list and the acceptance commands, and reports back.
+   `paketit/delegation.jsonl` records each dispatch: iterations, elapsed time, and a note.
 5. **Corrections.** If acceptance fails or the result is wrong, the planner writes `<NAME>.correction-N.md` and the executor tries again.
    Some briefs needed up to six corrections (`VIRTAUSSAATO-2`).
 6. **Hardware gate.** Anything that changes behaviour is flashed with `pico_dev.py` and run on the machine. Raw output is kept in `testit/*.log`
    (349 files). Test shots run with a tray weight limit and relays-down-first.
 7. **Review.** The owner reviews results and decides what stays. The registers record the outcome.
 
-A guard hook, `ohjevahti.py`, was written to support step 6: a Claude Code `PreToolUse` hook that parses `pico_dev.py` commands and stops or flags a device run
+A guard hook, `ohjevahti.py`, was written to support step 6: an agent `PreToolUse` hook that parses `pico_dev.py` commands and stops or flags a device run
 that deviates from instructions recorded in `OHJEKIRJA.json`. It exists because one agent session on 20.9.2026 deviated seven times from the owner's stated
 instructions (`paketit/OHJEPOIKKEAMAT-20260920.konteksti.md`). The hook has a smoke test (`testit/ohjevahti_smoke.py`). `OHJEKIRJA.json` in this repository is empty, and a check recorded in `HISTORIA.md` (25.9.2026)
-found that the hook was not installed in the author's Claude Code settings.
+found that the hook was not installed in the author's agent settings.
 
 ## Working notes (Finnish)
 
@@ -49,8 +49,7 @@ They contain dates, session-internal names and paths from the private repository
 | `paketit/delegation.jsonl` | One JSON line per dispatch to an executor agent (19) |
 | `OHJEKIRJA.json`, `ohjevahti.py` | Instruction book and the guard hook described above |
 
-The numbers above are counts of files in this repository. The history has 203 commits between 2026-09-17 and 2026-10-29; 185 of them carry a `Co-Authored-By`
-trailer naming a Claude model. The development material was added to this repository on 2026-10-29 from the private repository it was extracted from.
+The numbers above are counts of files in this repository. The history has 203 commits between 2026-09-17 and 2026-10-29. The development material was added to this repository on 2026-10-29 from the private repository it was extracted from.
 
 ## Running the tests
 

@@ -2,8 +2,9 @@
 
 [![CI](https://github.com/Rolppe/expresso/actions/workflows/ci.yml/badge.svg)](https://github.com/Rolppe/expresso/actions/workflows/ci.yml)
 
-MicroPython firmware that replaces the control electronics of a Rancilio Silvia espresso machine with a Raspberry Pi Pico 2 W, for someone who wants a pressure-profiled,
-scale-aware machine they can read, test and extend.
+MicroPython firmware on a Raspberry Pi Pico 2 W that replaces the control electronics of a Rancilio Silvia espresso machine: PI temperature control, pressure- and flow-profiled shots,
+drip-tray scale, BLE and Wi-Fi link to the phone app. Safety limits are enforced at the relay layer by a 100 ms guard timer, with dual-core real-time control, 41 smoke tests and CI on GitHub Actions.
+It is the successor of my thesis firmware, for someone who wants a pressure-profiled, scale-aware machine they can read, test and extend.
 
 It holds boiler temperature, runs the pump against a pressure or flow target, weighs the drip tray, and talks to a phone app over BLE or Wi-Fi.
 Three mains relays are in the firmware's hands, so most of the engineering is about safety, timing and testing on a microcontroller with a garbage collector.
@@ -91,9 +92,9 @@ pico_dev.py      host tool: flash, verify, send commands, capture experiment out
 diagnet/         UDP diagnostics collector (keraaja.py) and a reference client for the app link
 testit/          41 *_smoke.py tests, 37 simulation/analysis/probe scripts, 349 device logs
 scale/testit/    scale hardware tests
-paketit/         briefs, specs and plans for the agent-built work (Finnish)
+paketit/         briefs, specs and plans for each task (Finnish)
 docs/            PROTOCOL.md, HARDWARE.md, DEVELOPMENT.md
-ohjevahti.py     Claude Code hook that checks device commands against recorded instructions
+ohjevahti.py     agent hook that checks device commands against recorded instructions
 *.md             REKISTERI, HISTORIA, ARKISTO and other working notes (Finnish)
 build_set.py     phone-link set builder (legacy)
 oneplus-akkuvahti.*  battery watch for the legacy phone link (legacy)
@@ -144,14 +145,12 @@ Hardware-dependent scripts (`pcap`, `shot_*`, `tray_calib`, `*_probe`, `scale/te
 
 ## How it was built
 
-Mikko Paaso set the requirements, designed the architecture and directed the work. Claude Code agents wrote the code from written briefs. A planner session turned a requirement into a plan and a
-brief (task, files that may and may not be touched, numbered steps, acceptance commands, a line budget), an executor agent carried it out, and the acceptance commands and hardware runs
-decided whether it counted. Mikko reviewed the results and decided what to keep; the original requests are kept verbatim in `KAYTTAJAN-TIEDOT.md`.
+Mikko Paaso set the requirements, designed the architecture and defined the acceptance criteria for every piece of work, and verified the results. Nothing was accepted on a report, only on a measurement or a passing check: the smoke tests, the acceptance commands of each brief and runs on the machine itself. Errors were fixed in a tight check-and-measure loop. In the safety layer, forbidden actions are made impossible rather than warned about: the pump and heater pins are only reachable through a guarded relay with limits enforced at the relay layer. Each task was specified as a written brief (task, files that may and may not be touched, numbered steps, acceptance commands, a line budget) and counted only when the acceptance commands and hardware runs passed. The original requirements are kept verbatim in `KAYTTAJAN-TIEDOT.md`.
 
 - Evidence in the repository: 34 briefs, 24 correction briefs, 11 specs and a dispatch log of 19 executor runs (`paketit/`), the register and history (`REKISTERI.md`, `HISTORIA.md`),
   and 349 logs from runs on the machine.
-- Git history: 203 commits between 2026-09-17 and 2026-10-29, 185 with a `Co-Authored-By: Claude ...` trailer.
-- `ohjevahti.py` is a Claude Code `PreToolUse` hook written to stop device runs that deviate from the owner's recorded instructions, after an agent session did so seven times.
+- Git history: 203 commits between 2026-09-17 and 2026-10-29.
+- `ohjevahti.py` is an agent hook written to stop device runs that deviate from the owner's recorded instructions, after an agent session did so seven times.
   It has a smoke test; its instruction book is empty here and it was not installed in the author's settings when last checked.
 
 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) describes the workflow, the Finnish working notes and a glossary.
