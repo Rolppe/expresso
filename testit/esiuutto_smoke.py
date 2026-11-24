@@ -885,6 +885,11 @@ def main():
     # 4,5-6 bar/s): p5 nousi rampin lopussa 2,49 -> 2,92. Kohina kuten tapaus 10. Yksi isku = 0,2 bar.
     # Malli EI toista f:n ylitystä (HEAD: rampin loppu ka -0,30 / max -0,10, kohinaton pidon 1. s +0,12; kohinan 1. s huiput
     # +0,26 ovat samaa luokkaa kuin tallennetulla tiedolla +0,21), joten tapaus on regressiovartija eikä kaatunut HEADissa.
+    # Syy (25.11.2026): f:n 2,49 -> 2,92 osuu kahteen myohastyneeseen iskuun (EU-rivit 2792 late=1 -> 2921 late=3, duty
+    # 0,02-0,00), eli rele jai paalle tauon yli vanhalla firmwarella (EU_START ilman vv=, ennen vuoronvarausta ja c1x:aa).
+    # Ilman niita f:n p5 paattyi rampin lopussa 2,49:aan (+0,0); samoin e:n +0,17 (late 0 -> 2). Nykyfirmwaressa late 0
+    # (c1x 20.10.2026) ja malli ajaa late=0, joten f:n huippuun sovitettu malli (kaasujousto 1,8, ESIU-F 24.11.2026) toisti
+    # artefaktin vaaralla mekanismilla (jalkinousu 0,69 vs. laite 0,00). Tapaus pysyy vanhoilla arvoilla.
     over10b, devs10b = [], []
     for seed in range(400, 408):
         bd10b = BrewData(hold_s=6.0, phi_us=(3100.0 * seed) % 20000, delta=0.12, tau=9.0, fill_us=1000000,
