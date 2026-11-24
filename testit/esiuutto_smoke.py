@@ -881,6 +881,25 @@ def main():
     check('10 kiinni + kohina, edellisen tieto: pidon 2 s keskiarvo ka ≤ +0,06, max ≤ +0,2',
           mean10 <= 0.06 and max(devs) <= 0.2, 'ka %+.3f, max %+.2f' % (mean10, max(devs)))
 
+    # 10b 1. ajo ilman tallennettua tietoa (laite 26.9. f: kuristin lahes kiinni, tarve ~0,05, tau_obs ~9 s, taytto, nousu
+    # 4,5-6 bar/s): p5 nousi rampin lopussa 2,49 -> 2,92. Kohina kuten tapaus 10. Yksi isku = 0,2 bar.
+    # Malli EI toista f:n ylitystä (HEAD: rampin loppu ka -0,30 / max -0,10, kohinaton pidon 1. s +0,12; kohinan 1. s huiput
+    # +0,26 ovat samaa luokkaa kuin tallennetulla tiedolla +0,21), joten tapaus on regressiovartija eikä kaatunut HEADissa.
+    over10b, devs10b = [], []
+    for seed in range(400, 408):
+        bd10b = BrewData(hold_s=6.0, phi_us=(3100.0 * seed) % 20000, delta=0.12, tau=9.0, fill_us=1000000,
+                         noise=0.02, cyc_sd=0.25)
+        out10b = run(bd10b, stall_p=0.008, seed=seed)
+        open('/tmp/esiuutto_smoke_10b_%d.log' % seed, 'w').write(out10b)
+        hold10b = num(out10b, 'EU_HOLD', 't_ms')
+        cut10b = num(out10b, 'EU_CUT', 't_ms')
+        p10b = [(int(l.split()[1]), float(re.search(r'p5=(\S+)', l).group(1))) for l in out10b.splitlines() if l.startswith('EU ')]
+        over10b.append(max(v for t, v in p10b if cut10b <= t < hold10b) - 2.5)
+        h10b = [v for t, v in p10b if hold10b + 2000 <= t < hold10b + 6000]
+        devs10b.append(sum(h10b) / len(h10b) - 2.5 if h10b else 9.0)
+    stat(check, '10b 1. ajo ilman tietoa, kiinni + kohina: rampin lopun p5-ylitys (katkaisusta pitoon) ≤ 0,2', over10b, 0.2, share=NOISE_SHARE)
+    stat(check, '10b 1. ajo ilman tietoa, kiinni + kohina: pidon 2 s jälkeen p5 ka 2,5 ± 0,1', devs10b, 0.1, lo=-0.1, share=NOISE_SHARE)
+
     # 11 nopea nousu ilman tayttoa (EXPRESSO-ESIUUTTO-ALKU, laite 26.9. o-q: kuristin lahes kiinni, jarjestelma taynna,
     # nousu 11,5 bar/s, iskun vaikutus ~100 ms viiveella). Huuhtelusaanto p5 >= 1/2 tavoite myohastytti katkaisun 1,3-1,6
     # bariin -> huippu 3,4-4,3. Kohinaton malli: vanha koodi katkaisu 1,46 / over 1,07, uusi 1,05 / 0,61.
