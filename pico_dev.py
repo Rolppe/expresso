@@ -549,7 +549,7 @@ def pico_sha(link, name):
                      " print(ubinascii.hexlify(h.digest()).decode())" % name).strip()
 
 
-def verify_link(link, manifest):
+def verify_link(link, manifest, results=None):
     bad = n = 0
     for e in manifest:
         if e.get('skipped'):
@@ -558,6 +558,8 @@ def verify_link(link, manifest):
         n += 1
         ok = h == e['sha256']
         bad += not ok
+        if results is not None:
+            results.append((e['name'], h, ok))
         print('%-32s %s' % (e['name'], 'OK' if ok else 'MISMATCH ' + h[:12]))
     print('VERIFIED %d/%d' % (n - bad, n))
     return bad == 0
@@ -606,10 +608,66 @@ def manifest(manifest_path):
 LOCAL_ONLY = ('/local_config.py',)
 
 
+POST_RESET_S = 60       # deadline for the post-reset reconnect + verify
+POST_RESET_WAIT_S = 4   # the Pico needs a moment to come back after machine.reset()
 FLASH_CHUNK = 1024      # bytes per raw REPL exec; every exec feeds the 8 s watchdog
 
 
-def flash(manifest_path):
+def git_flash_warnings(base):
+    # Warnings before a flash: local HEAD behind its upstream branch, or a dirty tree under the firmware dir.
+    # Returns (head, [warning, ...]). No network: compares against the last fetched upstream.
+    def git(*a):
+        r = subprocess.run(['git', '-C', base] + list(a), capture_output=True, text=True, timeout=20)
+        return r.returncode, r.stdout.strip()
+    warns = []
+    rc, head = git('rev-parse', 'HEAD')
+    if rc:
+        return 'unknown', ['git HEAD unreadable']
+    rc, behind = git('rev-list', '--count', 'HEAD..@{u}')
+    if rc:
+        warns.append('no upstream branch, cannot tell if HEAD is behind')
+    elif behind != '0':
+        warns.append('local HEAD is %s commit(s) behind its upstream branch' % behind)
+    rc, dirty = git('status', '--porcelain', '--', '.')
+    if dirty:
+        warns.append('dirty tree under %s: %d path(s)' % (base, len(dirty.splitlines())))
+    return head, warns
+
+
+def reconnect_verify(manifest, results, seconds=POST_RESET_S):
+    # New connection after the reset (the old socket belongs to the dead session), retried until the deadline.
+    end = time.time() + seconds
+    time.sleep(POST_RESET_WAIT_S)
+    last = 'no attempt'
+    while time.time() < end:
+        link = None
+        try:
+            link = Link()
+            link.enter_devsafe()
+            del results[:]
+            ok = verify_link(link, manifest, results)
+            link.reset()
+            return ok
+        except (Exception, SystemExit) as exc:
+            last = str(exc)[:200]
+            print('POST_RESET_RETRY %s' % last)
+            time.sleep(2)
+    print('POST_RESET_TIMEOUT after %d s: %s' % (seconds, last))
+    return False
+
+
+def write_verify_log(base, head, results, verdict):
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'testit',
+                        'flash-%s-verify.log' % time.strftime('%Y%m%d'))
+    with open(path, 'a') as f:
+        f.write('%s git_head=%s verdict=%s\n' % (time.strftime('%Y-%m-%dT%H:%M:%S'), head, verdict))
+        for name, h, ok in results:
+            f.write('  %-32s %s %s\n' % (name, h, 'OK' if ok else 'MISMATCH'))
+    print('VERIFY_LOG %s' % path)
+    return path
+
+
+def flash(manifest_path, force=False):
     # Zero link flash (EXPRESSO-ZERO-FLASH, 5.10.2026). Not mpremote: it does not feed the devsafe
     # watchdog, so the Pico would reset 8 s into the copy, and it skips the relay read-back. Same order
     # as the app's PicoFlasher (same sequence as the app): Ctrl-C, relays off + read-back, then files.
@@ -626,6 +684,12 @@ def flash(manifest_path):
         if os.path.exists(path) and local_sha(path) != e['sha256']:
             print('FLASH_FAIL local %s does not match the manifest (run: pico_dev.py manifest)' % path)
             return False
+    head, warns = git_flash_warnings(base)
+    for w in warns:
+        print('FLASH_WARN %s' % w)
+    if warns and not force:
+        print('FLASH_FAIL warnings above; rerun with --force to flash anyway')
+        return False
     link = Link()
     link.enter_devsafe()
     todo = []
@@ -666,7 +730,14 @@ def flash(manifest_path):
         return False
     ok = verify_link(link, manifest)
     link.reset()
-    print('FLASH_OK' if ok else 'FLASH_FAIL verify')
+    if not ok:
+        print('FLASH_FAIL verify')
+        return False
+    # Boot/reset order unchanged; the check runs on a fresh connection after the reset.
+    results = []
+    ok = reconnect_verify(manifest, results)
+    write_verify_log(base, head, results, 'OK' if ok else 'FAIL')
+    print('FLASH_OK' if ok else 'FLASH_FAIL post-reset')
     return ok
 
 
@@ -755,7 +826,7 @@ def main(op):
     elif op == 'verify':
         sys.exit(0 if verify(sys.argv[2]) else 1)
     elif op == 'flash':
-        sys.exit(0 if flash(sys.argv[2]) else 1)
+        sys.exit(0 if flash(sys.argv[2], '--force' in sys.argv[3:]) else 1)
     elif op == 'manifest':
         sys.exit(0 if manifest(sys.argv[2]) else 1)
     elif op == 'watchdog-test':
