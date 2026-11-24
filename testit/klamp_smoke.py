@@ -56,6 +56,8 @@ class Adc:
         self.plant, self.raw = plant, raw
 
     def read_u16(self):
+        if callable(self.raw):
+            return self.raw(self.plant)
         if self.raw is not None:
             return self.raw
         return (self.plant.step() - F.PCAP_RAW_B) / F.PCAP_RAW_A
@@ -244,6 +246,48 @@ def main():
     finally:
         F.KLAMP_RISE_MAX_MS = saved
     check('8 ei tasannetta yli 1 barin: reason=noreach', field(end, 'reason') == 'noreach', end)
+
+    # 9. Kylma kuristin (taysi paine 10,5 bar): painekatto 9 bar, ei PCAP-katkaisua (klamp-20260925-b)
+    peak = [0.0]
+    bd = BrewData(p_full=lambda t: 10.5)
+    orig = bd.plant.step
+
+    def tracked():
+        p = orig()
+        peak[0] = max(peak[0], p)
+        return p
+    bd.plant.step = tracked
+    out = run(bd, 12)
+    end = end_of(out)
+    check('9 kylma kuristin: ei overpressure', field(end, 'reason') != 'overpressure', end)
+    check('9 reason=timeout (rajoitus jatkuu)', field(end, 'reason') == 'timeout', end)
+    check('9 painekatto KLAMP_RISE reason=clamp', any('reason=clamp' in l for l in out.splitlines()))
+    check('9 tavoite 9,0', abs(float(field(end, 'target') or 0) - F.KLAMP_MAX_BAR) < 0.01, end)
+    check('9 paine <= 9,x bar (huippu %.2f)' % peak[0], peak[0] < 10.0, 'peak %.2f' % peak[0])
+
+    # 10. Yksi hairionayte > 11 bar ei katkaise, kaksi perakkaista katkaisee (PcapOver)
+    hi = int((14.0 - F.PCAP_RAW_B) / F.PCAP_RAW_A)
+    cnt = [0]
+
+    def spike1(plant):
+        cnt[0] += 1
+        return hi if cnt[0] == 30 else int((plant.step() - F.PCAP_RAW_B) / F.PCAP_RAW_A)
+    bd = BrewData(raw=spike1)
+    end = end_of(run(bd, 3))
+    check('10 yksi nayte yli 11 bar ei katkaise', field(end, 'reason') == 'timeout' and cnt[0] > 30, end)
+    cnt[0] = 0
+
+    def spike2(plant):
+        cnt[0] += 1
+        return hi if cnt[0] in (30, 31) else int((plant.step() - F.PCAP_RAW_B) / F.PCAP_RAW_A)
+    bd = BrewData(raw=spike2)
+    end = end_of(run(bd, 3))
+    check('10 kaksi perakkaista katkaisee', field(end, 'reason') == 'overpressure', end)
+    check('10 releet pois', bd.pump.value() == 0 and bd.solenoid.value() == 0)
+    g = F.PcapOver()
+    seq = [g.hit(b) for b in (12.0, 5.0, 12.0, 12.0)]
+    check('10 PcapOver: ylitys, nollaus, kaksi -> [F,F,F,T]', seq == [False, False, False, True], str(seq))
+    check('10 PcapOver: raja ei ylity tasan 11,0', F.PcapOver().hit(11.0) is False)
 
     print('RESULT: %d failed' % len(fails))
     return 1 if fails else 0

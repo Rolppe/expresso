@@ -1686,6 +1686,23 @@ PCAP_ROW = 20                # raw values per PCAP line (full rows only, see pro
 PCAP_RAW_A = 0.000314936
 PCAP_RAW_B = -3.522929
 PCAP_OVER_BAR = 11.0
+PCAP_OVER_N = 2              # peräkkäisten raakanäytteiden määrä rajan yli ennen katkaisua (24.11.2026)
+
+
+class PcapOver:
+    """Raakanäytteen ylipainevahti: laukeaa vasta, kun PCAP_OVER_N peräkkäistä näytettä ylittää
+    PCAP_OVER_BAR:n (kuten kaukalovahdin kaksi näytettä). Yksi häiriönäyte nollautuu seuraavasta
+    alittavasta. Kutsu hit(bar) täsmälleen kerran näytettä kohden."""
+    def __init__(self):
+        self.n = 0
+
+    def hit(self, bar):
+        if bar > PCAP_OVER_BAR:
+            self.n += 1
+            return self.n >= PCAP_OVER_N
+        self.n = 0
+        return False
+
 PCAP_SETTLE_MAX_MS = 15000   # hard cap on the event-driven settling phase (korjaus 2)
 PCAP_SETTLE_MIN_MS = 2000    # no termination condition fires before this (korjaus 4, measured): the
                               # pump fills the empty circuit for over a second with no rise at all
@@ -1803,6 +1820,7 @@ async def pcap_settle(brew_data, utime, asyncio, sensor, gain, offset, target, t
     """Asettumis- ja pitovaihe, irrotettu pressure_capture_run:sta (spec 0.1) niin että
     pressure_sweep_run voi käyttää samaa. Mekaaninen siirto: samat vakiot, keskeytysehdot,
     PCAP_SETTLED-tuloste ja sleep_ms(0) joka kierroksella. Palauttaa (settled, reason, p_filt)."""
+    pov = PcapOver()   # kahden nayttein saanto (VIAT-KORJAUS-2)
     reason = 'ok'
     pmax_bar = -99.0
     settle_t0 = utime.ticks_ms()
@@ -1818,7 +1836,7 @@ async def pcap_settle(brew_data, utime, asyncio, sensor, gain, offset, target, t
         if tray_reason: reason = tray_reason; break
         bar = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset
         if bar > pmax_bar: pmax_bar = bar
-        if bar > PCAP_OVER_BAR:     # pmax/overpressure stay on the raw sample (korjaus 3)
+        if pov.hit(bar):     # pmax/overpressure stay on the raw sample (korjaus 3)
             reason = 'overpressure'; break
         now = utime.ticks_ms()
         dt = utime.ticks_diff(now, last_t) / 1000.0
@@ -1853,7 +1871,7 @@ async def pcap_settle(brew_data, utime, asyncio, sensor, gain, offset, target, t
                 if tray_reason: reason = tray_reason; aborted = True; break
                 hold_bar = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset
                 if hold_bar > pmax_bar: pmax_bar = hold_bar
-                if hold_bar > PCAP_OVER_BAR:
+                if pov.hit(hold_bar):
                     reason = 'overpressure'; aborted = True; break
                 hold_now = utime.ticks_ms()
                 hold_dt = utime.ticks_diff(hold_now, hold_last_t) / 1000.0
@@ -1878,6 +1896,7 @@ async def _pcap_capture(brew_data, utime, asyncio, sensor, gain, offset, n, phas
     PCAP_END jää kutsujalle (syy voi vielä muuttua). Palauttaa (reason, count, elapsed, pmax_bar, last_bar).
     `period_us` on portin jakso (sääntö 14); `None` pitää `pressure_capture_run`:n käytöksen
     sanatarkasti entisenä, koska `pcap_gate`:n oma oletus on sama."""
+    pov = PcapOver()   # kahden nayttein saanto (VIAT-KORJAUS-2)
     from array import array
     RELAY_PUMP, RELAY_SOLENOID, RELAY_HEATER = brew_data.get_relays()
     buf = array('H', bytes(2 * n))
@@ -1906,7 +1925,7 @@ async def _pcap_capture(brew_data, utime, asyncio, sensor, gain, offset, n, phas
         last_bar = bar
         if bar > pmax_bar: pmax_bar = bar
         next_t = utime.ticks_add(next_t, PCAP_RATE_US)
-        if bar > PCAP_OVER_BAR: reason = 'overpressure'; break
+        if pov.hit(bar): reason = 'overpressure'; break
     reason = reason or 'ok'
     if restore_pump and phase_us is not None and pump_state != 1:
         RELAY_PUMP.value(1)    # pump back on before the trim step that follows (psweep only)
@@ -2026,6 +2045,7 @@ async def _psweep_trim(brew_data, utime, asyncio, sensor, gain, offset, target, 
                         prev_seg, seed_bar):
     """Trimmausaskel segmenttien väliin (spec 4, sääntö 13): palauttaa paineen kuolleeseen
     alueeseen, sama suodin kuin asettumisessa, alkuarvona edellisen segmentin viimeinen lukema."""
+    pov = PcapOver()   # kahden nayttein saanto (VIAT-KORJAUS-2)
     RELAY_PUMP, RELAY_SOLENOID, RELAY_HEATER = brew_data.get_relays()
     reason = 'ok'
     p_filt = seed_bar
@@ -2049,7 +2069,7 @@ async def _psweep_trim(brew_data, utime, asyncio, sensor, gain, offset, target, 
         bar = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset
         # Ylipaineraja, jota trimmauksessa ei ollut (EXPRESSO-TURVA-PIKAKORJAUKSET 21.9.2026):
         # pumppu kay tassa taydella teholla, kunnes suodin nousee kuolleeseen alueeseen.
-        if bar > PCAP_OVER_BAR: reason = 'overpressure'; break
+        if pov.hit(bar): reason = 'overpressure'; break
         p_filt += (bar - p_filt) * min(1.0, dt / PCAP_FILT_TAU)
         if utime.ticks_diff(now, t0) >= PSWEEP_TRIM_MS: reason = 'timeout'; break
     ms_elapsed = utime.ticks_diff(utime.ticks_ms(), t0)
@@ -2161,6 +2181,7 @@ async def pressure_step_run(brew_data, utime, asyncio, target):
     joutua eri silmukkaan kuin naytteet: nousu tavoitteeseen -> pito -> yksi jakso pois ->
     PSTEP_RUN_MS -> pumppu pois -> hanta. Naytevali on PCAP_RATE_US = 1000 us, joten naytteen
     indeksi on millisekunti; PSTEP_MARK-rivi kertoo kolmen tapahtuman indeksit."""
+    pov = PcapOver()   # kahden nayttein saanto (VIAT-KORJAUS-2)
     from array import array
     import devsafe
     RELAY_PUMP, RELAY_SOLENOID, RELAY_HEATER = brew_data.get_relays()
@@ -2202,7 +2223,7 @@ async def pressure_step_run(brew_data, utime, asyncio, target):
             next_t = utime.ticks_add(next_t, PCAP_RATE_US)
             bar = gain * (v * PCAP_RAW_A + PCAP_RAW_B) + offset
             if bar > pmax_bar: pmax_bar = bar
-            if bar > PCAP_OVER_BAR: reason = 'overpressure'; break
+            if pov.hit(bar): reason = 'overpressure'; break
             p_filt += (bar - p_filt) * alpha
             if (i & PSTEP_FEED_MASK) == 0:
                 devsafe.feed()                       # 8 s laitteistovahti, ks. PSTEP_FEED_MASK
@@ -2303,6 +2324,7 @@ async def pressure_gap_run(brew_data, utime, asyncio, target):
     maara ei ole puskurin rajoittama. Tauon pituus on parametri, koska koko jakson mittainen tauko
     poistaa molemmat puolijaksot eika siten reagoi vaiheeseen lainkaan — vaiheen mittaamiseen
     tarvitaan puolijaksoa lyhyempi tauko (kayttajan huomio 20.9.2026)."""
+    pov = PcapOver()   # kahden nayttein saanto (VIAT-KORJAUS-2)
     import devsafe
     RELAY_PUMP, RELAY_SOLENOID, RELAY_HEATER = brew_data.get_relays()
     sensor = brew_data.pressure_sensor.pressure_sensor
@@ -2360,7 +2382,7 @@ async def pressure_gap_run(brew_data, utime, asyncio, target):
             next_t = utime.ticks_add(next_t, PCAP_RATE_US)
             bar = gain * (v * PCAP_RAW_A + PCAP_RAW_B) + offset
             if bar > pmax_bar: pmax_bar = bar
-            if bar > PCAP_OVER_BAR: reason = 'overpressure'; break
+            if pov.hit(bar): reason = 'overpressure'; break
             p_filt += (bar - p_filt) * alpha
             if (j & PSTEP_FEED_MASK) == 0:
                 devsafe.feed()
@@ -2453,6 +2475,7 @@ async def pressure_clock_run(brew_data, utime, asyncio, target):
     """Kello lukkiutuu I/Q-mittauksella taydella paineella, sitten taukosarja 0,5/1/2/5 s
     VKELLO_SERIES kertaa (VERKKOKELLO.brief.md, Do 3). Nousun ikkunat tulostetaan VKELLO_R-riveina
     paivittamatta kelloa (TILAUS-G-aineisto). Sama rakenne kuin pressure_gap_run."""
+    pov = PcapOver()   # kahden nayttein saanto (VIAT-KORJAUS-2)
     import devsafe
     from verkkokello import Verkkokello
     RELAY_PUMP, RELAY_SOLENOID, RELAY_HEATER = brew_data.get_relays()
@@ -2485,7 +2508,7 @@ async def pressure_clock_run(brew_data, utime, asyncio, target):
             now = utime.ticks_us()
             next_t = utime.ticks_add(next_t, PCAP_RATE_US)
             bar = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset
-            if bar > PCAP_OVER_BAR: reason = 'overpressure'; break
+            if pov.hit(bar): reason = 'overpressure'; break
             p_filt += (bar - p_filt) * alpha
             clock.iq_add(now, bar)
             if clock.iq_ready(now):
@@ -2533,7 +2556,7 @@ async def pressure_clock_run(brew_data, utime, asyncio, target):
                 now = utime.ticks_us()
                 next_t = utime.ticks_add(next_t, PCAP_RATE_US)
                 bar = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset
-                if bar > PCAP_OVER_BAR: reason = 'overpressure'; break
+                if pov.hit(bar): reason = 'overpressure'; break
                 if (j2 & PSTEP_FEED_MASK) == 0:
                     devsafe.feed(); r = _sweep_break(brew_data, 'vkello_abort') or tray_guard_poll(brew_data, utime, tray_state)
                     if r: reason = r; break
@@ -2611,6 +2634,7 @@ VSWEEP_REPS_MAX = 5
 
 
 async def pressure_phase_sweep_run(brew_data, utime, asyncio, reps):
+    pov = PcapOver()   # kahden nayttein saanto (VIAT-KORJAUS-2)
     import devsafe
     from verkkokello import Verkkokello
     RELAY_PUMP, RELAY_SOLENOID, RELAY_HEATER = brew_data.get_relays()
@@ -2648,7 +2672,7 @@ async def pressure_phase_sweep_run(brew_data, utime, asyncio, reps):
             now = utime.ticks_us()
             next_t = utime.ticks_add(next_t, PCAP_RATE_US)
             bar = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset
-            if bar > PCAP_OVER_BAR: reason = 'overpressure'; break
+            if pov.hit(bar): reason = 'overpressure'; break
             if (j & PSTEP_FEED_MASK) == 0:
                 devsafe.feed(); r = _sweep_break(brew_data, 'vsweep_abort') or tray_guard_poll(brew_data, utime, tray_state)
                 if r: reason = r; break
@@ -2780,6 +2804,7 @@ PLEN_SMOOTH_N = 5            # lyhyt keskiarvo pohjan etsintaan
 
 async def pressure_len_run(brew_data, utime, asyncio, target):
     """Tauon pituuden pyyhkaisy: kvantisoituuko katkaisu puolijaksoihin (tilaus 20.9.2026)."""
+    pov = PcapOver()   # kahden nayttein saanto (VIAT-KORJAUS-2)
     import devsafe
     RELAY_PUMP, RELAY_SOLENOID, RELAY_HEATER = brew_data.get_relays()
     sensor = brew_data.pressure_sensor.pressure_sensor
@@ -2829,7 +2854,7 @@ async def pressure_len_run(brew_data, utime, asyncio, target):
             next_t = utime.ticks_add(next_t, PCAP_RATE_US)
             bar = gain * (v * PCAP_RAW_A + PCAP_RAW_B) + offset
             if bar > pmax_bar: pmax_bar = bar
-            if bar > PCAP_OVER_BAR: reason = 'overpressure'; break
+            if pov.hit(bar): reason = 'overpressure'; break
             p_filt += (bar - p_filt) * alpha
             if (j & PSTEP_FEED_MASK) == 0:
                 devsafe.feed()
@@ -2925,6 +2950,7 @@ async def pressure_vent_run(brew_data, utime, asyncio):
 
 async def mains_calibrate(brew_data, utime, asyncio, ms=2000):
     """Ajonaikainen verkkotaajuuden ja vaiheen mittaus paineväreilystä (TILAUS-F/G/H, spec 3)."""
+    pov = PcapOver()   # kahden nayttein saanto (VIAT-KORJAUS-2)
     from math import cos, sin, atan2, pi
     RELAY_PUMP, RELAY_SOLENOID, RELAY_HEATER = brew_data.get_relays()
     SWITCH_BREW, SWITCH_WATER, SWITCH_STEAM = brew_data.get_switches()
@@ -2962,7 +2988,7 @@ async def mains_calibrate(brew_data, utime, asyncio, ms=2000):
             x = float(sensor.read_u16())
             # Ylipaineraja, jota mcal:ssa ei ollut (EXPRESSO-TURVA-PIKAKORJAUKSET 21.9.2026):
             # sama raja ja sama raakanaytteen tarkistus kuin pcap:ssa.
-            if gain * (x * PCAP_RAW_A + PCAP_RAW_B) + offset > PCAP_OVER_BAR:
+            if pov.hit(gain * (x * PCAP_RAW_A + PCAP_RAW_B) + offset):
                 reason = 'overpressure'; break
             elapsed = utime.ticks_diff(utime.ticks_us(), t0); count += 1
             for k in range(len(MCAL_GRID)):
@@ -3007,6 +3033,7 @@ PHOLD_MAX_S = 120           # ajon enimmäispituus, s (spec 2.6) — pyyntö raj
 
 
 async def pressure_hold_run(brew_data, utime, asyncio, seconds):
+    pov = PcapOver()   # kahden nayttein saanto (VIAT-KORJAUS-2)
     RELAY_PUMP, RELAY_SOLENOID, RELAY_HEATER = brew_data.get_relays()
     SWITCH_BREW, SWITCH_WATER, SWITCH_STEAM = brew_data.get_switches()
 
@@ -3053,7 +3080,7 @@ async def pressure_hold_run(brew_data, utime, asyncio, seconds):
             bar = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset
             # Overpressure stays on the raw sample (spec 2.5, same rule as pcap): a safety limit
             # must react immediately, not with the filter's lag.
-            if bar > PCAP_OVER_BAR:
+            if pov.hit(bar):
                 reason = 'overpressure'
                 break
             now = utime.ticks_ms()
@@ -3106,10 +3133,12 @@ KLAMP_DONE_DUTY = 0.95       # "pumppua ei tarvitse rajoittaa": dutyn keskiarvo 
 KLAMP_DONE_MS = 3000         # ...yhtajaksoisesti nain kauan
 KLAMP_DUTY_TAU = 1.0         # dutyn keskiarvon aikavakio, s: 100 ms ikkunan on/off-kvantisointi pois
 KLAMP_PRINT_MS = 500
+KLAMP_MAX_BAR = 9.0          # klampin painekatto: jatkuva pumppu ei aja tasanteeseen asti (24.11.2026, klamp-20260925-b: 10,5 bar -> PCAP)
 
 
 async def throttle_warmup_run(brew_data, utime, asyncio, pump_ratio_calculator, seconds):
     from classes import PumpPressureController
+    pov = PcapOver()   # kahden nayttein saanto (VIAT-KORJAUS-2)
     RELAY_PUMP, RELAY_SOLENOID, RELAY_HEATER = brew_data.get_relays()
     sensor = brew_data.pressure_sensor.pressure_sensor
     gain = brew_data.pressure_sensor.gain
@@ -3148,7 +3177,7 @@ async def throttle_warmup_run(brew_data, utime, asyncio, pump_ratio_calculator, 
                 reason = tray_reason; break
             # Turvaraja raa'asta naytteesta (spec 2.5 kuten pcap/phold), ei suodatetusta
             bar = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset
-            if bar > PCAP_OVER_BAR:
+            if pov.hit(bar):
                 reason = 'overpressure'; break
             now = utime.ticks_ms()
             elapsed = utime.ticks_diff(now, start)
@@ -3161,11 +3190,19 @@ async def throttle_warmup_run(brew_data, utime, asyncio, pump_ratio_calculator, 
 
             if controller is None:
                 # Vaihe 1: jatkuva pumppu, tasanne kuten vkello/pcap_settle (tayttovaihe ei kelpaa)
-                if p_filt < PCAP_PLATEAU_MIN_BAR:
+                if pressure >= KLAMP_MAX_BAR:
+                    # Painekatto: kylma kuristin ei paase tasanteeseen alle 9 barin -> saadin heti
+                    # tavoitteeseen KLAMP_MAX_BAR (pumppu ei ylita rajaa kohti PCAP_OVER_BAR:ia)
+                    target = KLAMP_MAX_BAR
+                    print('KLAMP_RISE bar=%.2f reach_ms=%d reason=clamp' % (target, elapsed))
+                    controller = PumpPressureController(RELAY_PUMP, pump_ratio_calculator, utime,
+                                                        ff=1.0)
+                    duty_avg = 1.0
+                elif p_filt < PCAP_PLATEAU_MIN_BAR:
                     plateau_ms, plateau_bar = elapsed, p_filt
                 elif elapsed >= PCAP_SETTLE_MIN_MS and elapsed - plateau_ms >= PCAP_PLATEAU_MS:
                     if p_filt - plateau_bar < PCAP_PLATEAU_BAR:
-                        target = p_filt
+                        target = min(p_filt, KLAMP_MAX_BAR)
                         print('KLAMP_RISE bar=%.2f reach_ms=%d reason=plateau' % (target, elapsed))
                         # Tasanteessa tayden pumpun duty on maaritelmallisesti 1: saadin aloittaa
                         # siita (ff 1.0), ei oppimastaan uuton ff:sta.
@@ -3241,6 +3278,7 @@ async def throttle_set_run(brew_data, utime, asyncio, pump_ratio_calculator, swi
     Alussa ja lopussa purkusykli (_mcal_vent, TILAUS-H): loukkuun jaanyt paine esti kuri4:n jalkeisen kaynnistyksen.
     Rajat: kaukalovahti (wmax), raaka paine PCAP_OVER_BAR ja dev_safe; releen vartio toimii kuten aina. Lammitin pois."""
     from verkkokello import Verkkokello
+    pov = PcapOver()   # kahden nayttein saanto (VIAT-KORJAUS-2)
     RELAY_PUMP, RELAY_SOLENOID, RELAY_HEATER = brew_data.get_relays()
     sensor = brew_data.pressure_sensor.pressure_sensor
     gain = brew_data.pressure_sensor.gain
@@ -3356,7 +3394,7 @@ async def throttle_set_run(brew_data, utime, asyncio, pump_ratio_calculator, swi
                     if utime.ticks_diff(now, next_s) > 0: next_s = utime.ticks_add(now, PCAP_RATE_US)
                     bar = gain * (sensor.read_u16() * PCAP_RAW_A + PCAP_RAW_B) + offset
                     if bar > raw_max: raw_max = bar
-                    if bar > PCAP_OVER_BAR:
+                    if pov.hit(bar):
                         reason = 'overpressure'; break
                     cyc_s += bar; cyc_n += 1
                     clock.iq_add(now, bar)
