@@ -329,6 +329,10 @@ def cmd(command, seconds=3.0):
 def capture(seconds, out_path=None, stop_marker=None, link=None):
     link = link or Link()
     out = open(out_path, 'ab') if out_path else None
+    # Wall-clock stamp in the log file only (not stdout): run times give the mains drift rate r
+    # between runs (expresso-dev VERKKOKELLO.md, VERKON-MUUTOSNOPEUS).
+    stamp = lambda tag: out and (out.write(('# %s %s\n' % (tag, time.strftime('%Y-%m-%dT%H:%M:%S%z'))).encode()), out.flush())
+    stamp('CAPTURE_START')
     end = time.time() + seconds
     tail = b''
     while time.time() < end:
@@ -346,6 +350,7 @@ def capture(seconds, out_path=None, stop_marker=None, link=None):
         tail = (tail + d)[-4096:]
         if stop_marker and stop_marker in tail:
             end = min(end, time.time() + 2)
+    stamp('CAPTURE_END')
     return tail
 
 
