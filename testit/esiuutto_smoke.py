@@ -1087,11 +1087,11 @@ def main():
             for k, hi, lo in (('over', stroke, None), ('drop', None, -0.5), ('m25', 0.15, -0.15)):
                 if not stat_ok([m[k] for m in old], 99.0 if hi is None else hi, lo, sh): old_fail[k].append(lab[3:])
 
-    # Tarkistus tunnistaa vian: vanha uuttosilmukka kaatuu ylitykseen (26b: isku 0,34 bar, vanha +0,74...+1,04) ja
-    # pudotukseen (25b kohina, vanha ka -0,57). Pidon keskiarvon vanha polku pitaa ~rajalla (ka -0,15...0), joten sen
-    # kaatumista ei vaadita (tulostetaan).
-    for k in ('over', 'drop'):
-        check('16 vanha uuttosilmukka (bim:0) kaatuu tarkistukseen %s' % k, bool(old_fail[k]), ', '.join(old_fail[k]))
+    # Tarkistus tunnistaa vian: vanha uuttosilmukka kaatuu ylitykseen (26b: isku 0,34 bar, vanha +0,74...+1,04).
+    # Pudotuksessa (25b kohina, vanha ka -0,44...-0,57; c1-nollaus kierroksittain parantaa myos vanhaa polkua) ja pidon
+    # keskiarvossa (ka -0,15...0) vanha polku on ~rajalla, joten niiden kaatumista ei vaadita (tulostetaan).
+    check('16 vanha uuttosilmukka (bim:0) kaatuu tarkistukseen over', bool(old_fail['over']), ', '.join(old_fail['over']))
+    print('     pudotus: vanha kaatuu tiloissa %s' % (', '.join(old_fail['drop']) or '-'))
     print('     pidon keskiarvo: vanha kaatuu tiloissa %s' % (', '.join(old_fail['m25']) or '-'))
 
     # 17 kuristimen kaanto kesken pidon (TILAUS-C): tarve 8 barissa 0,3 -> 0,6 -> 0,2 askeleena 4 ja 7 s uuton nousun

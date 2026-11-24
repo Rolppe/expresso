@@ -512,6 +512,7 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
     try:
         while True:
             now = utime.ticks_us()
+            c1 = 0                    # keruun kesto vain talla kierroksella: iq_close ei samalla kierroksella kuin gc
             if c1x:
                 # Seuraava rengasnayte: kohta kasitellaan ensimmaisen kohdan jalkeisen naytteen kohdalla
                 due = False
