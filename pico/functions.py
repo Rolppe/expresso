@@ -1019,12 +1019,12 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                     tb[1] = 0
                 c0 = utime.ticks_us()
                 await asyncio.sleep_ms(0)
-                c1 = utime.ticks_diff(utime.ticks_us(), c0)
-                if c1 > y_max: y_max = c1
-                if c1 > EU_STALL_US:
+                y_us = utime.ticks_diff(utime.ticks_us(), c0)
+                if y_us > y_max: y_max = y_us
+                if y_us > EU_STALL_US:
                     stall_n += 1
                     out.append('EU_STALL t_ms=%d sec=y us=%d rel=%d task=%s:%d' % (
-                        utime.ticks_diff(c0, t0) // 1000, c1, 1 if relay[0] else 0,
+                        utime.ticks_diff(c0, t0) // 1000, y_us, 1 if relay[0] else 0,
                         tb[0] if tb is not None else '?', tb[1] if tb is not None else 0))
     finally:
         if c1x:
