@@ -477,6 +477,11 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
     bh_w0 = _bh_tray(brew_data, utime)
     bh_t_max = (getattr(brew_data, 'get_target_temperature', lambda: 98.0)() or 98.0) + BH_HOT_C
     bh_fill = [0, False, False]               # tayton iskut, paine noussut, vapaa virtaus (kaukalo nousee)
+    # EB_PC (EXPRESSO-PUMPPUKAYRA): pumpattu ml uutossa (stage_b) ja tavoitepaineesta (RAMP_DONE) eteenpain samoista
+    # iskuista kuin _bh_add. Vain tieto: ei vaikuta ohjaukseen. Yksi taulukkohaku iskua kohden (TILAUS-O).
+    from pump_curve import PC_ML_TAB as pc_tab, PC_K_PULSED, PC_W_OFS_G, PC_W_END_OFS_G
+    pc = [0.0, 0.0]                           # ml koko uutto, ml RAMP_DONE:sta
+    brew_data.pump_ml = 0.0
 
     def _bh_add(p):
         # Iskun lammitystarve us (BH_*): taytossa enintaan BH_FILL_MAX iskua, ellei kaukalo nouse (BH_FREE_G)
@@ -492,6 +497,14 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                     bh_fill[2] = True
                     print('BH_FREE fill=%d tray_g=%.1f' % (bh_fill[0], w - bh_w0))
         return hk0 - hk1 * p if p < BH_PMAX else 0.0
+
+    def _pc_add(p):
+        if stage_b:
+            i = int(p * 10.0 + 0.5)
+            x = pc_tab[0 if i < 0 else (150 if i > 150 else i)]
+            pc[0] += x
+            if ramp_done: pc[1] += x
+            brew_data.pump_ml = pc[0]
     eb_coast = getattr(brew_data, 'eb_coast_s', EB_COAST_S0)
     eb_x = getattr(brew_data, 'eb_x', 0.0)
     eb_g = getattr(brew_data, 'eb_g', 0.0)
@@ -826,6 +839,7 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                     if cur:
                         strokes += 1
                         hx = _bh_add(p); hc += hx; hsum += hx
+                        _pc_add(p)
                     else:
                         removed += 1
                         if was_on:
@@ -861,10 +875,12 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
                     if cur:
                         strokes += 1
                         hx = _bh_add(p); hc += hx; hsum += hx
+                        _pc_add(p)
                     elif skip_late:
                         # Myohassa: tauko jai tekematta, isku meni lapi, velka siirtyy seuraaviin jaksoihin
                         late += 1; strokes += 1; acc -= 1.0
                         hx = _bh_add(p); hc += hx; hsum += hx
+                        _pc_add(p)
                     else:
                         ok = False
                         if was_on or pump_next:
@@ -1080,6 +1096,9 @@ async def pre_infusion_phased(brew_data, utime, asyncio, pump_ratio_calculator, 
     now = utime.ticks_us()
     print('EB_END reason=%s max=%.2f over=%.2f hold_n=%d hold_mean=%.3f hold_sd=%.3f strokes=%d rm=%d sk10=%d sk20=%d late=%d miss=%d' % (
         reason, p_max, rise_max - target, h_n, mean, sd, strokes, removed, skips10, skips20, late, miss))
+    await asyncio.sleep_ms(EU_PRINT_GAP_MS)
+    print('EB_PC k=%.3f ml_all=%.1f ml_v=%.1f w_est=%.1f w_end_est=%.1f' % (
+        PC_K_PULSED, pc[0], pc[1], pc[1] + PC_W_OFS_G, pc[1] + PC_W_END_OFS_G))
     await asyncio.sleep_ms(EU_PRINT_GAP_MS)
     if learned:
         brew_data.mains_T_us = clock.T      # kuri-kuvion jakso (TILAUS-M): viimeisin opittu verkkojakso
