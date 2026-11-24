@@ -1681,6 +1681,21 @@ PCAP_MAINS_US = 19960        # mitattu verkkojakso: 50,1 Hz kolmesta laiteajosta
                              # yhdeksi lähteeksi on vaihe 1a3, joka ajetaan vaiheen 1c kanssa.
 PCAP_GATE_PERIOD_US = 2 * PCAP_MAINS_US   # joka toisen verkkojakson ohitus (paketin sääntö 6)
 PCAP_ROW = 20                # raw values per PCAP line (full rows only, see protocol in PUMPPU-PWM.md)
+CAP_BUF_N = 14000            # jaetun kaappauspuskurin naytekatto (28 KB): pstep 14 s, pcap/psweep <= 2500
+_CAP_BUF = None              # varataan kerran ja kaytetaan uudelleen (EXPRESSO-ILMAN-ZEROA 24.11.2026):
+                             # 28 KB:n varaus joka ajolla (ja bytes-valikopio) pirstoi keon, MemoryError
+
+
+def _cap_buf():
+    """Jaettu array('H')-kaappauspuskuri. Ensimmainen kutsu varaa sen gc.collect():n jalkeen,
+    seuraavat palauttavat saman. Lukijat lukevat vain `count`-rajaan asti, joten edellisen ajon
+    jaannokset eivat nay. Kaappaukset eivat aja limittain (dev_run yksi kerrallaan)."""
+    global _CAP_BUF
+    if _CAP_BUF is None:
+        from array import array
+        gc.collect()
+        _CAP_BUF = array('H', bytes(2 * CAP_BUF_N))
+    return _CAP_BUF
 # Factory formula (classes.py:930): raw ADC -> raw_bar. Overpressure and pmax then apply the
 # sensor's live gain/offset (classes.py:948, korjaus 1) — calibration is not identity.
 PCAP_RAW_A = 0.000314936
@@ -1897,9 +1912,9 @@ async def _pcap_capture(brew_data, utime, asyncio, sensor, gain, offset, n, phas
     `period_us` on portin jakso (sääntö 14); `None` pitää `pressure_capture_run`:n käytöksen
     sanatarkasti entisenä, koska `pcap_gate`:n oma oletus on sama."""
     pov = PcapOver()   # kahden nayttein saanto (VIAT-KORJAUS-2)
-    from array import array
     RELAY_PUMP, RELAY_SOLENOID, RELAY_HEATER = brew_data.get_relays()
-    buf = array('H', bytes(2 * n))
+    buf = _cap_buf()
+    if n > CAP_BUF_N: n = CAP_BUF_N
     row_t = []
     count = 0
     pmax_bar = -99.0
@@ -2159,7 +2174,7 @@ async def pressure_sweep_run(brew_data, utime, asyncio, ms):
 # kaatoivat vaiheen 1b laiteajon 20.9.2026 (ks. PUMPPU-PWM.md). Mitattava suure on viive
 # ohituskaskysta paineessa nakyvaan pudotukseen, ja toinen riippumaton luku saadaan pumpun
 # sammutuksesta ajon lopussa.
-PSTEP_MAX_N = 14000          # koko ajon naytekatto 1 kHz:lla (28 KB puskuri)
+PSTEP_MAX_N = CAP_BUF_N      # koko ajon naytekatto 1 kHz:lla (jaettu 28 KB puskuri)
 PSTEP_REACH_MAX_MS = 20000   # tavoitteeseen on paastava tassa ajassa, muuten reason=noreach
 PSTEP_MIN_MS = 2000          # tavoitetta ei testata ennen tata (sama perustelu kuin
                               # PCAP_SETTLE_MIN_MS): suodin siemennetaan yhdesta raakanaytteesta,
@@ -2182,7 +2197,6 @@ async def pressure_step_run(brew_data, utime, asyncio, target):
     PSTEP_RUN_MS -> pumppu pois -> hanta. Naytevali on PCAP_RATE_US = 1000 us, joten naytteen
     indeksi on millisekunti; PSTEP_MARK-rivi kertoo kolmen tapahtuman indeksit."""
     pov = PcapOver()   # kahden nayttein saanto (VIAT-KORJAUS-2)
-    from array import array
     import devsafe
     RELAY_PUMP, RELAY_SOLENOID, RELAY_HEATER = brew_data.get_relays()
     sensor = brew_data.pressure_sensor.pressure_sensor
@@ -2199,7 +2213,7 @@ async def pressure_step_run(brew_data, utime, asyncio, target):
     if tray_reason:
         print('PSTEP_END n=0 dur_us=0 pmax=0.00 reason=%s' % tray_reason); return
 
-    buf = array('H', bytes(2 * PSTEP_MAX_N))
+    buf = _cap_buf()
     i_reach = i_notch = i_stop = -1
     notch_pending = False
     pmax_bar = -99.0
