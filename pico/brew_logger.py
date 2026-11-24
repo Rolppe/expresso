@@ -19,6 +19,10 @@ MAX_SESSION_MS = 65000      # hard cap on a session (pre + brew + soft release)
 MIN_SESSION_MS = 15000      # shorter = accidental tap: discarded, no BLE log, no app prompt
 SAMPLE_INTERVAL_MS = 100    # 10 Hz
 MAX_EVENTS = 40
+# Rows a session can hold (MAX_SESSION_MS at 10 Hz plus the slot at t=0 and one spare). start() reserves
+# the row list once at this size: an appended list doubles its block mid-shot (256 -> 512 rows needed one
+# free 2048-byte block, MemoryError 15.11.2026 13.24.29 n=256, shot lost).
+MAX_ROWS = MAX_SESSION_MS // SAMPLE_INTERVAL_MS + 2
 # diagnet.DiagNet or None (EXPRESSO-DIAGNET 20.10.2026): main.py sets it; every row also goes to the network
 SINK = None
 
@@ -48,6 +52,7 @@ class BrewSessionLogger:
         self._t0 = 0
         self._next_sample = 0
         self._samples = []
+        self._n = 0
         self._events = []
         self._truncated = False
         self._id = 0
@@ -60,7 +65,17 @@ class BrewSessionLogger:
         """New shot (brew switch on). A new shot replaces an unacked one."""
         self._id = (self._id + 1) & 0xFFFF or 1
         self._t0 = now
-        self._samples = []
+        self._samples = []      # drop the old list before reserving the new one
+        try:
+            import gc
+            gc.collect()
+        except ImportError:
+            pass
+        try:
+            self._samples = [None] * MAX_ROWS
+        except MemoryError:
+            self._samples = []  # no block that large: fall back to growing, the shot still records
+        self._n = 0
         self._events = [['session_start', 0]]
         self._truncated = False
         self._next_sample = now
@@ -115,7 +130,11 @@ class BrewSessionLogger:
                 int(round(self.session_weight(weight_g) * 10.0)),
                 (1 if pump_on else 0) | ((1 if heater_on else 0) << 1),
             ]
-            self._samples.append(row)
+            if self._n < len(self._samples):
+                self._samples[self._n] = row
+            else:
+                self._samples.append(row)
+            self._n += 1
             if SINK is not None:
                 SINK.sample(row)
         return False
@@ -143,6 +162,7 @@ class BrewSessionLogger:
         """The brew_log body for BLE. Hands the sample and event lists over and returns to IDLE: the log
         then lives only in brew_data.pending_brew_log until the app acks it."""
         samples, events = self._samples, self._events
+        del samples[self._n:]   # in place: the reserved tail goes, no copy of the rows
         out = {
             'type': 'brew_log',
             'v': 3,
@@ -163,8 +183,9 @@ class BrewSessionLogger:
 
     def abandon(self):
         if SINK is not None and self._state == _ST_RECORDING:
-            SINK.shot_end('abandon', len(self._samples))
+            SINK.shot_end('abandon', self._n)
         self._samples = []
+        self._n = 0
         self._events = []
         self._scale_meta = None
         self._state = _ST_IDLE
@@ -176,8 +197,8 @@ class BrewSessionLogger:
     def _finalize(self, now, weight_g, reason):
         t_ms = self._rel_ms(now)
         if SINK is not None:
-            SINK.shot_end(reason, len(self._samples))
-        if t_ms < MIN_SESSION_MS or not self._samples:
+            SINK.shot_end(reason, self._n)
+        if t_ms < MIN_SESSION_MS or not self._n:
             print('BREW_LOG discard id=%d t=%d < %d reason=%s' % (self._id, t_ms, MIN_SESSION_MS, reason))
             self._state = _ST_IDLE      # shot_end already went out above
             self.abandon()
@@ -186,7 +207,7 @@ class BrewSessionLogger:
         self._scale_at_end_g = self.session_weight(weight_g)
         self._state = _ST_READY
         print('BREW_LOG ready id=%d n=%d ev=%d trunc=%d end_w=%.1f reason=%s' % (
-            self._id, len(self._samples), len(self._events), 1 if self._truncated else 0,
+            self._id, self._n, len(self._events), 1 if self._truncated else 0,
             self._scale_at_end_g, reason))
         return True
 
