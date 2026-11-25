@@ -63,10 +63,22 @@ def make_bd():
                     None, None, None, utime_mod)
     bd.mode = 'IDLE'
     bd.pressure = 0.0
+    # ad3291e (26.10.2026): tasaus on äpin kytkin (peq:on|off), oletus pois. Testit 1-16 koskevat
+    # kytkin päällä -tilaa; oletus todetaan erikseen kohdassa 0.
+    bd.set_idle_pressure_equalize_mode(True)
     return bd
 
 
 # ---- TESTIT ----
+
+# 0. Oletus: kytkin pois -> ei tasausta 1,2 barissakaan
+bd = C.BrewData(PinMock, None, preset.PINS, preset.TARGET_TEMPERATURES, preset.FEATURES,
+                None, None, None, utime_mod)
+bd.mode = 'IDLE'
+bd.pressure = 1.2
+res = asyncio.run(bd.check_pressure_equalization(clock[0], AsyncioMock))
+check('0. oletus peq pois: ei tasausta', bd.get_idle_pressure_equalize_mode() is False and res is False
+      and bd.RELAY_SOLENOID.value() == 0)
 
 # 1. Paine 0.0 bar: ei tasausta
 bd = make_bd()

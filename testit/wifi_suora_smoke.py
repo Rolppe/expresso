@@ -217,7 +217,9 @@ for _ in range(20):         # 1 s in 50 ms steps
 check('live 5 Hz', n_live == 5, n_live)
 send('bt:96', 51)
 got = SOCK.take(APP)
-check('updated -> settings at once', any(d.get('brew_temperature') == 96.0 and 'brew_pressure' in d for d in got), got)
+# ad3291e (26.10.2026): brew_temperature vain asetuspaketissa 1, brew_pressure paketissa 2; molemmat samassa askeleessa
+check('updated -> settings at once', any(d.get('brew_temperature') == 96.0 for d in got)
+      and any('brew_pressure' in d and 'peq_mode' in d for d in got), got)
 clk.ms += W.SUB_MS
 L.step()
 SOCK.take()
