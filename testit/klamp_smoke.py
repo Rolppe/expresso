@@ -14,6 +14,7 @@ klamp:stop, kaukalo ja noreach.
 
 import asyncio
 import io
+import math
 import os
 import sys
 import time
@@ -289,8 +290,89 @@ def main():
     check('10 PcapOver: ylitys, nollaus, kaksi -> [F,F,F,T]', seq == [False, False, False, True], str(seq))
     check('10 PcapOver: raja ei ylity tasan 11,0', F.PcapOver().hit(11.0) is False)
 
+    # 11. Nopea nousu (klamp-20261125-b: 9 bar 949 ms:ssa, ~15 bar/s): pumpun viive ja 100 ms
+    #     keskiarvo -> katon kohdalla aloitettu saato ylitti PCAP_OVER_BAR:n. Ennakoiva katto (a3f2f48)
+    #     ottaa saatimen kayttoon ennen 9 baria; raaka paine ei saa ylittaa 11 baria kahdesti.
+    for name, p_full, tau in (('16/0.45', 16.0, 0.45), ('20/0.5', 20.0, 0.5)):
+        r = run_fast(p_full, tau)
+        end = r['end']
+        check('11 nopea nousu %s: ei overpressure' % name, bool(end) and field(end, 'reason') != 'overpressure', end)
+        check('11 nopea nousu %s: KLAMP_RISE reason=clamp ennen 9 baria' % name,
+              'reason=clamp' in r['rise'] and float(field(r['rise'], 'at') or 99) < F.KLAMP_MAX_BAR, r['rise'])
+        check('11 nopea nousu %s: huippu < 10,5 bar (%.2f)' % (name, r['peak']), r['peak'] < 10.5)
+        check('11 nopea nousu %s: loppuosan ka 9,0 +-0,3 (%.2f)' % (name, r['tail']), abs(r['tail'] - 9.0) < 0.3)
+
     print('RESULT: %d failed' % len(fails))
     return 1 if fails else 0
+
+
+class SimClock:
+    t = 0  # ms; simuloitu kello: deterministinen, ei riipu isannan kuormasta
+
+
+class FastPlant:
+    """1 ms askel: pumpun vaikutus viiveella delay_ms, p' = (p_full*pump - p)/tau, 100 ms keskiarvo
+    (get_pressure_average) ja raaka-aaltoilu (PCAP-raja) kuten laitteella."""
+    def __init__(self, p_full, tau, delay_ms=70, ripple=1.4):
+        self.p_full, self.tau, self.delay, self.ripple = p_full, tau, delay_ms, ripple
+        self.p, self.hist, self.pumph, self.last, self.peak, self.pump = 0.0, [], [], 0, 0.0, None
+
+    def adv(self):
+        while self.last < SimClock.t:
+            self.last += 1
+            self.pumph.append(self.pump.v)
+            on = self.pumph[-1 - self.delay] if len(self.pumph) > self.delay else 0
+            self.p = max(0.0, self.p + ((self.p_full if on else 0.0) - self.p) * (0.001 / self.tau))
+            self.hist.append(self.p)
+            self.peak = max(self.peak, self.p)
+
+    def avg(self):
+        self.adv()
+        h = self.hist[-100:] or [0.0]
+        return sum(h) / len(h)
+
+    def raw(self):
+        self.adv()
+        return self.p + self.ripple * math.sin(2 * math.pi * SimClock.t / 20.0)
+
+
+class FastBrewData(BrewData):
+    def __init__(self, plant):
+        super().__init__()
+        self.plant = plant
+        plant.pump = self.pump
+        self.pressure_sensor = Sensor(plant, raw=lambda pl: (pl.raw() - F.PCAP_RAW_B) / F.PCAP_RAW_A)
+
+    def get_pressure_average(self, utime):
+        return round(self.plant.avg(), 2)
+
+    def get_weight_ms(self):
+        return SimClock.t
+
+
+class SimUtime(Utime):
+    def ticks_ms(self):
+        return SimClock.t
+
+
+class SimAsyncio:
+    async def sleep_ms(self, ms):
+        SimClock.t += ms
+
+
+def run_fast(p_full, tau, seconds=12):
+    SimClock.t = 0
+    plant = FastPlant(p_full, tau)
+    bd = FastBrewData(plant)
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        asyncio.run(F.throttle_warmup_run(bd, SimUtime(), SimAsyncio(), Ratio(), seconds))
+    lines = buf.getvalue().splitlines()
+    end = [l for l in lines if l.startswith('KLAMP_END')]
+    rise = [l for l in lines if l.startswith('KLAMP_RISE')]
+    tail = plant.hist[-3000:] or [0.0]
+    return dict(end=end[0] if len(end) == 1 else '', rise=rise[0] if rise else '', peak=plant.peak,
+                tail=sum(tail) / len(tail))
 
 
 if __name__ == '__main__':
