@@ -3148,6 +3148,14 @@ KLAMP_DONE_MS = 3000         # ...yhtajaksoisesti nain kauan
 KLAMP_DUTY_TAU = 1.0         # dutyn keskiarvon aikavakio, s: 100 ms ikkunan on/off-kvantisointi pois
 KLAMP_PRINT_MS = 500
 KLAMP_MAX_BAR = 9.0          # klampin painekatto: jatkuva pumppu ei aja tasanteeseen asti (24.11.2026, klamp-20260925-b: 10,5 bar -> PCAP)
+KLAMP_LEAD_S = 0.15          # ennakko: saadin otetaan kayttoon, kun paine + nousunopeus * tama >= katto.
+                              # klamp-20261125-b: 9 bar 949 ms:ssa (~15 bar/s), pumpun + 100 ms keskiarvon
+                              # viive ~0,12 s -> katon kohdalla aloitettu saato ylitti PCAP_OVER_BAR:n
+KLAMP_CLAMP_KP = 0.2         # katon saatimen kp (PumpPressureControllerin oletus)
+KLAMP_CLAMP_KI = 0.5         # katon saatimen ki (oletus); integraalin katto 1,5 rajaa osuuden +-1,5*ki
+KLAMP_RATE_TAU = 0.1         # nousunopeuden suodatus, s
+KLAMP_CLAMP_FF = 0.3         # katon saatimen alkuteho: taysi pumppu ylittaa katon, joten ff < 1 (ff 1.0
+                              # piti dutyn 0,81:ssa 9,92 barissa, klamp-20261125-b)
 
 
 async def throttle_warmup_run(brew_data, utime, asyncio, pump_ratio_calculator, seconds):
@@ -3178,6 +3186,7 @@ async def throttle_warmup_run(brew_data, utime, asyncio, pump_ratio_calculator, 
         brew_data.pressure_sensor.reset_average()
         p_filt = brew_data.get_pressure_average(utime)
         plateau_ms, plateau_bar = 0, p_filt
+        p_prev, p_rate = p_filt, 0.0
         controller = None
         done_since = None
         last_t = start
@@ -3199,19 +3208,26 @@ async def throttle_warmup_run(brew_data, utime, asyncio, pump_ratio_calculator, 
             last_t = now
             pressure = brew_data.get_pressure_average(utime)
             p_filt += (pressure - p_filt) * min(1.0, dt / PCAP_FILT_TAU)
+            if dt > 0:
+                p_rate += ((pressure - p_prev) / dt - p_rate) * min(1.0, dt / KLAMP_RATE_TAU)
+            p_prev = pressure
             if elapsed >= seconds * 1000:
                 reason = 'timeout'; break
 
             if controller is None:
                 # Vaihe 1: jatkuva pumppu, tasanne kuten vkello/pcap_settle (tayttovaihe ei kelpaa)
-                if pressure >= KLAMP_MAX_BAR:
-                    # Painekatto: kylma kuristin ei paase tasanteeseen alle 9 barin -> saadin heti
-                    # tavoitteeseen KLAMP_MAX_BAR (pumppu ei ylita rajaa kohti PCAP_OVER_BAR:ia)
+                if pressure + max(0.0, p_rate) * KLAMP_LEAD_S >= KLAMP_MAX_BAR:
+                    # Painekatto: kylma kuristin ei paase tasanteeseen alle 9 barin -> saadin
+                    # tavoitteeseen KLAMP_MAX_BAR jo ennen kattoa (viive), matalalla alkuteholla ja
+                    # ilman jatkuvan pumpun haaraa (continuous_error), jotta pumppu ei ylita rajaa
+                    # kohti PCAP_OVER_BAR:ia
                     target = KLAMP_MAX_BAR
-                    print('KLAMP_RISE bar=%.2f reach_ms=%d reason=clamp' % (target, elapsed))
+                    print('KLAMP_RISE bar=%.2f reach_ms=%d reason=clamp at=%.2f rate=%.1f' % (
+                        target, elapsed, pressure, p_rate))
                     controller = PumpPressureController(RELAY_PUMP, pump_ratio_calculator, utime,
-                                                        ff=1.0)
-                    duty_avg = 1.0
+                                                        ff=KLAMP_CLAMP_FF, kp=KLAMP_CLAMP_KP, ki=KLAMP_CLAMP_KI,
+                                                        continuous_error=KLAMP_MAX_BAR)
+                    duty_avg = KLAMP_CLAMP_FF
                 elif p_filt < PCAP_PLATEAU_MIN_BAR:
                     plateau_ms, plateau_bar = elapsed, p_filt
                 elif elapsed >= PCAP_SETTLE_MIN_MS and elapsed - plateau_ms >= PCAP_PLATEAU_MS:
